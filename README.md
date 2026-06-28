@@ -5,7 +5,7 @@
 ## What it does today
 
 Arcane Scroll turns a single sentence — *"a high elf wizard, level 5"*, or even just a name and
-a class — into a **complete, rules-correct D&D 5e character sheet**. Ability scores,
+a class — into a **complete, rules-correct tabletop RPG character sheet**. Ability scores,
 proficiencies, saving throws, hit points, spells, starting equipment: a full sheet, ready to
 play, generated in seconds.
 
