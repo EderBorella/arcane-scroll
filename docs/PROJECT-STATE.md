@@ -79,14 +79,22 @@ What's left is derivation-side + the service:**
 | **Shared resource catalog (load-time)** | ✅ loaded in memory at startup |
 | **Character sheet generator** | ✅ base contract + feature/feat/equipment choices |
 | **Backstory generator** | ✅ physical + personality + backstory |
-| **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ 71 passing |
-| **Derivation engine (compute side)** | 🔧 **next — highest leverage** |
+| **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live — `/v1/characters` now returns choices **+ derived sheet** |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ 90 passing |
+| **Derivation engine (compute side)** | ✅ computes the sheet (unarmoured AC; armour + feat-effects deferred) |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
 
+- **Derivation engine** (PR #9) — new compute-only layer `app/derivation/` that turns the (repaired)
+  choices into a full sheet: proficiency bonus, ability scores (base array + racial + ASIs, capped 20,
+  with the reserved-ASI rule), modifiers, max HP + hit dice, saving throws, the skill table (with
+  expertise doubling), passive perception, initiative, speed, and spell save DC / attack. Pure named
+  helpers over `(catalog, scores, …)`. `POST /v1/characters` now returns `{choices, sheet}`. +19 tests
+  (90 total), incl. multiclass HP/saves/prof-bonus/multi-caster, passive perception, and negative
+  modifiers. Deferred by data/scope: armour AC from equipped items (no item-stat records → unarmoured
+  base, incl. Barbarian/Monk unarmoured defence) and feat mechanical effects (only ASI bumps applied).
 - **Additive choices: features + feats/ASI + equipment** (PR #8) — the expanded contract on top of
   the base sheet, in two new modules. `app/generation/features.py`: each choice is a `{field, enum, n}`
   descriptor gated by `(class, subclass, level)` + race — fighting style, expertise, and the subclass

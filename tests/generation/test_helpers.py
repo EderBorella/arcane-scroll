@@ -101,4 +101,4 @@ def test_school_spells_filters_by_class_school_and_level(catalog):
 
 
 def test_all_skill_names(catalog):
-    assert H.all_skill_names(catalog) == ["Brawn", "Focus", "Lore", "Menace", "Runes", "Watch"]
+    assert H.all_skill_names(catalog) == ["Brawn", "Focus", "Lore", "Menace", "Perception", "Runes", "Watch"]
