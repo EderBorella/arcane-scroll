@@ -1,35 +1,101 @@
-"""In-memory catalog. Loads the whole SQLite store into memory once at startup; the rest of the
-service reads from here (never per-request DB hits). Data lives outside the repo, at ARCANE_DB_PATH."""
+"""Shared resource catalog — the single in-memory copy of the reference data the whole service reads
+from. Loaded ONCE at startup from the local store (ARCANE_DB_PATH); no per-request DB access.
+
+Deliberately GENERIC and data-free: it exposes entity *records* by kind and supplemental *lists* by
+name, addressed as strings, so no specific content lives in this (committed) code — only the access
+machinery. The values live in the local store.
+
+    records(kind)       -> {idx: record}    entity collections (e.g. "spells", "classes", "levels")
+    record(kind, idx)   -> record | None
+    by_name(kind)       -> {norm_name: record}   name-keyed view (for name-based lookups/validation)
+    get(name[, default])-> value             supplemental tables / enums / lists, by name
+    require(name)       -> value             same, raises if absent
+    kinds / names       -> sorted keys
+    stats()             -> summary
+
+Load once at startup via load(); read anywhere via get_catalog()."""
 import json
 import os
+import re
 import sqlite3
+from typing import Any
+
+
+def _norm(s: object) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(s).lower())
 
 
 class Catalog:
-    """entries: {kind: {idx: record}} ; catalog: {name: value}."""
-
     def __init__(self, db_path: str):
-        self.entries: dict[str, dict[str, dict]] = {}
-        self.catalog: dict[str, object] = {}
+        self._records: dict[str, dict[str, dict]] = {}
+        self._lists: dict[str, Any] = {}
+        self._by_name: dict[str, dict[str, dict]] = {}
         con = sqlite3.connect(db_path)
         try:
             for kind, idx, data in con.execute("SELECT kind, idx, data FROM entries"):
-                self.entries.setdefault(kind, {})[idx] = json.loads(data)
+                self._records.setdefault(kind, {})[idx] = json.loads(data)
             for name, data in con.execute("SELECT name, data FROM catalog"):
-                self.catalog[name] = json.loads(data)
+                self._lists[name] = json.loads(data)
         finally:
             con.close()
 
+    # -- entity records, by kind --
+    def records(self, kind: str) -> dict[str, dict]:
+        """All records of a kind, keyed by index."""
+        return self._records.get(kind, {})
+
+    def record(self, kind: str, idx: str) -> dict | None:
+        return self._records.get(kind, {}).get(idx)
+
+    def by_name(self, kind: str) -> dict[str, dict]:
+        """Records of a kind keyed by normalized name (cached)."""
+        view = self._by_name.get(kind)
+        if view is None:
+            view = {_norm(r.get("name", "")): r for r in self.records(kind).values()}
+            self._by_name[kind] = view
+        return view
+
+    @property
+    def kinds(self) -> list[str]:
+        return sorted(self._records)
+
+    # -- supplemental lists / tables / enums, by name --
+    def get(self, name: str, default: Any = None) -> Any:
+        return self._lists.get(name, default)
+
+    def require(self, name: str) -> Any:
+        try:
+            return self._lists[name]
+        except KeyError:
+            raise KeyError(f"catalog list {name!r} not loaded") from None
+
+    @property
+    def names(self) -> list[str]:
+        return sorted(self._lists)
+
     def stats(self) -> dict:
         return {
-            "entries": {k: len(v) for k, v in sorted(self.entries.items())},
-            "entries_total": sum(len(v) for v in self.entries.values()),
-            "catalog": len(self.catalog),
+            "records": {k: len(v) for k, v in sorted(self._records.items())},
+            "records_total": sum(len(v) for v in self._records.values()),
+            "lists": len(self._lists),
         }
 
 
+_CATALOG: Catalog | None = None
+
+
 def load() -> Catalog:
+    """Build the catalog from ARCANE_DB_PATH and install it as the process-wide instance."""
+    global _CATALOG
     db_path = os.environ.get("ARCANE_DB_PATH")
     if not db_path:
         raise RuntimeError("ARCANE_DB_PATH is not set")
-    return Catalog(db_path)
+    _CATALOG = Catalog(db_path)
+    return _CATALOG
+
+
+def get_catalog() -> Catalog:
+    """The loaded catalog, shared by every part of the app. Call load() once at startup first."""
+    if _CATALOG is None:
+        raise RuntimeError("catalog not loaded — call catalog.load() at startup")
+    return _CATALOG

@@ -76,6 +76,7 @@ What's left is derivation-side + the service:**
 | Strict validator + reference data | ✅ working |
 | **Generation (all model choices)** | ✅ **complete & valid by construction** |
 | **Service stack (Docker: model + app)** | ✅ scaffolded — skeleton serving |
+| **Shared resource catalog (load-time)** | ✅ loaded in memory at startup |
 | **Derivation engine (compute side)** | 🔧 **next — highest leverage** |
 | Generation / flavour endpoints | ⬜ after the engine |
 | Arcane Desk integration | ⬜ later |
@@ -83,6 +84,11 @@ What's left is derivation-side + the service:**
 
 ### Changelog (newest first)
 
+- **Shared resource catalog** (PR #4) — the reference store now loads into memory once at startup as
+  a single generic resource module: entity *records* by kind + supplemental *lists* by name,
+  addressed by neutral key. It's the shared source the grammar builder / validator / derivation read
+  from — no per-request DB access, and the module itself is data-free. Loads the full store
+  (hundreds of records + dozens of lists).
 - **Docker stack scaffolded** (PR #3) — self-contained compose: a model server + the app, plus the
   reference data mounted at runtime. The app loads the catalog into memory at startup and exposes
   `/health` + `/ready`; the catalog is built from the mounted data on boot; the model is ensured
