@@ -1,0 +1,44 @@
+# Self-contained stack: the model server + the app, plus the mounted reference data.
+# `docker compose up` reconstitutes the whole service on any GPU host. Paths/names come from .env
+# (see .env.example) — nothing is hardcoded.
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: "-1"
+      OLLAMA_FLASH_ATTENTION: "1"
+      OLLAMA_KV_CACHE_TYPE: "q8_0"
+    volumes:
+      - ollama-models:/root/.ollama   # model store persists across restarts
+    networks: [arcane]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - ollama
+    environment:
+      OLLAMA_URL: "http://ollama:11434"
+      MODEL: "${MODEL:?set MODEL in .env}"
+      ARCANE_DATA_DIR: "/data"
+      ARCANE_DB_PATH: "/data/catalog.db"
+    volumes:
+      - "${ARCANE_DATA_DIR_HOST:?set ARCANE_DATA_DIR_HOST in .env}:/data"  # records/ + catalog.json (+ built catalog.db)
+    ports:
+      - "${APP_PORT:-8080}:8000"   # front with Nginx Proxy Manager in production
+    networks: [arcane]
+
+volumes:
+  ollama-models:
+
+networks:
+  arcane:
