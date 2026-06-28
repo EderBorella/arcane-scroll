@@ -80,13 +80,17 @@ What's left is derivation-side + the service:**
 | **Character sheet generator** | ✅ base contract + feature/feat/equipment choices |
 | **Backstory generator** | ✅ physical + personality + backstory |
 | **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live — `/v1/characters` now returns choices **+ derived sheet** |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ 90 passing |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ 92 passing |
 | **Derivation engine (compute side)** | ✅ computes the sheet (unarmoured AC; armour + feat-effects deferred) |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
 
+- **Derivation refactor — split by concern** (PR #10) — behaviour-preserving: the monolithic
+  `engine.py` is now a thin `derive()` orchestrator over per-concern modules — `abilities.py`,
+  `vitals.py`, `proficiency.py`, `spellcasting.py` — so the follow-up sheet fields land in their
+  natural home rather than growing one file. Tests reorganised one-file-per-module; 92 passing.
 - **Derivation engine** (PR #9) — new compute-only layer `app/derivation/` that turns the (repaired)
   choices into a full sheet: proficiency bonus, ability scores (base array + racial + ASIs, capped 20,
   with the reserved-ASI rule), modifiers, max HP + hit dice, saving throws, the skill table (with
