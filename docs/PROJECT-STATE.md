@@ -77,6 +77,8 @@ What's left is derivation-side + the service:**
 | **Generation (all model choices)** | ✅ **complete & valid by construction** |
 | **Service stack (Docker: model + app)** | ✅ scaffolded — skeleton serving |
 | **Shared resource catalog (load-time)** | ✅ loaded in memory at startup |
+| **Character sheet generator** | ✅ base contract (skills + spells) |
+| **HTTP API** (`POST /v1/characters`) | ✅ live (skeleton) |
 | **Derivation engine (compute side)** | 🔧 **next — highest leverage** |
 | Generation / flavour endpoints | ⬜ after the engine |
 | Arcane Desk integration | ⬜ later |
@@ -84,6 +86,12 @@ What's left is derivation-side + the service:**
 
 ### Changelog (newest first)
 
+- **Character sheet generator** (PR #5) — a **generation layer** with one module per generator over
+  shared pure helpers (`helpers.py`). The **character sheet** generator (`sheet.py`) translates a
+  request → catalog-driven grammar + prompt → model → repaired, valid-by-construction choices,
+  exposed via a thin controller: **POST /v1/characters**. Base contract (deterministic fields +
+  skills + spells); verified over HTTP. The **backstory** generator (its own module + helpers, same
+  shape), feature/feat/equipment choices, bounds-clamping, and the derivation engine are next.
 - **Shared resource catalog** (PR #4) — the reference store now loads into memory once at startup as
   a single generic resource module: entity *records* by kind + supplemental *lists* by name,
   addressed by neutral key. It's the shared source the grammar builder / validator / derivation read
@@ -280,8 +288,9 @@ seconds. Stable at q4 (0 parse failures / 0 loops across 149).
 - ✅ **Service stack scaffolded** (Docker: model + app, self-contained; app skeleton serving) — see Changelog.
 
 **Now (highest leverage):**
-1. **Wire the engine into the app** — point the grammar-builder + validator at the in-memory
-   catalog (instead of in-code tables) so the service can generate.
+1. **Generator** (base contract) is in — catalog-driven grammar/prompt → model → repaired choices.
+   Next on it: the additive **feature / feat / equipment** choice helpers, then a port of the strict
+   **validator** as a final gate.
 2. **Build the derivation engine** — the "code does the math" half, on top of the now-valid
    choices: ability mods, **saves** (multiclass rule), **HP**, proficiency bonus, **spell slots /
    save DC / attack**, AC, initiative, passive perception; **auto-granted subclass spells/features**;
