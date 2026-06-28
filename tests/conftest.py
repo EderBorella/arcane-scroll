@@ -30,13 +30,31 @@ def _build_synthetic_db(path: str) -> None:
     rec("classes", "warrior", {"index": "warrior", "name": "Warrior",
         "proficiency_choices": [{"choose": 2, "from": {"options": [
             {"item": {"index": "skill-brawn"}}, {"item": {"index": "skill-menace"}},
-            {"item": {"index": "skill-watch"}}]}}]})
+            {"item": {"index": "skill-watch"}}]}}],
+        "starting_equipment_options": [
+            # slot 0: pick 1 directly from a category
+            {"choose": 1, "from": {"option_set_type": "equipment_category",
+                                   "equipment_category": {"index": "cat-simple"}}},
+            # slot 1: pick 1 of two alternatives, one being "choose from a category" (→ companion)
+            {"choose": 1, "from": {"option_set_type": "options_array", "options": [
+                {"option_type": "counted_reference", "count": 1, "of": {"name": "ShieldItem"}},
+                {"option_type": "choice", "choice": {"choose": 1, "desc": "a martial weapon",
+                    "from": {"equipment_category": {"index": "cat-martial"}}}}]}}]})
     # a PREPARED caster (no spells_known in the table → count = ability mod + level)
     rec("classes", "oracle", {"index": "oracle", "name": "Oracle",
         "proficiency_choices": [{"choose": 2, "from": {"options": [
             {"item": {"index": "skill-focus"}}, {"item": {"index": "skill-lore"}},
             {"item": {"index": "skill-watch"}}]}}],
         "spellcasting": {"spellcasting_ability": {"index": "wis"}}})
+    # a martial that gets a fighting style ("fighter") and one that gets expertise ("rogue")
+    rec("classes", "fighter", {"index": "fighter", "name": "Fighter",
+        "proficiency_choices": [{"choose": 2, "from": {"options": [
+            {"item": {"index": "skill-brawn"}}, {"item": {"index": "skill-menace"}},
+            {"item": {"index": "skill-watch"}}]}}]})
+    rec("classes", "rogue", {"index": "rogue", "name": "Rogue",
+        "proficiency_choices": [{"choose": 4, "from": {"options": [
+            {"item": {"index": "skill-brawn"}}, {"item": {"index": "skill-menace"}},
+            {"item": {"index": "skill-watch"}}, {"item": {"index": "skill-focus"}}]}}]})
 
     # level tables
     mage_levels = {
@@ -59,6 +77,10 @@ def _build_synthetic_db(path: str) -> None:
     }
     for lv, sc in oracle_levels.items():
         rec("levels", f"oracle-{lv}", {"class": {"index": "oracle"}, "level": lv, "spellcasting": sc})
+    for lv in range(1, 6):
+        rec("levels", f"fighter-{lv}", {"class": {"index": "fighter"}, "level": lv})
+    for lv in range(1, 7):
+        rec("levels", f"rogue-{lv}", {"class": {"index": "rogue"}, "level": lv})
 
     # spells — cantrips + leveled (fake names); some are shared with the prepared caster (oracle)
     cantrips = [("Spark", ["mage", "oracle"]), ("Glimmer", ["mage", "oracle"]),
@@ -72,6 +94,14 @@ def _build_synthetic_db(path: str) -> None:
     for i, (nm, lvl, classes) in enumerate(leveled):
         rec("spells", f"s{i}", {"index": f"s{i}", "name": nm, "level": lvl,
                                 "classes": [{"index": c} for c in classes], "school": {"index": "alpha"}})
+    # wizard/druid-tagged spells with magic schools — back third-caster, bonus-cantrip, and race picks
+    schooled = [("Wiz Cantrip A", 0, ["wizard"], "evocation"), ("Wiz Cantrip B", 0, ["wizard"], "abjuration"),
+                ("Evoke Bolt", 1, ["wizard"], "evocation"), ("Ward Sigil", 1, ["wizard"], "abjuration"),
+                ("Charm Word", 1, ["wizard"], "enchantment"), ("False Image", 1, ["wizard"], "illusion"),
+                ("Druid Spark", 0, ["druid"], "evocation")]
+    for i, (nm, lvl, classes, school) in enumerate(schooled):
+        rec("spells", f"w{i}", {"index": f"w{i}", "name": nm, "level": lvl,
+                                "classes": [{"index": c} for c in classes], "school": {"index": school}})
 
     # skills
     for idx, nm, ab in [("lore", "Lore", "int"), ("runes", "Runes", "int"),
@@ -88,7 +118,9 @@ def _build_synthetic_db(path: str) -> None:
     lst("standard_array", [15, 14, 13, 12, 10, 8])
     lst("ability_priority", {"mage": ["int", "con", "dex", "wis", "cha", "str"],
                              "warrior": ["str", "con", "dex", "wis", "cha", "int"],
-                             "oracle": ["wis", "con", "dex", "int", "cha", "str"]})
+                             "oracle": ["wis", "con", "dex", "int", "cha", "str"],
+                             "fighter": ["str", "con", "dex", "wis", "cha", "int"],
+                             "rogue": ["dex", "con", "int", "wis", "cha", "str"]})
     lst("backgrounds", ["Wanderer", "Scholar", "Outcast"])
     lst("alignments_display", ["Order", "Balance", "Ruin"])
     lst("known_casters", ["mage"])
@@ -99,6 +131,34 @@ def _build_synthetic_db(path: str) -> None:
     lst("subclass_level", {"mage": 2, "warrior": 3, "oracle": 3})
     lst("subrace_bonus", {})
     lst("patron_expanded", {"shadow": {"1": ["Bolt"], "2": ["Quake"]}})
+    # feature-choice lists (fighting style; expertise reads the class skill list)
+    lst("fighting_styles", {"fighter": ["StyleA", "StyleB", "StyleC"]})
+    lst("fighting_style_level", {"fighter": 1})
+    # subclass feature-oddity value lists (synthetic)
+    lst("metamagic", ["MetaA", "MetaB", "MetaC"])
+    lst("invocations", ["InvA", "InvB", "InvC", "InvD"])
+    lst("maneuvers", ["ManA", "ManB", "ManC", "ManD"])
+    lst("totem", ["TotemA", "TotemB"])
+    lst("pact_boon", ["BoonA", "BoonB", "BoonC"])
+    lst("draconic_ancestry", ["DracA", "DracB"])
+    lst("creature_types", ["TypeA", "TypeB"])
+    lst("terrain", ["TerrA", "TerrB"])
+    lst("land_type", ["LandA", "LandB"])
+    lst("elemental_disciplines", ["DiscA", "DiscB"])
+    lst("hunters_prey", ["PreyA", "PreyB"])
+    lst("defensive_tactics", ["TacA", "TacB"])
+    lst("beasts", ["BeastA", "BeastB"])
+    lst("knowledge_skills", ["KnowA", "KnowB", "KnowC"])
+    lst("nature_skills", ["NatA", "NatB"])
+    # feat / ASI
+    lst("feats", ["FeatA", "FeatB", "FeatC"])
+    lst("asi_levels", {"fighter": [4, 6, 8, 12, 14, 16, 19], "rogue": [4, 8, 10, 12, 16, 19]})
+    lst("asi_default_levels", [4, 8, 12, 16, 19])
+    lst("asi_label", {"str": "Strength", "dex": "Dexterity", "con": "Constitution",
+                      "int": "Intelligence", "wis": "Wisdom", "cha": "Charisma"})
+    # starting-equipment category → concrete items (synthetic)
+    lst("category_items", {"cat-simple": ["WeaponA", "WeaponB", "WeaponC"],
+                           "cat-martial": ["MartialA", "MartialB"]})
     lst("prompt_sheet_sys", "TEST SYSTEM PROMPT")
     # flavour / backstory lists
     lst("race_phys", {"Human": {"age": [16, 90], "h": [58, 78], "w": [110, 270]}})

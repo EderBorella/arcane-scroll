@@ -92,3 +92,13 @@ def test_patron_expanded(catalog):
 def test_skin_options(catalog):
     assert H.skin_options(catalog, "Scaled") == ["Bronze", "Silver"]          # race override
     assert H.skin_options(catalog, "Human") == catalog.get("skin_default")    # default palette
+
+
+def test_school_spells_filters_by_class_school_and_level(catalog):
+    assert H.school_spells(catalog, "wizard", None, 0, 0) == ["Wiz Cantrip A", "Wiz Cantrip B"]  # cantrips
+    assert H.school_spells(catalog, "wizard", {"abjuration", "evocation"}, 1, 1) == ["Evoke Bolt", "Ward Sigil"]
+    assert "Charm Word" in H.school_spells(catalog, None, None, 1, 1)         # ci=None → any class
+
+
+def test_all_skill_names(catalog):
+    assert H.all_skill_names(catalog) == ["Brawn", "Focus", "Lore", "Menace", "Runes", "Watch"]

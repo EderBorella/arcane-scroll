@@ -108,6 +108,27 @@ def class_spells(cat, ci: str, max_lv: int, cantrip: bool) -> list:
     return sorted(set(out))
 
 
+def school_spells(cat, ci, schools, lvmin, lvmax) -> list:
+    """Spell names for a restricted pool: optional class tag + school filter, within a level band.
+    Backs third-caster subclasses (their spells are school-limited) and bardic magical secrets
+    (any class, hence ci=None). `schools` is a set of school indices, or None for no school filter."""
+    out = []
+    for s in cat.records("spells").values():
+        if ci and ci not in {c["index"] for c in s.get("classes", [])}:
+            continue
+        if not (lvmin <= s["level"] <= lvmax):
+            continue
+        if schools and s.get("school", {}).get("index") not in schools:
+            continue
+        out.append(s["name"])
+    return sorted(set(out))
+
+
+def all_skill_names(cat) -> list:
+    """Every skill's display name — for choose-any-skill grants (e.g. half-elf, lore bard)."""
+    return sorted(s["name"] for s in cat.records("skills").values())
+
+
 def caster_classes(cat, classes) -> list:
     """[(ci, lv)] of the classes that can cast at their level."""
     return [(ci, lv) for ci, lv in classes if has_slots(cat, ci, lv) or cantrips_known(cat, ci, lv)]
