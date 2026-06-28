@@ -3,11 +3,11 @@ grammar + prompt, send it to the model, and repair the result into valid-by-cons
 
 The model picks; the compute lives in pure helpers (helpers.py). This module assembles the sheet.
 Base contract: name / background / alignment / skills / spells; race / abilities / classes (+ the
-code-resolved subclass) are injected by code. Feature choices (fighting style, expertise, … — see
-features.py) are merged on top; feats/ASI and equipment come next."""
+code-resolved subclass) are injected by code. Feature choices (features.py) and starting equipment
+(equipment.py) are merged on top of the base contract."""
 import random
 
-from app.generation import client, features
+from app.generation import client, equipment, features
 from app.generation import helpers as H
 
 
@@ -46,6 +46,10 @@ def build_grammar(cat, race, classes, subclasses):
     props.update(fp)
     req += freq
 
+    ep, ereq = equipment.equipment_props(cat, classes)       # starting-equipment routes (primary class)
+    props.update(ep)
+    req += ereq
+
     fixed = {
         "race": race,
         "ability_assignment": aa,
@@ -75,4 +79,5 @@ def generate(cat, spec, *, rng=random):
     choices = {**raw, **fixed}
     H.repair(cat, choices, spec.race, spec.classes, subclasses)
     resolved = [(ci, lv, sub) for (ci, lv), sub in zip(spec.classes, subclasses)]
-    return features.repair_features(cat, choices, resolved, spec.race)
+    features.repair_features(cat, choices, resolved, spec.race)
+    return equipment.repair_equipment(cat, choices, spec.classes)

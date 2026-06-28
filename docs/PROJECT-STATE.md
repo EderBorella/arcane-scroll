@@ -77,22 +77,25 @@ What's left is derivation-side + the service:**
 | **Generation (all model choices)** | ✅ **complete & valid by construction** |
 | **Service stack (Docker: model + app)** | ✅ scaffolded — skeleton serving |
 | **Shared resource catalog (load-time)** | ✅ loaded in memory at startup |
-| **Character sheet generator** | ✅ base contract + feature choices (fighting style, expertise) |
+| **Character sheet generator** | ✅ base contract + feature/feat/equipment choices |
 | **Backstory generator** | ✅ physical + personality + backstory |
 | **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ 52 passing |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ 71 passing |
 | **Derivation engine (compute side)** | 🔧 **next — highest leverage** |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
 
-- **Feature choices: fighting style + expertise** (PR #8) — first slice of the additive feature
-  contract. New `app/generation/features.py`: each choice is a `{field, enum, n}` descriptor gated by
-  `(class, subclass, level)`, pure + catalog-driven (value lists by neutral key, gating in code). The
-  sheet generator merges these into the per-request grammar and fits them in repair (expertise is
-  narrowed to the *chosen* skills). +7 tests (52 total). Subclass feature oddities, feats/ASI, and
-  equipment extend the same module next.
+- **Additive choices: features + feats/ASI + equipment** (PR #8) — the expanded contract on top of
+  the base sheet, in two new modules. `app/generation/features.py`: each choice is a `{field, enum, n}`
+  descriptor gated by `(class, subclass, level)` + race — fighting style, expertise, and the subclass
+  oddities (metamagic, invocations, maneuvers, totems, ancestry, third-caster spells school-filtered,
+  favoured enemy/terrain, …), plus character-level feats/ASI and race options. `equipment.py`: the
+  primary class's starting-equipment slots become route enums + category "companion" enums. Both are
+  pure + catalog-driven (value lists by neutral key, gating/counts in code); single-pick → string,
+  multi-pick → array. The sheet generator merges all of it into the per-request grammar and fits it in
+  repair (expertise narrowed to chosen skills; equipment companions may repeat). +26 tests (71 total).
 - **Backstory generator** (PR #7) — a second generation module (`backstory.py`, same shape as the
   sheet generator over shared helpers): one structured model call produces race-bounded physical
   traits, personality (two traits + ideal/bond/flaw), and a ~150-word backstory grounded in the

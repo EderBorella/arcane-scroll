@@ -30,7 +30,16 @@ def _build_synthetic_db(path: str) -> None:
     rec("classes", "warrior", {"index": "warrior", "name": "Warrior",
         "proficiency_choices": [{"choose": 2, "from": {"options": [
             {"item": {"index": "skill-brawn"}}, {"item": {"index": "skill-menace"}},
-            {"item": {"index": "skill-watch"}}]}}]})
+            {"item": {"index": "skill-watch"}}]}}],
+        "starting_equipment_options": [
+            # slot 0: pick 1 directly from a category
+            {"choose": 1, "from": {"option_set_type": "equipment_category",
+                                   "equipment_category": {"index": "cat-simple"}}},
+            # slot 1: pick 1 of two alternatives, one being "choose from a category" (→ companion)
+            {"choose": 1, "from": {"option_set_type": "options_array", "options": [
+                {"option_type": "counted_reference", "count": 1, "of": {"name": "ShieldItem"}},
+                {"option_type": "choice", "choice": {"choose": 1, "desc": "a martial weapon",
+                    "from": {"equipment_category": {"index": "cat-martial"}}}}]}}]})
     # a PREPARED caster (no spells_known in the table → count = ability mod + level)
     rec("classes", "oracle", {"index": "oracle", "name": "Oracle",
         "proficiency_choices": [{"choose": 2, "from": {"options": [
@@ -147,6 +156,9 @@ def _build_synthetic_db(path: str) -> None:
     lst("asi_default_levels", [4, 8, 12, 16, 19])
     lst("asi_label", {"str": "Strength", "dex": "Dexterity", "con": "Constitution",
                       "int": "Intelligence", "wis": "Wisdom", "cha": "Charisma"})
+    # starting-equipment category → concrete items (synthetic)
+    lst("category_items", {"cat-simple": ["WeaponA", "WeaponB", "WeaponC"],
+                           "cat-martial": ["MartialA", "MartialB"]})
     lst("prompt_sheet_sys", "TEST SYSTEM PROMPT")
     # flavour / backstory lists
     lst("race_phys", {"Human": {"age": [16, 90], "h": [58, 78], "w": [110, 270]}})
