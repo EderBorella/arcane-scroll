@@ -78,15 +78,22 @@ What's left is derivation-side + the service:**
 | **Service stack (Docker: model + app)** | ✅ scaffolded — skeleton serving |
 | **Shared resource catalog (load-time)** | ✅ loaded in memory at startup |
 | **Character sheet generator** | ✅ base contract (skills + spells) |
-| **HTTP API** (`POST /v1/characters`) | ✅ live (skeleton) |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ 27 passing |
+| **Backstory generator** | ✅ physical + personality + backstory |
+| **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ 45 passing |
 | **Derivation engine (compute side)** | 🔧 **next — highest leverage** |
-| Generation / flavour endpoints | ⬜ after the engine |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
 
+- **Backstory generator** (PR #7) — a second generation module (`backstory.py`, same shape as the
+  sheet generator over shared helpers): one structured model call produces race-bounded physical
+  traits, personality (two traits + ideal/bond/flaw), and a ~150-word backstory grounded in the
+  sheet. Empty-uniqueness requests get a random seed angle (archetype) to keep backstories varied;
+  physical bounds are clamped server-side. Exposed as **POST /v1/backstory**; verified end-to-end.
+  Test coverage filled out across **both** generators (45 total) — incl. prepared-caster counts,
+  multiclass spell pools, spell repair, the sheet orchestrator, patron-expansion, and skin overrides.
 - **Test suite** (PR #6) — per-layer / per-service tests (catalog, generation helpers, request,
   sheet generator, controller) against a small **synthetic** catalog fixture — content-free and
   runnable anywhere; the controller test mocks the model. 27 tests (pytest); dev deps in
