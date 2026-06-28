@@ -28,4 +28,8 @@ def test_derive_full_sheet_smoke(catalog):
     assert sheet["max_hp"] == 32        # (6+2) + 4×(4+2)
     assert sheet["speed"] == 30 and sheet["initiative"] == sheet["ability_modifiers"]["dex"]
     assert sheet["spellcasting"]["Mage"]["save_dc"] == 15
-    assert set(sheet) >= {"saving_throws", "skills", "passive_perception", "hit_dice", "armor_class"}
+    assert sheet["spell_slots"] == {1: 4, 2: 3, 3: 2}
+    assert sheet["languages"][0] == "Common"
+    assert sheet["schema_version"] == 1 and sheet["death_saves"] == {"successes": 0, "failures": 0}
+    assert set(sheet) >= {"saving_throws", "skills", "passive_perception", "hit_dice", "armor_class",
+                          "proficiencies", "languages", "features", "spells"}

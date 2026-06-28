@@ -80,13 +80,23 @@ What's left is derivation-side + the service:**
 | **Character sheet generator** | ✅ base contract + feature/feat/equipment choices |
 | **Backstory generator** | ✅ physical + personality + backstory |
 | **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live — `/v1/characters` now returns choices **+ derived sheet** |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ 92 passing |
-| **Derivation engine (compute side)** | ✅ computes the sheet (unarmoured AC; armour + feat-effects deferred) |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ 105 passing |
+| **Derivation engine (compute side)** | ✅ render-ready sheet (proficiencies, languages, features, slots, spellbook); armour/equipment/treasure parked |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
 
+- **Derivation fields — render-ready sheet** (PR #11) — filled the gaps against the field-inventory
+  reference. `proficiency.py`: armour/weapon/tool proficiencies, **languages** (Common + race + a
+  random race-option pick + the background's "choose N" from the new language table), and skill
+  `source` + background-granted skills. `spellcasting.py`: **spell slots** by level + the full
+  spellbook **bucketed** by level (prepared vs known), including subclass/feature-granted spells
+  (third-caster subclasses, bonus/racial cantrips, bardic secrets). New `features.py`: class features
+  (level tables) + race/subrace traits + background feature. Scaffold/meta: `schema_version`, `xp`,
+  `death_saves`. **Data:** added the standard background records (13) and the language list (16) to
+  the **local** DB (only local data carries values; the repo stays content-neutral). +13 tests (105 total).
+  Still parked (data-blocked): equipment assembly, treasure/starting wealth, armour AC.
 - **Derivation refactor — split by concern** (PR #10) — behaviour-preserving: the monolithic
   `engine.py` is now a thin `derive()` orchestrator over per-concern modules — `abilities.py`,
   `vitals.py`, `proficiency.py`, `spellcasting.py` — so the follow-up sheet fields land in their

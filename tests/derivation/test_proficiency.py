@@ -1,4 +1,7 @@
-"""Proficiency-derived stats: prof bonus, saves (primary-only), skills + expertise, passive perception."""
+"""Proficiency-derived stats: prof bonus, saves (primary-only), skills + expertise + sources,
+passive perception, proficiencies, and languages."""
+import random
+
 from app.derivation import proficiency
 
 
@@ -27,13 +30,41 @@ def test_negative_modifiers_propagate(catalog):
 
 def test_skill_table_with_expertise(catalog):
     skills = proficiency.skill_table(catalog, _scores(int=14), 2, {"skill_choices": ["Lore"], "expertise": ["Lore"]})
-    assert skills["Lore"] == {"modifier": 6, "ability": "int", "proficient": True, "expertise": True}  # 2+2+2
-    assert skills["Runes"]["modifier"] == 2 and not skills["Runes"]["proficient"]
+    assert skills["Lore"] == {"modifier": 6, "ability": "int", "proficient": True,
+                              "expertise": True, "source": "class"}      # 2 +2 +2
+    assert skills["Runes"]["modifier"] == 2 and skills["Runes"]["source"] is None
 
 
 def test_proficient_without_expertise(catalog):
     skills = proficiency.skill_table(catalog, _scores(int=14), 2, {"skill_choices": ["Runes"]})
-    assert skills["Runes"] == {"modifier": 4, "ability": "int", "proficient": True, "expertise": False}
+    assert skills["Runes"] == {"modifier": 4, "ability": "int", "proficient": True,
+                               "expertise": False, "source": "class"}
+
+
+def test_background_grants_skills_with_source(catalog):
+    skills = proficiency.skill_table(catalog, _scores(int=14), 2, {"background": "Scholar"})
+    assert skills["Lore"]["proficient"] and skills["Lore"]["source"] == "background"
+    assert skills["Runes"]["source"] == "background"
+    assert skills["Brawn"]["source"] is None
+
+
+def test_proficiencies_armor_weapons_and_background_tools(catalog):
+    p = proficiency.proficiencies(catalog, [("fighter", 5)], "Scholar")
+    assert "All armor" in p["armor"] and "Shields" in p["armor"]
+    assert "Simple weapons" in p["weapons"] and "Martial weapons" in p["weapons"]
+    assert p["tools"] == ["Quill"]
+
+
+def test_languages_common_race_and_background(catalog):
+    langs = proficiency.languages(catalog, "Human", "Scholar", random.Random(0))
+    assert langs[0] == "Common"
+    assert len(langs) == 3 and len(set(langs)) == 3          # Common + 1 race option + 1 background pick
+    assert any(l in {"LangA", "LangB"} for l in langs)       # the race option came from its inline list
+
+
+def test_languages_no_background_extras(catalog):
+    langs = proficiency.languages(catalog, "Human", "Outcast", random.Random(1))
+    assert langs[0] == "Common" and len(langs) == 2          # Common + 1 race option; Outcast grants 0
 
 
 def test_passive_perception(catalog):
