@@ -1,21 +1,48 @@
 """Feature-choice descriptors — the "expanded contract" the model fills on top of the base sheet.
 
-Each descriptor is `{field, enum, n}`, gated by `(class, subclass, level)`. Pure + catalog-driven:
-the value lists come from the catalog by neutral key; the gating mechanics live in code. The sheet
-generator merges these into the per-request grammar and fits them in repair.
+A character's (class, subclass, level) — and race — unlock specific picks: fighting style, expertise,
+maneuvers, invocations, metamagic, totems, ancestry, third-caster spells, feats/ASI, race options, …
+Each is a `{field, enum, n}` descriptor — the gating and counts are mechanics (code), the value lists
+come from the catalog by neutral key. The sheet generator merges these into the per-request grammar
+and fits them in repair. Single-pick choices (`n == 1`) are a string; multi-pick are a deduped array.
 
-This increment covers **fighting style** and **expertise**. Subclass feature oddities, feats/ASI,
-and equipment extend this same module in follow-ups."""
+(Applying a feat's or ASI's mechanical effect is derivation-engine work, like subclass effects.)"""
 from app.generation import helpers as H
 
 
-def _expertise_count(ci: str, lv: int) -> int:
-    """How many proficient skills a class doubles (Rogue: 2 @L1 +2 @L6; Bard: 2 @L3 +2 @L10)."""
-    if ci == "rogue":
-        return (2 if lv >= 1 else 0) + (2 if lv >= 6 else 0)
-    if ci == "bard":
-        return (2 if lv >= 3 else 0) + (2 if lv >= 10 else 0)
+# ── count progressions ────────────────────────────────────────────────────────
+def _maneuvers_n(lv):       return 3 + (2 if lv >= 7 else 0) + (2 if lv >= 10 else 0) + (2 if lv >= 15 else 0)
+def _metamagic_n(lv):       return 2 + (1 if lv >= 10 else 0) + (1 if lv >= 17 else 0)
+def _disciplines_n(lv):     return 1 + (1 if lv >= 6 else 0) + (1 if lv >= 11 else 0) + (1 if lv >= 17 else 0)
+def _favored_enemy_n(lv):   return 1 + (1 if lv >= 6 else 0) + (1 if lv >= 14 else 0)
+def _favored_terrain_n(lv): return 1 + (1 if lv >= 6 else 0) + (1 if lv >= 10 else 0)
+
+
+def _invocations_n(lv):
+    for threshold, count in [(18, 8), (15, 7), (12, 6), (9, 5), (7, 4), (5, 3), (2, 2)]:
+        if lv >= threshold:
+            return count
     return 0
+
+
+def _expertise_count(ci, lv):
+    """Proficient skills a class doubles (Rogue: 2 @L1 +2 @L6; Bard: 2 @L3 +2 @L10)."""
+    if ci == "rogue": return (2 if lv >= 1 else 0) + (2 if lv >= 6 else 0)
+    if ci == "bard":  return (2 if lv >= 3 else 0) + (2 if lv >= 10 else 0)
+    return 0
+
+
+# third-caster (Eldritch Knight / Arcane Trickster) progression
+def _third_max_spell_lv(lv): return 1 if lv < 7 else 2 if lv < 13 else 3 if lv < 19 else 4
+def _third_cantrips_n(lv):   return 3 if lv >= 10 else 2
+
+
+def _third_spells_n(lv):
+    n = 3
+    for threshold in (7, 8, 11, 13, 14, 16, 19, 20):
+        if lv >= threshold:
+            n += 1
+    return n
 
 
 def _fighting_style_classes(cat, classes):
@@ -24,41 +51,128 @@ def _fighting_style_classes(cat, classes):
     return [ci for ci, lv, _ in classes if ci in styles and lv >= levels.get(ci, 99)]
 
 
-def descriptors(cat, classes):
-    """classes: [(ci, lv, subclass)]. Ordered [{field, enum, n}] for the feature choices granted."""
+def _asi_slots(cat, ci, lv):
+    """Feat/ASI slots a class has reached by `lv` (class-specific schedule, else the default)."""
+    levels = cat.get("asi_levels", {}).get(ci) or cat.get("asi_default_levels")
+    return sum(1 for t in levels if lv >= t)
+
+
+# ── the registry ──────────────────────────────────────────────────────────────
+def descriptors(cat, classes, race=None):
+    """classes: [(ci, lv, subclass_or_None)]. Ordered [{field, enum, n}] for every choice granted."""
     out = []
+
+    def add(field, enum, n):
+        enum = list(enum or [])
+        n = min(n, len(enum))                # can't grant more picks than the pool holds
+        if n > 0:
+            out.append({"field": field, "enum": enum, "n": n})
+
+    # fighting style — one pick per granting class
     granting = _fighting_style_classes(cat, classes)
     if granting:
         styles = cat.get("fighting_styles", {})
-        opts = sorted(set().union(*[set(styles[ci]) for ci in granting]))
-        out.append({"field": "fighting_style", "enum": opts, "n": len(granting)})
+        add("fighting_style", sorted(set().union(*[set(styles[ci]) for ci in granting])), len(granting))
 
-    exp_total = sum(_expertise_count(ci, lv) for ci, lv, _ in classes)
-    if exp_total:
+    # expertise — picked from the primary class's skill list (repair narrows to the chosen skills)
+    exp = sum(_expertise_count(ci, lv) for ci, lv, _ in classes)
+    if exp:
         _, skill_idx = H.class_skill_grant(cat, classes[0][0])
-        skills = H.skill_names(cat, skill_idx)          # repair narrows these to the chosen skills
-        n = min(exp_total, len(skills))
-        if n:
-            out.append({"field": "expertise", "enum": skills, "n": n})
+        skills = H.skill_names(cat, skill_idx)
+        add("expertise", skills, min(exp, len(skills)))
+
+    # subclass feature oddities — gated per (class, subclass, level)
+    for ci, lv, subclass in classes:
+        sub = H._norm(subclass or "")
+        if ci == "sorcerer":
+            add("metamagic", cat.get("metamagic"), _metamagic_n(lv) if lv >= 3 else 0)
+            if "draconic" in sub:
+                add("draconic_ancestry", cat.get("draconic_ancestry"), 1)
+        elif ci == "warlock":
+            add("pact_boon", cat.get("pact_boon"), 1 if lv >= 3 else 0)
+            add("invocations", cat.get("invocations"), _invocations_n(lv))
+        elif ci == "ranger":
+            add("favored_enemy", cat.get("creature_types"), _favored_enemy_n(lv))
+            add("favored_terrain", cat.get("terrain"), _favored_terrain_n(lv))
+            if "hunter" in sub:
+                add("hunters_prey", cat.get("hunters_prey"), 1 if lv >= 3 else 0)
+                add("defensive_tactics", cat.get("defensive_tactics"), 1 if lv >= 7 else 0)
+            elif "beast" in sub:
+                add("animal_companion", cat.get("beasts"), 1 if lv >= 3 else 0)
+        elif ci == "barbarian" and "totem" in sub:
+            add("totem_spirit", cat.get("totem"), 1 if lv >= 3 else 0)
+            add("totem_aspect", cat.get("totem"), 1 if lv >= 6 else 0)
+            add("totem_attunement", cat.get("totem"), 1 if lv >= 14 else 0)
+        elif ci == "fighter":
+            if "battlemaster" in sub:
+                add("maneuvers", cat.get("maneuvers"), _maneuvers_n(lv) if lv >= 3 else 0)
+            elif "eldritch" in sub and lv >= 3:
+                add("ek_cantrips", H.school_spells(cat, "wizard", None, 0, 0), _third_cantrips_n(lv))
+                add("ek_spells", H.school_spells(cat, "wizard", {"abjuration", "evocation"}, 1, _third_max_spell_lv(lv)),
+                    _third_spells_n(lv))
+        elif ci == "rogue" and "arcanetrickster" in sub and lv >= 3:
+            add("at_cantrips", H.school_spells(cat, "wizard", None, 0, 0), _third_cantrips_n(lv))
+            add("at_spells", H.school_spells(cat, "wizard", {"enchantment", "illusion"}, 1, _third_max_spell_lv(lv)),
+                _third_spells_n(lv))
+        elif ci == "monk" and "four" in sub:
+            add("elemental_disciplines", cat.get("elemental_disciplines"), _disciplines_n(lv))
+        elif ci == "druid" and "land" in sub and lv >= 2:
+            add("land_type", cat.get("land_type"), 1)
+            add("bonus_cantrip", H.school_spells(cat, "druid", None, 0, 0), 1)
+        elif ci == "bard" and "lore" in sub:
+            add("bonus_skills", H.all_skill_names(cat), 3 if lv >= 3 else 0)
+            add("magical_secrets", H.school_spells(cat, None, None, 1, H.max_spell_level(cat, "bard", lv)),
+                2 if lv >= 6 else 0)
+        elif ci == "cleric":
+            if "knowledge" in sub:
+                add("knowledge_skills", cat.get("knowledge_skills"), 2)
+            elif "nature" in sub:
+                add("nature_cantrip", H.school_spells(cat, "druid", None, 0, 0), 1)
+                add("nature_skill", cat.get("nature_skills"), 1)
+
+    # feat / ASI (character-level). 1 slot: the model picks a feat OR an ability bump. 2+ slots: code
+    # reserves one slot for an ASI, the model picks the other (N-1) as feats.
+    slots = sum(_asi_slots(cat, ci, lv) for ci, lv, _ in classes)
+    if slots == 1:
+        bumps = [f"Ability Score Improvement: {label}" for label in cat.get("asi_label", {}).values()]
+        add("feat", list(cat.get("feats")) + bumps, 1)
+    elif slots >= 2:
+        add("feat", cat.get("feats"), slots - 1)
+
+    # race-level choices
+    r = H._norm(race or "")
+    if "dragonborn" in r:
+        add("dragonborn_ancestry", cat.get("draconic_ancestry"), 1)
+    if "highelf" in r:
+        add("high_elf_cantrip", H.school_spells(cat, "wizard", None, 0, 0), 1)
+    if "halfelf" in r:
+        add("half_elf_skills", H.all_skill_names(cat), 2)
     return out
 
 
-def feature_props(cat, classes):
-    """Schema props (+ required names) for the feature-choice fields."""
+# ── consumers (grammar + repair) ──────────────────────────────────────────────
+def feature_props(cat, classes, race=None):
+    """Schema props (+ required names): single-pick → string enum, multi-pick → unique array."""
     props, req = {}, []
-    for d in descriptors(cat, classes):
-        props[d["field"]] = {"type": "array", "items": {"enum": d["enum"]},
-                             "minItems": d["n"], "maxItems": d["n"], "uniqueItems": True}
+    for d in descriptors(cat, classes, race):
+        if d["n"] == 1:
+            props[d["field"]] = {"enum": d["enum"]}
+        else:
+            props[d["field"]] = {"type": "array", "items": {"enum": d["enum"]},
+                                 "minItems": d["n"], "maxItems": d["n"], "uniqueItems": True}
         req.append(d["field"])
     return props, req
 
 
-def repair_features(cat, ch, classes):
-    """Fit each feature field to its enum/count. Expertise must double *chosen* skills, so it's fit
-    against `skill_choices` rather than the whole class list."""
-    for d in descriptors(cat, classes):
-        if d["field"] not in ch:
+def repair_features(cat, ch, classes, race=None):
+    """Fit each feature field to its enum/count (a grammar can't enforce uniqueness). Expertise must
+    double *chosen* skills, so it's fit against `skill_choices` rather than the whole class list."""
+    for d in descriptors(cat, classes, race):
+        f = d["field"]
+        if f not in ch:
             continue
-        pool = ch.get("skill_choices", []) if d["field"] == "expertise" else d["enum"]
-        ch[d["field"]] = H._dedup_pad(ch[d["field"]], pool, d["n"])
+        pool = ch.get("skill_choices", []) if f == "expertise" else d["enum"]
+        cur = [ch[f]] if isinstance(ch[f], str) else list(ch[f])
+        fit = H._dedup_pad(cur, pool, d["n"])
+        ch[f] = fit[0] if d["n"] == 1 else fit
     return ch

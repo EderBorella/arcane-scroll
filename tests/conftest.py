@@ -85,6 +85,14 @@ def _build_synthetic_db(path: str) -> None:
     for i, (nm, lvl, classes) in enumerate(leveled):
         rec("spells", f"s{i}", {"index": f"s{i}", "name": nm, "level": lvl,
                                 "classes": [{"index": c} for c in classes], "school": {"index": "alpha"}})
+    # wizard/druid-tagged spells with magic schools — back third-caster, bonus-cantrip, and race picks
+    schooled = [("Wiz Cantrip A", 0, ["wizard"], "evocation"), ("Wiz Cantrip B", 0, ["wizard"], "abjuration"),
+                ("Evoke Bolt", 1, ["wizard"], "evocation"), ("Ward Sigil", 1, ["wizard"], "abjuration"),
+                ("Charm Word", 1, ["wizard"], "enchantment"), ("False Image", 1, ["wizard"], "illusion"),
+                ("Druid Spark", 0, ["druid"], "evocation")]
+    for i, (nm, lvl, classes, school) in enumerate(schooled):
+        rec("spells", f"w{i}", {"index": f"w{i}", "name": nm, "level": lvl,
+                                "classes": [{"index": c} for c in classes], "school": {"index": school}})
 
     # skills
     for idx, nm, ab in [("lore", "Lore", "int"), ("runes", "Runes", "int"),
@@ -117,6 +125,28 @@ def _build_synthetic_db(path: str) -> None:
     # feature-choice lists (fighting style; expertise reads the class skill list)
     lst("fighting_styles", {"fighter": ["StyleA", "StyleB", "StyleC"]})
     lst("fighting_style_level", {"fighter": 1})
+    # subclass feature-oddity value lists (synthetic)
+    lst("metamagic", ["MetaA", "MetaB", "MetaC"])
+    lst("invocations", ["InvA", "InvB", "InvC", "InvD"])
+    lst("maneuvers", ["ManA", "ManB", "ManC", "ManD"])
+    lst("totem", ["TotemA", "TotemB"])
+    lst("pact_boon", ["BoonA", "BoonB", "BoonC"])
+    lst("draconic_ancestry", ["DracA", "DracB"])
+    lst("creature_types", ["TypeA", "TypeB"])
+    lst("terrain", ["TerrA", "TerrB"])
+    lst("land_type", ["LandA", "LandB"])
+    lst("elemental_disciplines", ["DiscA", "DiscB"])
+    lst("hunters_prey", ["PreyA", "PreyB"])
+    lst("defensive_tactics", ["TacA", "TacB"])
+    lst("beasts", ["BeastA", "BeastB"])
+    lst("knowledge_skills", ["KnowA", "KnowB", "KnowC"])
+    lst("nature_skills", ["NatA", "NatB"])
+    # feat / ASI
+    lst("feats", ["FeatA", "FeatB", "FeatC"])
+    lst("asi_levels", {"fighter": [4, 6, 8, 12, 14, 16, 19], "rogue": [4, 8, 10, 12, 16, 19]})
+    lst("asi_default_levels", [4, 8, 12, 16, 19])
+    lst("asi_label", {"str": "Strength", "dex": "Dexterity", "con": "Constitution",
+                      "int": "Intelligence", "wis": "Wisdom", "cha": "Charisma"})
     lst("prompt_sheet_sys", "TEST SYSTEM PROMPT")
     # flavour / backstory lists
     lst("race_phys", {"Human": {"age": [16, 90], "h": [58, 78], "w": [110, 270]}})

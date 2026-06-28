@@ -42,7 +42,7 @@ def build_grammar(cat, race, classes, subclasses):
         }
         req.append("spell_choices")
 
-    fp, freq = features.feature_props(cat, resolved)   # fighting style, expertise, …
+    fp, freq = features.feature_props(cat, resolved, race)   # fighting style, expertise, feats, …
     props.update(fp)
     req += freq
 
@@ -75,4 +75,4 @@ def generate(cat, spec, *, rng=random):
     choices = {**raw, **fixed}
     H.repair(cat, choices, spec.race, spec.classes, subclasses)
     resolved = [(ci, lv, sub) for (ci, lv), sub in zip(spec.classes, subclasses)]
-    return features.repair_features(cat, choices, resolved)
+    return features.repair_features(cat, choices, resolved, spec.race)
