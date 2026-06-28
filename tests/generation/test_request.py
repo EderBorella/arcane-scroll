@@ -36,3 +36,9 @@ def test_parse_level_out_of_range(catalog):
 def test_parse_no_classes(catalog):
     with pytest.raises(ValueError):
         request.parse(catalog, {"race": "Human", "classes": []})
+
+
+def test_parse_multiclass(catalog):
+    spec = request.parse(catalog, {"race": "Human",
+                                   "classes": [{"class": "mage", "level": 3}, {"class": "oracle", "level": 2}]})
+    assert spec.classes == [("mage", 3), ("oracle", 2)]

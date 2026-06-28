@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from app import catalog
-from app.generation import generate_sheet, parse
+from app.generation import generate_backstory, generate_sheet, parse
 
 router = APIRouter(prefix="/v1", tags=["generation"])
 
@@ -60,3 +60,41 @@ def create_character(req: CharacterRequest) -> CharacterResponse:
     except (ValueError, KeyError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     return CharacterResponse(choices=generate_sheet(cat, spec))
+
+
+class BackstoryRequest(BaseModel):
+    character: dict = Field(
+        description="A character's choices (as returned by /v1/characters); needs at least "
+                    "'race' and 'classes'. More fields (name, alignment, background, spells) "
+                    "give the backstory more to work with.")
+    unique: str | None = Field(
+        default=None,
+        description="Optional 'what is unique about this character?' hint. If omitted, a random "
+                    "angle is used so backstories stay varied.")
+
+    model_config = ConfigDict(json_schema_extra={"examples": [
+        {"character": {"race": "<race>", "classes": [{"class": "<class>", "level": 5}],
+                       "name": "<name>", "background": "<background>"},
+         "unique": "<optional flavour hint>"},
+    ]})
+
+
+class BackstoryResponse(BaseModel):
+    """The flavour bundle: physical traits, personality (traits/ideal/bond/flaw), and a backstory."""
+    flavour: dict
+
+
+@router.post("/backstory", response_model=BackstoryResponse,
+             summary="Generate a character's flavour (backstory bundle)",
+             description=(
+                 "Given a character's choices, generate physical traits (race-bounded), personality "
+                 "(two traits + ideal/bond/flaw), and a short backstory — grounded in the sheet. "
+                 "Physical bounds are clamped server-side. **400** if the character lacks race/classes."))
+def create_backstory(req: BackstoryRequest) -> BackstoryResponse:
+    cat = catalog.get_catalog()
+    character = dict(req.character)
+    if not character.get("race") or not character.get("classes"):
+        raise HTTPException(status_code=400, detail="character must include 'race' and 'classes'")
+    if req.unique:
+        character["unique"] = req.unique
+    return BackstoryResponse(flavour=generate_backstory(cat, character))

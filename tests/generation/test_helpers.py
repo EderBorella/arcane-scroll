@@ -49,3 +49,46 @@ def test_repair_dedups_and_pads_skills(catalog):
 def test_race_bonus(catalog):
     assert H.race_bonus(catalog, "human", "int") == 1
     assert H.race_bonus(catalog, "human", "str") == 0
+
+
+def test_spell_pools_prepared_caster(catalog):
+    aa = H.ability_assignment(catalog, "oracle")     # wis = 15
+    cant, spl, nc, ns = H.spell_pools(catalog, [("oracle", 3, "Seer")], "Human", aa)
+    assert nc == 2           # cantrips known (3) capped at the oracle cantrip pool (2)
+    assert ns == 5           # prepared: wis mod (2) + level (3)
+    assert len(spl) == 6     # oracle leveled spells up to L2
+
+
+def test_spell_pools_multiclass(catalog):
+    aa = H.ability_assignment(catalog, "mage")       # primary = mage: int 15, wis 12
+    cant, spl, nc, ns = H.spell_pools(catalog, [("mage", 3, "Evoker"), ("oracle", 3, "Seer")], "Human", aa)
+    assert len(cant) == 5 and nc == 5                # union cantrip pool; 3+3 capped at 5
+    assert len(spl) == 7                              # union of both leveled lists (≤ L2)
+    assert ns == 7                                    # mage known (6) + oracle prepared (1+3=4) = 10, capped at 7
+
+
+def test_repair_dedups_and_pads_spells(catalog):
+    ch = {"skill_choices": ["Lore", "Runes"],
+          "spell_choices": {"cantrips": ["Spark", "Spark", "Glimmer", "Whisper"],
+                            "spells": ["Bolt", "Bolt", "Ward", "Mist", "Veil", "Quake", "Gale", "Snare"]}}
+    H.repair(catalog, ch, "Human", [("mage", 5)], ["Evoker"])
+    c = ch["spell_choices"]
+    assert len(c["cantrips"]) == 4 and len(set(c["cantrips"])) == 4
+    assert len(c["spells"]) == 8 and len(set(c["spells"])) == 8
+
+
+def test_resolve_subclasses_multiclass(catalog):
+    out = H.resolve_subclasses(catalog, [("mage", 5), ("oracle", 1)], rng=random.Random(0))
+    assert out[0] in ("Evoker", "Abjurer")    # mage unlocks at L2
+    assert out[1] is None                      # oracle unlocks at L3, so L1 → none
+
+
+def test_patron_expanded(catalog):
+    assert H._patron_expanded(catalog, [("warlock", 5, "shadow")], 2) == {"Bolt", "Quake"}
+    assert H._patron_expanded(catalog, [("warlock", 5, "shadow")], 1) == {"Bolt"}
+    assert H._patron_expanded(catalog, [("mage", 5, "Evoker")], 2) == set()   # non-warlock → none
+
+
+def test_skin_options(catalog):
+    assert H.skin_options(catalog, "Scaled") == ["Bronze", "Silver"]          # race override
+    assert H.skin_options(catalog, "Human") == catalog.get("skin_default")    # default palette

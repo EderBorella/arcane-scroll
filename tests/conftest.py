@@ -31,6 +31,12 @@ def _build_synthetic_db(path: str) -> None:
         "proficiency_choices": [{"choose": 2, "from": {"options": [
             {"item": {"index": "skill-brawn"}}, {"item": {"index": "skill-menace"}},
             {"item": {"index": "skill-watch"}}]}}]})
+    # a PREPARED caster (no spells_known in the table → count = ability mod + level)
+    rec("classes", "oracle", {"index": "oracle", "name": "Oracle",
+        "proficiency_choices": [{"choose": 2, "from": {"options": [
+            {"item": {"index": "skill-focus"}}, {"item": {"index": "skill-lore"}},
+            {"item": {"index": "skill-watch"}}]}}],
+        "spellcasting": {"spellcasting_ability": {"index": "wis"}}})
 
     # level tables
     mage_levels = {
@@ -44,16 +50,28 @@ def _build_synthetic_db(path: str) -> None:
         rec("levels", f"mage-{lv}", {"class": {"index": "mage"}, "level": lv, "spellcasting": sc})
     for lv in range(1, 6):
         rec("levels", f"warrior-{lv}", {"class": {"index": "warrior"}, "level": lv})
+    oracle_levels = {  # prepared caster: cantrips + slots, no spells_known
+        1: {"cantrips_known": 3, "spell_slots_level_1": 2},
+        2: {"cantrips_known": 3, "spell_slots_level_1": 3},
+        3: {"cantrips_known": 3, "spell_slots_level_1": 4, "spell_slots_level_2": 2},
+        4: {"cantrips_known": 4, "spell_slots_level_1": 4, "spell_slots_level_2": 3},
+        5: {"cantrips_known": 4, "spell_slots_level_1": 4, "spell_slots_level_2": 3, "spell_slots_level_3": 2},
+    }
+    for lv, sc in oracle_levels.items():
+        rec("levels", f"oracle-{lv}", {"class": {"index": "oracle"}, "level": lv, "spellcasting": sc})
 
-    # spells — 5 cantrips + leveled, all on the mage list (fake names)
-    for i, nm in enumerate(["Spark", "Glimmer", "Whisper", "Flicker", "Hush"]):
+    # spells — cantrips + leveled (fake names); some are shared with the prepared caster (oracle)
+    cantrips = [("Spark", ["mage", "oracle"]), ("Glimmer", ["mage", "oracle"]),
+                ("Whisper", ["mage"]), ("Flicker", ["mage"]), ("Hush", ["mage"])]
+    for i, (nm, classes) in enumerate(cantrips):
         rec("spells", f"c{i}", {"index": f"c{i}", "name": nm, "level": 0,
-                                "classes": [{"index": "mage"}], "school": {"index": "alpha"}})
-    for i, (nm, lvl) in enumerate([("Bolt", 1), ("Ward", 1), ("Mist", 1), ("Veil", 1),
-                                   ("Quake", 2), ("Gale", 2), ("Snare", 2),
-                                   ("Ember", 3), ("Frost", 3), ("Surge", 3)]):
+                                "classes": [{"index": c} for c in classes], "school": {"index": "alpha"}})
+    leveled = [("Bolt", 1, ["mage", "oracle"]), ("Ward", 1, ["mage", "oracle"]), ("Mist", 1, ["mage", "oracle"]),
+               ("Veil", 1, ["mage"]), ("Quake", 2, ["mage", "oracle"]), ("Gale", 2, ["mage", "oracle"]),
+               ("Snare", 2, ["mage", "oracle"]), ("Ember", 3, ["mage"]), ("Frost", 3, ["mage"]), ("Surge", 3, ["mage"])]
+    for i, (nm, lvl, classes) in enumerate(leveled):
         rec("spells", f"s{i}", {"index": f"s{i}", "name": nm, "level": lvl,
-                                "classes": [{"index": "mage"}], "school": {"index": "alpha"}})
+                                "classes": [{"index": c} for c in classes], "school": {"index": "alpha"}})
 
     # skills
     for idx, nm, ab in [("lore", "Lore", "int"), ("runes", "Runes", "int"),
@@ -69,17 +87,28 @@ def _build_synthetic_db(path: str) -> None:
     lst("abilities", ["str", "dex", "con", "int", "wis", "cha"])
     lst("standard_array", [15, 14, 13, 12, 10, 8])
     lst("ability_priority", {"mage": ["int", "con", "dex", "wis", "cha", "str"],
-                             "warrior": ["str", "con", "dex", "wis", "cha", "int"]})
+                             "warrior": ["str", "con", "dex", "wis", "cha", "int"],
+                             "oracle": ["wis", "con", "dex", "int", "cha", "str"]})
     lst("backgrounds", ["Wanderer", "Scholar", "Outcast"])
     lst("alignments_display", ["Order", "Balance", "Ruin"])
     lst("known_casters", ["mage"])
-    lst("prepared_casters", [])
+    lst("prepared_casters", ["oracle"])
     lst("valid_races", ["human"])
-    lst("subclass_options", {"mage": ["Evoker", "Abjurer"], "warrior": ["Champion", "Berserker"]})
-    lst("subclass_level", {"mage": 2, "warrior": 3})
+    lst("subclass_options", {"mage": ["Evoker", "Abjurer"], "warrior": ["Champion", "Berserker"],
+                             "oracle": ["Seer", "Prophet"]})
+    lst("subclass_level", {"mage": 2, "warrior": 3, "oracle": 3})
     lst("subrace_bonus", {})
-    lst("patron_expanded", {})
+    lst("patron_expanded", {"shadow": {"1": ["Bolt"], "2": ["Quake"]}})
     lst("prompt_sheet_sys", "TEST SYSTEM PROMPT")
+    # flavour / backstory lists
+    lst("race_phys", {"Human": {"age": [16, 90], "h": [58, 78], "w": [110, 270]}})
+    lst("genders", ["Male", "Female", "Nonbinary"])
+    lst("eyes", ["Brown", "Blue", "Green"])
+    lst("hair", ["Black", "Brown", "Auburn"])
+    lst("skin_default", ["Pale", "Tan", "Dark"])
+    lst("skin_overrides", {"Scaled": ["Bronze", "Silver"]})
+    lst("archetypes", ["Frame them through a mundane trade.", "Bond them to a place, not a person."])
+    lst("prompt_flavour_sys", "TEST FLAVOUR PROMPT")
 
     con.commit()
     con.close()

@@ -196,3 +196,45 @@ def repair(cat, choices, race, classes, subclasses):
         sc["cantrips"] = _dedup_pad(sc.get("cantrips", []), cant, nc)
         sc["spells"] = _dedup_pad(sc.get("spells", []), spl, ns)
     return choices
+
+
+# ── backstory / flavour helpers ──────────────────────────────────────────────
+_DEFAULT_PHYS = {"age": [16, 100], "h": [48, 84], "w": [80, 320]}
+
+
+def physical_bounds(cat, race: str):
+    """((age_min, age_max), (h_min, h_max), (w_min, w_max)) for a race, with a generic fallback."""
+    p = cat.get("race_phys", {}).get(race) or _DEFAULT_PHYS
+    return tuple(p["age"]), tuple(p["h"]), tuple(p["w"])
+
+
+def skin_options(cat, race: str) -> list:
+    """Skin enum for a race — a race-specific override if present, else the default palette."""
+    return cat.get("skin_overrides", {}).get(race) or cat.get("skin_default")
+
+
+def character_summary(character: dict) -> str:
+    """A one-line sheet summary to ground the backstory in (name / race / class(es) / bg / picks)."""
+    cl = " / ".join(f"{c.get('class')} {c.get('level')}" + (f" ({c['subclass']})" if c.get("subclass") else "")
+                    for c in character.get("classes", []))
+    s = f"{character.get('name', '')}, a {character.get('race', '')} {cl}.".strip()
+    if character.get("alignment"):
+        s += f" Alignment: {character['alignment']}."
+    if character.get("background"):
+        s += f" Background: {character['background']}."
+    if character.get("skill_choices"):
+        s += f" Skills: {', '.join(character['skill_choices'])}."
+    spells = (character.get("spell_choices") or {}).get("spells")
+    if spells:
+        s += f" Spells: {', '.join(spells)}."
+    return s
+
+
+def clamp_physical(cat, race: str, flavour: dict) -> dict:
+    """Clamp age/height/weight into the race's bounds (a grammar can't enforce numeric ranges)."""
+    (amin, amax), (hmin, hmax), (wmin, wmax) = physical_bounds(cat, race)
+    for key, lo, hi in (("age", amin, amax), ("height_inches", hmin, hmax), ("weight_lbs", wmin, wmax)):
+        v = flavour.get(key)
+        if isinstance(v, (int, float)):
+            flavour[key] = max(lo, min(hi, int(v)))
+    return flavour
