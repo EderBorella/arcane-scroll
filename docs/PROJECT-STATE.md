@@ -1,40 +1,279 @@
-# Arcane Scroll — Progress Log
+# Arcane Scroll — Project State
 
-A public, high-level record of how the project is coming along — newest first. Detailed design
-notes live elsewhere; this is the "follow along" view.
-
-## The idea in one line
-
-A compact, **locally-run** language model proposes the *creative* parts of a character; a
-**deterministic engine** owns all the *rules and arithmetic* and validates every result.
-Creativity and correctness in separate lanes, delivered as a small self-contained HTTP service
-that the *Arcane Desk* web app consumes.
+> **Master state doc (public, high-level).** One source of truth for what we're building, what
+> works, what's decided, and what's next.
+>
+> Last updated: **2026-06-28**. **Major update:** dropped the fine-tune in favour of a **base
+> model + per-request dynamic grammar** approach (§1, §4). Generation (sheet + all choices +
+> flavour) is validated and essentially complete; the derivation engine + service are next.
 
 ---
 
-## Log
+## 1. Executive summary (read this first)
 
-### Building the service
-- Standing up the HTTP API and the data layer behind it.
+**What we're building.** Arcane Scroll is the **AI generation service** behind *Arcane Desk* (the
+RPG web app). You give it a short prompt — *"a high elf wizard, level 5"* or just a name and a
+class — and it returns a **rules-correct character sheet as JSON**, served over HTTP for Arcane
+Desk to render.
 
-### Generation — complete & validated
-- The model now makes **every creative choice** a character needs — identity and personality,
-  proficiencies, ability priorities, spells, class features, advancement options, and starting
-  gear — and each choice is **valid by construction** thanks to constrained decoding plus a
-  deterministic repair/validation pass.
-- Covered the full breadth of the rules surface, single-class and multi-class, across levels.
-- Separate **narrative generation** (physical description, personality, and a short backstory)
-  proven — fast, varied, and grounded in the character.
+**The core architecture decision.** The AI system lives in its **own repo/service** (Python),
+separate from the web app (`arcane-desk`, SvelteKit), talking over a small versioned HTTP API.
+Different runtimes, different hardware needs (this service is pinned to the GPU box), different
+iteration speed — keeping them apart keeps both clean. The JSON schema is the contract.
 
-### Foundations — proven
-- Chose a **compact model that runs entirely on local hardware** (no external AI APIs) and proved
-  the core principle: the model chooses, code computes.
-- Built a **strict validator** and a locked **output contract**, with an objective way to score
-  any generated result.
-- Established the key lesson early: correctness has to be **engineered** (constrained generation
-  + deterministic checks), not hoped for from the model alone.
+**How generation works (the one principle that drives everything):**
+> **The model makes the *choices*; deterministic code does the *math* — and validity is
+> *engineered*, not hoped for.**
+The model picks the thematic choices (background, alignment, skills, spell names, subclass when
+unspecified, fighting style, expertise, and every subclass/class feature choice) plus the flavour
+bundle. Code injects the deterministic fields (race, class, level, ability assignment, resolved
+subclass) and — crucially — a **per-request dynamic grammar** constrains the model's picks to the
+*valid* options at the *exact* counts. An engine de-dup/pad step fixes the one thing a grammar
+can't (uniqueness). Result: **valid by construction**, with no reliance on the model knowing the
+rules.
+
+**The model approach changed (and got simpler — see §4).** We **dropped the fine-tune**. A **base
+compact model (`qwen3:4b-instruct-2507`, q4_K_M) + dynamic grammar + engine de-dup** scores
+**149/149 valid** on the held-out eval (single + multiclass, all levels) — beating the fine-tune's
+ceiling *and* removing the two-model problem. **One** base model does both the sheet
+(constrained JSON) and the flavour (plain prompt), fully GPU-resident (~2.5 GB).
+
+**Where we are.** The generation half is essentially done and validated:
+- ✅ **Sheet choices** — base model + dynamic grammar → **100% valid** over 149. Rich "taste"
+  prompt locked: iconic, concept-fit picks at ~0 ms cost.
+- ✅ **Class feature choices** — subclass (code-resolved, user-overridable), fighting style,
+  expertise, and the **full spread of subclass/class feature options**, via a base + expanded
+  **choice contract**.
+- ✅ **Feats / advancement** — slots from class+level (multiclass-aware): the model picks feats,
+  and code reserves an ability bump where one is due (by priority, capped correctly). Plus
+  race-level choices.
+- ✅ **Starting equipment** — per-class option slots → a route choice + a concrete-item pick.
+- ✅ **Flavour bundle** — one structured call: bounded physical traits, personality, and a
+  ~150-word backstory, with empty-field **archetypes** to break narrative monoculture. ~9–11 s/char.
+- ✅ Strict **validator** + reference data; the rules layer is the shared source of truth.
+
+**Generation (everything the model chooses) is now essentially complete and valid by construction.
+What's left is derivation-side + the service:**
+1. The **derivation engine** (the "code does the math" half) — ability mods + **final scores**,
+   saves, HP, proficiency bonus, spell slots/DC/attack, AC, initiative, passive perception;
+   **auto-granted subclass spells/features**; **languages & tool proficiencies**; **fixed-equipment
+   packages**; assemble the chosen equipment into a concrete inventory; strict validator as the
+   final gate.
+2. Wrap it in a **FastAPI service** and wire **Arcane Desk**.
+
+### Status at a glance
+
+| Area | Status |
+|---|---|
+| Home-server platform (Docker/GPU/Ollama/Qdrant/NPM) | ✅ running |
+| Model approach | ✅ **base `qwen3:4b` + dynamic grammar** (fine-tune dropped) |
+| Output contract | ✅ per-request dynamic grammar |
+| Sheet choices (incl. multiclass) | ✅ 100% valid (149/149) |
+| Class feature choices (subclass/style/expertise/oddities) | ✅ done |
+| Feats / advancement + race choices | ✅ done |
+| Starting equipment choices | ✅ done |
+| Flavour bundle (physical/traits/backstory) | ✅ done (one structured call) |
+| Strict validator + reference data | ✅ working |
+| **Generation (all model choices)** | ✅ **complete & valid by construction** |
+| **Derivation engine (compute side)** | 🔧 **next — highest leverage** |
+| FastAPI service (`arcane-scroll`) | ⬜ not started |
+| Arcane Desk integration | ⬜ later |
+| Off-disk backup | ⬜ TODO |
 
 ---
 
-*This log is intentionally high-level. If you'd like to know more about the approach, reach out via
-GitHub — see the README.*
+## 2. Architecture
+
+### Two-repo split
+
+```mermaid
+flowchart LR
+    User([User]) --> AD["Arcane Desk<br/>(SvelteKit SSR web app)"]
+    AD -- "HTTP, server-side, token-auth<br/>(internal network)" --> AS["Arcane Scroll<br/>(FastAPI generation service)"]
+    AS --> OL["Ollama<br/>base qwen3:4b"]
+    AS --> RE["Rules engine<br/>(deterministic Python)"]
+    AS --> DATA[("Reference data<br/>(local store)")]
+    AD --> MDB[("App data<br/>Mongo / SQLite")]
+```
+
+- **Arcane Scroll** (this repo, Python): owns generation, the rules engine, the validator, and the
+  model definition. Pinned to the GPU box. Internal-only, behind Nginx Proxy Manager,
+  token-protected.
+- **Arcane Desk** (`arcane-desk`, SvelteKit): the product UI. Calls Arcane Scroll from its SSR
+  layer so the API never needs public exposure.
+- **Contract:** the character JSON schema is the single source of truth. Plan to generate TS types
+  for Arcane Desk from it so the two stay in sync.
+
+### Generation pipeline (character sheet)
+
+```mermaid
+flowchart TD
+    P["Prompt<br/>(natural language)"] --> M
+    M["base model via Ollama<br/>(grammar-constrained JSON)"] --> C["CHOICES JSON<br/>identity · class · level · subclass ·<br/>abilities · skills · spells · features"]
+    C --> RE["RULES ENGINE (deterministic)"]
+    RE --> R4["derive: ability mods, saves, HP,<br/>prof bonus, spell slots, save DC"]
+    RE --> R5["assemble starting equipment"]
+    R4 & R5 --> V["strict validate"]
+    V --> OUT["complete, rules-correct character sheet JSON"]
+```
+
+**Key:** there is **no RAG in this path** (see §5). Keeping the prompt small is also what keeps the
+4B model 100 % on the GPU (see §8 thermal note).
+
+### Backstory path (separate, already proven)
+
+Pure flavour → **no RAG, tiny context, fast, 100 % GPU**. Base `qwen3:4b-instruct-2507`, higher
+temperature, the sheet as context, a strong prompt. Produces varied, genre-true, sheet-grounded
+~150-word prose. A second endpoint.
+
+---
+
+## 3. The platform (home server)
+
+A Dell Precision 5470 laptop repurposed as a home server.
+
+| | |
+|---|---|
+| Host | on the internal LAN (private address); standard sudo user |
+| OS / kernel | Ubuntu 24.04.4 LTS / 6.8.0 |
+| CPU | i7-12800H — 6P + 8E cores, 20 threads |
+| RAM | 30 GiB + 8 GiB swap |
+| **GPU** | **NVIDIA RTX A1000 Laptop, 4 GB VRAM** ← the binding constraint |
+| Storage | 1 TB NVMe; a large data volume holds everything |
+| Backup | ⚠️ **none yet** — TODO: restic/borg to an external drive (3-2-1) |
+
+**Services** (Docker, on a shared internal network):
+
+| Service | Notes |
+|---|---|
+| **Ollama** | `OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_KV_CACHE_TYPE=q8_0`, `OLLAMA_KEEP_ALIVE=-1` |
+| **Qdrant** | a vector collection; **not used by the character pipeline** (RAG dropped); kept for possible future non-character content |
+| **Nginx Proxy Manager** | the only LAN-facing service; reverse-proxies apps |
+
+---
+
+## 4. The model
+
+> **⚠️ Superseded (2026-06-28) — current path: NO fine-tune.** The model is now the **base
+> `qwen3:4b-instruct-2507` (q4_K_M) + per-request dynamic grammar + engine de-dup** → **149/149
+> valid**, one model for sheet *and* flavour, fully GPU-resident (~2.5 GB). Why: validity is
+> *engineered* by the grammar (the model is constrained to valid options at exact counts), so the
+> model no longer needs to memorise rules — the base model + grammar **beats the fine-tune's
+> ceiling** and removes the two-model problem. The sheet uses **raw `/api/generate` + manual
+> ChatML** (the 2507 chat parser 500s on grammar-fenced JSON). The fine-tune notes below are
+> **historical** — kept for the lessons (training pitfalls, quant tradeoffs), not the path.
+
+**[Historical] Decision: `qwen3:4b-instruct-2507`, fine-tuned.** It was the only model that both
+fit the 4 GB GPU (→ fast, thermally immune) *and* followed the rules well enough. A 12-model
+comparison and a correctness scorecard backed this. The base 4B already nailed non-casters.
+
+**Fine-tune** — QLoRA via Unsloth on Kaggle (free T4/P100; can't train a 4B on 4 GB locally —
+cloud-train, local-infer):
+- LoRA r=16, lr 2e-4, 3 epochs / 696 steps. Train loss **2.38 → 0.30**, held-out eval loss
+  **0.448 → 0.337** (no overfitting).
+- Dataset: a 2,000-pair gold set rendered as ChatML `user → assistant(JSON)`.
+
+**Quantization tradeoff** (full 149-prompt eval; "ceiling" = valid once the rules engine enforces
+counts, which is code's job):
+
+| Quant | Size | GPU fit | Speed | Strict | **Ceiling** |
+|---|---|---|---|---|---|
+| **q4_K_M** | 2.7 GB | **100 % GPU** | **~7 s** | 50.3 % | 90.6 % |
+| q8_0 | 4.9 GB | 45/55 CPU/GPU | 7–22 s, heat-sensitive | 59.7 % | 96.0 % |
+
+**Current choice: q4_K_M** for the speed and full-GPU residency. q4 roughly doubles *content*
+errors vs q8 — acceptable for v1, but **revisit q5_K_M** if quality matters more than the last few
+seconds. Stable at q4 (0 parse failures / 0 loops across 149).
+
+**How to rebuild the GGUF** (the reliable path):
+1. Train on Kaggle → download the **merged 16-bit** model. *Don't* use Unsloth's GGUF export — it
+   mangled the chat special tokens.
+2. Convert locally with **llama.cpp `convert_hf_to_gguf.py`**.
+3. For q4: convert to f16, then `ollama create … --quantize q4_K_M`.
+4. Use a **plain ChatML template, no `<think>` priming** (see §8).
+
+*(Note: the fine-tune is no longer on the critical path — the base model + grammar supersedes it.)*
+
+---
+
+## 5. What works — proven findings (with evidence)
+
+1. **Structure was never the hard part.** On 149 held-out prompts (temp 0): **98.7 % structural
+   accuracy**. Almost all failures were *choice-count* related, not structural.
+
+2. **The model's only real weakness was *counts*, not *choices*.** Zero hallucinated picks across
+   149. Failures were "picked N, should be N±1" — i.e. **counting**, which is deterministic math.
+   Enforcing counts in code took the score to **96 %**. This is exactly why the dynamic grammar
+   (which fixes counts *by construction*) was the winning move.
+
+3. **🔑 RAG *hurt* the fine-tuned model.** Injecting reference lists (which fixed the *base*
+   model's hallucinations) made the *fine-tune* worse — extra context was off-distribution and
+   derailed it. → **No prompt-RAG in the character pipeline.** Fix correctness with deterministic
+   post-processing (and, now, with constrained decoding) instead.
+
+4. **Structured output guarantees shape, not correctness.** A JSON-schema-constrained response is
+   always schema-valid, but the *content* (counts, math) still needs code. → the grammar handles
+   shape + valid options; code handles the maths.
+
+5. **Backstory is solved** with the base 4B, no RAG, tiny context: fast, 100 % GPU, varied and
+   genre-true. No big model needed for flavour.
+
+---
+
+## 6. Design principles & locked decisions
+
+1. **Code does the math, not the model.** Ability mods, saves (incl. the multiclass first-class
+   rule), HP, proficiency bonus, spell slots, save DC, counts, validation → all deterministic code.
+2. **The model outputs CHOICES ONLY**, constrained by a **per-request dynamic grammar**, not a
+   static schema. *Base contract:* identity + skills + spells + fighting-style/expertise when
+   granted. Code injects race, ability assignment (standard array, pre-racial), classes (with the
+   **code-resolved subclass** — hybrid: user value else random, before the call). *Expanded
+   contract:* per-`(class, subclass, level, race)` enums for **feature choices, feats/advancement,
+   race choices, and starting equipment**. Everything computable is **derived**. All model-side
+   choices are implemented and valid by construction.
+3. **No RAG in the character pipeline** (finding §5.3).
+4. **Two repos, one HTTP contract.** Arcane Scroll (Python AI) ↔ Arcane Desk (SvelteKit), schema
+   as source of truth, internal API behind NPM with a shared token.
+5. **Synchronous API for v1** — generation is a few seconds; add a job queue only if needed.
+6. **Cloud-train, local-infer** (relevant only if we revisit fine-tuning).
+
+---
+
+## 7. Hard-won gotchas (don't relearn these)
+
+- **🔥 Thermal throttling is the real latency ceiling**, not the model. The chip heat-soaks under
+  sustained load (lid-closed airflow hurts). **Grammar-constrained decoding is thermally
+  sensitive** — per-token sampling runs CPU-side, so a hot chip can swing the *same* generation
+  from ~8 s to well over a minute even at 100 % GPU. **Free-text (backstory) is immune.**
+  Mitigations: keep prompts small (→ 100 % GPU) and improve cooling. Single generations are fine;
+  sustained load throttles.
+- **`<think>` preamble = a loop bug.** The 2507 chat template injects an empty `<think>` block
+  before the assistant target; training on that taught a fragile preamble that loops endlessly
+  under llama.cpp/Ollama. Fix: render targets manually with **no `<think>` block**.
+- **q4 has a real quality cost** — ~2× content errors vs q8. Not just a size knob.
+- **Thinking models need `"think": false`** or the reasoning phase fights constrained JSON and
+  returns empty content. (The 2507 *instruct* sidesteps this by being non-thinking.)
+- **Cold start** ~30 s to load; `OLLAMA_KEEP_ALIVE=-1` keeps the model resident.
+
+---
+
+## 8. Roadmap / open items
+
+**Now (highest leverage):**
+1. **Build the derivation engine** — the "code does the math" half, on top of the now-valid
+   choices: ability mods, **saves** (multiclass rule), **HP**, proficiency bonus, **spell slots /
+   save DC / attack**, AC, initiative, passive perception; **auto-granted subclass spells/features**;
+   **languages & tool proficiencies**; **fixed-equipment packages**; assemble the chosen equipment
+   into an inventory; the strict validator as the final gate. *(Choice validity is already solved by
+   the grammar — this layer adds the computed sheet.)*
+2. **Scaffold the FastAPI service**: prompt → grammar-constrained generate → derivation engine →
+   validated JSON; plus a flavour endpoint. Containerise behind NPM, token-auth.
+
+**Next:**
+3. **Wire Arcane Desk** to call the API server-side; generate TS types from the schema.
+4. **Resolve Arcane Desk's dual-DB smell** (auth + content stores) — consolidate.
+
+**Later / watch:**
+5. Re-evaluate **q5_K_M** if the q4 quality cost bites.
+6. **Off-disk backup.**
+7. Cooling for sustained throughput.
