@@ -22,12 +22,14 @@ def _build_synthetic_db(path: str) -> None:
         cur.execute("INSERT INTO catalog VALUES (?,?)", (name, json.dumps(value)))
 
     # classes — one known-caster ("mage"), one martial ("warrior")
-    rec("classes", "mage", {"index": "mage", "name": "Mage",
+    rec("classes", "mage", {"index": "mage", "name": "Mage", "hit_die": 6,
+        "saving_throws": [{"index": "int"}, {"index": "wis"}],
         "proficiency_choices": [{"choose": 2, "from": {"options": [
             {"item": {"index": "skill-lore"}}, {"item": {"index": "skill-runes"}},
             {"item": {"index": "skill-focus"}}]}}],
         "spellcasting": {"spellcasting_ability": {"index": "int"}}})
-    rec("classes", "warrior", {"index": "warrior", "name": "Warrior",
+    rec("classes", "warrior", {"index": "warrior", "name": "Warrior", "hit_die": 10,
+        "saving_throws": [{"index": "str"}, {"index": "con"}],
         "proficiency_choices": [{"choose": 2, "from": {"options": [
             {"item": {"index": "skill-brawn"}}, {"item": {"index": "skill-menace"}},
             {"item": {"index": "skill-watch"}}]}}],
@@ -41,17 +43,20 @@ def _build_synthetic_db(path: str) -> None:
                 {"option_type": "choice", "choice": {"choose": 1, "desc": "a martial weapon",
                     "from": {"equipment_category": {"index": "cat-martial"}}}}]}}]})
     # a PREPARED caster (no spells_known in the table → count = ability mod + level)
-    rec("classes", "oracle", {"index": "oracle", "name": "Oracle",
+    rec("classes", "oracle", {"index": "oracle", "name": "Oracle", "hit_die": 8,
+        "saving_throws": [{"index": "wis"}, {"index": "cha"}],
         "proficiency_choices": [{"choose": 2, "from": {"options": [
             {"item": {"index": "skill-focus"}}, {"item": {"index": "skill-lore"}},
             {"item": {"index": "skill-watch"}}]}}],
         "spellcasting": {"spellcasting_ability": {"index": "wis"}}})
     # a martial that gets a fighting style ("fighter") and one that gets expertise ("rogue")
-    rec("classes", "fighter", {"index": "fighter", "name": "Fighter",
+    rec("classes", "fighter", {"index": "fighter", "name": "Fighter", "hit_die": 10,
+        "saving_throws": [{"index": "str"}, {"index": "con"}],
         "proficiency_choices": [{"choose": 2, "from": {"options": [
             {"item": {"index": "skill-brawn"}}, {"item": {"index": "skill-menace"}},
             {"item": {"index": "skill-watch"}}]}}]})
-    rec("classes", "rogue", {"index": "rogue", "name": "Rogue",
+    rec("classes", "rogue", {"index": "rogue", "name": "Rogue", "hit_die": 8,
+        "saving_throws": [{"index": "dex"}, {"index": "int"}],
         "proficiency_choices": [{"choose": 4, "from": {"options": [
             {"item": {"index": "skill-brawn"}}, {"item": {"index": "skill-menace"}},
             {"item": {"index": "skill-watch"}}, {"item": {"index": "skill-focus"}}]}}]})
@@ -106,11 +111,12 @@ def _build_synthetic_db(path: str) -> None:
     # skills
     for idx, nm, ab in [("lore", "Lore", "int"), ("runes", "Runes", "int"),
                         ("focus", "Focus", "wis"), ("brawn", "Brawn", "str"),
-                        ("menace", "Menace", "cha"), ("watch", "Watch", "wis")]:
+                        ("menace", "Menace", "cha"), ("watch", "Watch", "wis"),
+                        ("perception", "Perception", "wis")]:   # real name → exercises passive perception
         rec("skills", idx, {"index": idx, "name": nm, "ability_score": {"index": ab}})
 
-    # a race with an ability bonus
-    rec("races", "human", {"index": "human", "name": "Human",
+    # a race with an ability bonus + speed
+    rec("races", "human", {"index": "human", "name": "Human", "speed": 30,
                            "ability_bonuses": [{"ability_score": {"index": "int"}, "bonus": 1}]})
 
     # supplemental lists

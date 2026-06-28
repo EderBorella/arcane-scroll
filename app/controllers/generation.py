@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from app import catalog
+from app.derivation import derive
 from app.generation import generate_backstory, generate_sheet, parse
 
 router = APIRouter(prefix="/v1", tags=["generation"])
@@ -39,27 +40,31 @@ class CharacterRequest(BaseModel):
 
 
 class CharacterResponse(BaseModel):
-    """The generated **choices** — what the model picked plus the code-injected deterministic fields.
-    (The full computed sheet comes once the derivation engine lands.)"""
+    """The generated character: **choices** (what the model picked + code-injected fields) and the
+    **sheet** (the derived numbers — abilities, modifiers, proficiency bonus, HP, AC, saves, skills,
+    spell DC/attack, speed, hit dice)."""
     choices: dict
+    sheet: dict
 
 
 @router.post("/characters", response_model=CharacterResponse,
-             summary="Generate a character's choices",
+             summary="Generate a character (choices + derived sheet)",
              description=(
                  "Turn a request (race + class(es), optional per-class subclass overrides, optional "
-                 "uniqueness hint) into a character's grammar-constrained, repaired **choices**: "
-                 "name, background, alignment, ability assignment, skills, and spells (when a caster). "
-                 "Race / class / level / subclass are code-resolved; the rest the model picks within "
-                 "the per-request grammar. **400** = unknown race/class or out-of-range level.\n\n"
-                 "_The full computed sheet (derivation) and a separate backstory endpoint come in later PRs._"))
+                 "uniqueness hint) into a character's grammar-constrained, repaired **choices** "
+                 "(name, background, alignment, abilities, skills, spells, feature/feat/equipment picks) "
+                 "and the derived **sheet** computed from them (ability scores incl. ASIs, modifiers, "
+                 "proficiency bonus, HP, AC, saving throws, skill table, spell save DC/attack, speed, "
+                 "hit dice). Race / class / level / subclass are code-resolved. **400** = unknown "
+                 "race/class or out-of-range level."))
 def create_character(req: CharacterRequest) -> CharacterResponse:
     cat = catalog.get_catalog()
     try:
         spec = parse(cat, req.model_dump(by_alias=True))
     except (ValueError, KeyError) as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return CharacterResponse(choices=generate_sheet(cat, spec))
+    choices = generate_sheet(cat, spec)
+    return CharacterResponse(choices=choices, sheet=derive(cat, choices))
 
 
 class BackstoryRequest(BaseModel):
