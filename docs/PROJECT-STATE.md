@@ -79,6 +79,7 @@ What's left is derivation-side + the service:**
 | **Shared resource catalog (load-time)** | ✅ loaded in memory at startup |
 | **Character sheet generator** | ✅ base contract (skills + spells) |
 | **HTTP API** (`POST /v1/characters`) | ✅ live (skeleton) |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ 27 passing |
 | **Derivation engine (compute side)** | 🔧 **next — highest leverage** |
 | Generation / flavour endpoints | ⬜ after the engine |
 | Arcane Desk integration | ⬜ later |
@@ -86,6 +87,10 @@ What's left is derivation-side + the service:**
 
 ### Changelog (newest first)
 
+- **Test suite** (PR #6) — per-layer / per-service tests (catalog, generation helpers, request,
+  sheet generator, controller) against a small **synthetic** catalog fixture — content-free and
+  runnable anywhere; the controller test mocks the model. 27 tests (pytest); dev deps in
+  `requirements-dev.txt`.
 - **Character sheet generator** (PR #5) — a **generation layer** with one module per generator over
   shared pure helpers (`helpers.py`). The **character sheet** generator (`sheet.py`) translates a
   request → catalog-driven grammar + prompt → model → repaired, valid-by-construction choices,
