@@ -37,6 +37,15 @@ def _build_synthetic_db(path: str) -> None:
             {"item": {"index": "skill-focus"}}, {"item": {"index": "skill-lore"}},
             {"item": {"index": "skill-watch"}}]}}],
         "spellcasting": {"spellcasting_ability": {"index": "wis"}}})
+    # a martial that gets a fighting style ("fighter") and one that gets expertise ("rogue")
+    rec("classes", "fighter", {"index": "fighter", "name": "Fighter",
+        "proficiency_choices": [{"choose": 2, "from": {"options": [
+            {"item": {"index": "skill-brawn"}}, {"item": {"index": "skill-menace"}},
+            {"item": {"index": "skill-watch"}}]}}]})
+    rec("classes", "rogue", {"index": "rogue", "name": "Rogue",
+        "proficiency_choices": [{"choose": 4, "from": {"options": [
+            {"item": {"index": "skill-brawn"}}, {"item": {"index": "skill-menace"}},
+            {"item": {"index": "skill-watch"}}, {"item": {"index": "skill-focus"}}]}}]})
 
     # level tables
     mage_levels = {
@@ -59,6 +68,10 @@ def _build_synthetic_db(path: str) -> None:
     }
     for lv, sc in oracle_levels.items():
         rec("levels", f"oracle-{lv}", {"class": {"index": "oracle"}, "level": lv, "spellcasting": sc})
+    for lv in range(1, 6):
+        rec("levels", f"fighter-{lv}", {"class": {"index": "fighter"}, "level": lv})
+    for lv in range(1, 7):
+        rec("levels", f"rogue-{lv}", {"class": {"index": "rogue"}, "level": lv})
 
     # spells — cantrips + leveled (fake names); some are shared with the prepared caster (oracle)
     cantrips = [("Spark", ["mage", "oracle"]), ("Glimmer", ["mage", "oracle"]),
@@ -88,7 +101,9 @@ def _build_synthetic_db(path: str) -> None:
     lst("standard_array", [15, 14, 13, 12, 10, 8])
     lst("ability_priority", {"mage": ["int", "con", "dex", "wis", "cha", "str"],
                              "warrior": ["str", "con", "dex", "wis", "cha", "int"],
-                             "oracle": ["wis", "con", "dex", "int", "cha", "str"]})
+                             "oracle": ["wis", "con", "dex", "int", "cha", "str"],
+                             "fighter": ["str", "con", "dex", "wis", "cha", "int"],
+                             "rogue": ["dex", "con", "int", "wis", "cha", "str"]})
     lst("backgrounds", ["Wanderer", "Scholar", "Outcast"])
     lst("alignments_display", ["Order", "Balance", "Ruin"])
     lst("known_casters", ["mage"])
@@ -99,6 +114,9 @@ def _build_synthetic_db(path: str) -> None:
     lst("subclass_level", {"mage": 2, "warrior": 3, "oracle": 3})
     lst("subrace_bonus", {})
     lst("patron_expanded", {"shadow": {"1": ["Bolt"], "2": ["Quake"]}})
+    # feature-choice lists (fighting style; expertise reads the class skill list)
+    lst("fighting_styles", {"fighter": ["StyleA", "StyleB", "StyleC"]})
+    lst("fighting_style_level", {"fighter": 1})
     lst("prompt_sheet_sys", "TEST SYSTEM PROMPT")
     # flavour / backstory lists
     lst("race_phys", {"Human": {"age": [16, 90], "h": [58, 78], "w": [110, 270]}})

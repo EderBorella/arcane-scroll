@@ -77,16 +77,22 @@ What's left is derivation-side + the service:**
 | **Generation (all model choices)** | ✅ **complete & valid by construction** |
 | **Service stack (Docker: model + app)** | ✅ scaffolded — skeleton serving |
 | **Shared resource catalog (load-time)** | ✅ loaded in memory at startup |
-| **Character sheet generator** | ✅ base contract (skills + spells) |
+| **Character sheet generator** | ✅ base contract + feature choices (fighting style, expertise) |
 | **Backstory generator** | ✅ physical + personality + backstory |
 | **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ 45 passing |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ 52 passing |
 | **Derivation engine (compute side)** | 🔧 **next — highest leverage** |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
 
+- **Feature choices: fighting style + expertise** (PR #8) — first slice of the additive feature
+  contract. New `app/generation/features.py`: each choice is a `{field, enum, n}` descriptor gated by
+  `(class, subclass, level)`, pure + catalog-driven (value lists by neutral key, gating in code). The
+  sheet generator merges these into the per-request grammar and fits them in repair (expertise is
+  narrowed to the *chosen* skills). +7 tests (52 total). Subclass feature oddities, feats/ASI, and
+  equipment extend the same module next.
 - **Backstory generator** (PR #7) — a second generation module (`backstory.py`, same shape as the
   sheet generator over shared helpers): one structured model call produces race-bounded physical
   traits, personality (two traits + ideal/bond/flaw), and a ~150-word backstory grounded in the
