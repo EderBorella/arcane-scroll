@@ -52,6 +52,9 @@ def _build_synthetic_db(path: str) -> None:
     # a martial that gets a fighting style ("fighter") and one that gets expertise ("rogue")
     rec("classes", "fighter", {"index": "fighter", "name": "Fighter", "hit_die": 10,
         "saving_throws": [{"index": "str"}, {"index": "con"}],
+        "proficiencies": [{"index": "all-armor", "name": "All armor"}, {"index": "shields", "name": "Shields"},
+                          {"index": "simple-weapons", "name": "Simple weapons"},
+                          {"index": "martial-weapons", "name": "Martial weapons"}],
         "proficiency_choices": [{"choose": 2, "from": {"options": [
             {"item": {"index": "skill-brawn"}}, {"item": {"index": "skill-menace"}},
             {"item": {"index": "skill-watch"}}]}}]})
@@ -69,8 +72,10 @@ def _build_synthetic_db(path: str) -> None:
         4: {"cantrips_known": 4, "spells_known": 7, "spell_slots_level_1": 4, "spell_slots_level_2": 3},
         5: {"cantrips_known": 4, "spells_known": 8, "spell_slots_level_1": 4, "spell_slots_level_2": 3, "spell_slots_level_3": 2},
     }
+    mage_features = {1: [{"name": "Spellcasting"}], 2: [{"name": "Arcane Recovery"}]}
     for lv, sc in mage_levels.items():
-        rec("levels", f"mage-{lv}", {"class": {"index": "mage"}, "level": lv, "spellcasting": sc})
+        rec("levels", f"mage-{lv}", {"class": {"index": "mage"}, "level": lv, "spellcasting": sc,
+                                     "features": mage_features.get(lv, [])})
     for lv in range(1, 6):
         rec("levels", f"warrior-{lv}", {"class": {"index": "warrior"}, "level": lv})
     oracle_levels = {  # prepared caster: cantrips + slots, no spells_known
@@ -115,9 +120,25 @@ def _build_synthetic_db(path: str) -> None:
                         ("perception", "Perception", "wis")]:   # real name → exercises passive perception
         rec("skills", idx, {"index": idx, "name": nm, "ability_score": {"index": ab}})
 
-    # a race with an ability bonus + speed
+    # a race with an ability bonus + speed + a fixed language and a "choose 1" option
     rec("races", "human", {"index": "human", "name": "Human", "speed": 30,
-                           "ability_bonuses": [{"ability_score": {"index": "int"}, "bonus": 1}]})
+                           "ability_bonuses": [{"ability_score": {"index": "int"}, "bonus": 1}],
+                           "languages": [{"name": "Common"}],
+                           "traits": [{"name": "Versatile"}],
+                           "language_options": {"choose": 1, "from": {"option_set_type": "options_array",
+                               "options": [{"item": {"name": "LangA"}}, {"item": {"name": "LangB"}}]}}})
+
+    # languages master list (for background "choose N of any language")
+    for idx, nm in [("common", "Common"), ("l1", "LangA"), ("l2", "LangB"), ("l3", "LangC"), ("l4", "LangD")]:
+        rec("languages", idx, {"index": idx, "name": nm})
+
+    # background records (the model picks a name from the backgrounds list; these resolve the grants)
+    rec("backgrounds", "scholar", {"index": "scholar", "name": "Scholar",
+        "starting_proficiencies": [{"index": "skill-lore", "name": "Lore"}, {"index": "skill-runes", "name": "Runes"}],
+        "tool_proficiencies": ["Quill"], "language_options": {"choose": 1}, "feature": {"name": "Bookish"}})
+    rec("backgrounds", "outcast", {"index": "outcast", "name": "Outcast",
+        "starting_proficiencies": [{"index": "skill-brawn", "name": "Brawn"}],
+        "tool_proficiencies": [], "language_options": {"choose": 0}, "feature": {"name": "Hardened"}})
 
     # supplemental lists
     lst("abilities", ["str", "dex", "con", "int", "wis", "cha"])
