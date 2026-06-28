@@ -75,10 +75,21 @@ What's left is derivation-side + the service:**
 | Flavour bundle (physical/traits/backstory) | ✅ done (one structured call) |
 | Strict validator + reference data | ✅ working |
 | **Generation (all model choices)** | ✅ **complete & valid by construction** |
+| **Service stack (Docker: model + app)** | ✅ scaffolded — skeleton serving |
 | **Derivation engine (compute side)** | 🔧 **next — highest leverage** |
-| FastAPI service (`arcane-scroll`) | ⬜ not started |
+| Generation / flavour endpoints | ⬜ after the engine |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
+
+### Changelog (newest first)
+
+- **Docker stack scaffolded** (PR #3) — self-contained compose: a model server + the app, plus the
+  reference data mounted at runtime. The app loads the catalog into memory at startup and exposes
+  `/health` + `/ready`; the catalog is built from the mounted data on boot; the model is ensured
+  idempotently. Brought up live and verified — model resident on GPU, ~38 tok/s decode (no
+  regression vs. the previous setup), runtime settings intact. *(Infra + skeleton only; no data in
+  the repo.)*
+- **Public docs** (PR #2) — README, sanitized project state, and license.
 
 ---
 
@@ -259,21 +270,26 @@ seconds. Stable at q4 (0 parse failures / 0 loops across 149).
 
 ## 8. Roadmap / open items
 
+**Done:**
+- ✅ **Service stack scaffolded** (Docker: model + app, self-contained; app skeleton serving) — see Changelog.
+
 **Now (highest leverage):**
-1. **Build the derivation engine** — the "code does the math" half, on top of the now-valid
+1. **Wire the engine into the app** — point the grammar-builder + validator at the in-memory
+   catalog (instead of in-code tables) so the service can generate.
+2. **Build the derivation engine** — the "code does the math" half, on top of the now-valid
    choices: ability mods, **saves** (multiclass rule), **HP**, proficiency bonus, **spell slots /
    save DC / attack**, AC, initiative, passive perception; **auto-granted subclass spells/features**;
    **languages & tool proficiencies**; **fixed-equipment packages**; assemble the chosen equipment
    into an inventory; the strict validator as the final gate. *(Choice validity is already solved by
    the grammar — this layer adds the computed sheet.)*
-2. **Scaffold the FastAPI service**: prompt → grammar-constrained generate → derivation engine →
-   validated JSON; plus a flavour endpoint. Containerise behind NPM, token-auth.
+3. **Generation + flavour endpoints** on the scaffolded service: prompt → grammar-constrained
+   generate → derivation engine → validated JSON; plus a flavour endpoint.
 
 **Next:**
-3. **Wire Arcane Desk** to call the API server-side; generate TS types from the schema.
-4. **Resolve Arcane Desk's dual-DB smell** (auth + content stores) — consolidate.
+4. **Wire Arcane Desk** to call the API server-side; generate TS types from the schema.
+5. **Resolve Arcane Desk's dual-DB smell** (auth + content stores) — consolidate.
 
 **Later / watch:**
-5. Re-evaluate **q5_K_M** if the q4 quality cost bites.
-6. **Off-disk backup.**
-7. Cooling for sustained throughput.
+6. Re-evaluate **q5_K_M** if the q4 quality cost bites.
+7. **Off-disk backup.**
+8. Cooling for sustained throughput.
