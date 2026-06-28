@@ -89,8 +89,9 @@ What's left is derivation-side + the service:**
 - **Character sheet generator** (PR #5) — a **generation layer** with one module per generator over
   shared pure helpers (`helpers.py`). The **character sheet** generator (`sheet.py`) translates a
   request → catalog-driven grammar + prompt → model → repaired, valid-by-construction choices,
-  exposed via a thin controller: **POST /v1/characters**. Base contract (deterministic fields +
-  skills + spells); verified over HTTP. The **backstory** generator (its own module + helpers, same
+  exposed via a thin controller — **POST /v1/characters**, with a typed, OpenAPI-documented request
+  model (`/docs`). Base contract (deterministic fields + skills + spells); verified over HTTP across
+  minimal / multiclass / high-level / subclass-override cases and the error paths (400 / 422). The **backstory** generator (its own module + helpers, same
   shape), feature/feat/equipment choices, bounds-clamping, and the derivation engine are next.
 - **Shared resource catalog** (PR #4) — the reference store now loads into memory once at startup as
   a single generic resource module: entity *records* by kind + supplemental *lists* by name,
