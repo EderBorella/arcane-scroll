@@ -1,22 +1,21 @@
-"""Arcane Scroll API (skeleton). Loads the catalog into memory at startup and exposes liveness/
-readiness. Generation endpoints come next."""
+"""Arcane Scroll API. Loads the catalog into memory at startup, exposes liveness/readiness, and
+mounts the generation controller."""
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from app import catalog
-
-_state: dict = {}
+from app.controllers import generation
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    _state["catalog"] = catalog.load()
+    catalog.load()
     yield
-    _state.clear()
 
 
 app = FastAPI(title="Arcane Scroll", version="0.0.1", lifespan=lifespan)
+app.include_router(generation.router)
 
 
 @app.get("/health")
@@ -28,7 +27,8 @@ def health():
 @app.get("/ready")
 def ready():
     """Readiness — the catalog is loaded into memory (proves the data mount works)."""
-    cat = _state.get("catalog")
-    if cat is None:
+    try:
+        cat = catalog.get_catalog()
+    except RuntimeError:
         return {"ready": False}
     return {"ready": True, **cat.stats()}
