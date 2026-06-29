@@ -23,11 +23,17 @@ def _carried_text(cat, choices) -> str:
 
 
 def equipped_armour(cat, choices):
-    """(armour_record, has_shield) — the highest-base armour the character carries (None if unarmoured)."""
+    """(armour_record, has_shield) — the armour the character wears (None if unarmoured).
+
+    Names are matched as substrings of the carried-equipment blob. Some armour names are sub-phrases
+    of a more specific one ("Plate Armor" ⊂ "Half Plate Armor", "Leather Armor" ⊂ "Studded Leather
+    Armor"), so a less-specific name can match purely because the specific one is present. We drop any
+    matched name contained in another matched name, then take the highest-base survivor."""
     blob = _carried_text(cat, choices)
-    best = None
-    for e in cat.records("equipment").values():
-        if e.get("armor_category") in _ARMOUR_CATS and e["name"].lower() in blob:
-            if best is None or e["armor_class"]["base"] > best["armor_class"]["base"]:
-                best = e
+    matched = [e for e in cat.records("equipment").values()
+               if e.get("armor_category") in _ARMOUR_CATS and e["name"].lower() in blob]
+    names = {e["name"].lower() for e in matched}
+    specific = [e for e in matched
+                if not any(e["name"].lower() != n and e["name"].lower() in n for n in names)]
+    best = max(specific, key=lambda e: e["armor_class"]["base"], default=None)
     return best, "shield" in blob

@@ -143,8 +143,13 @@ def _build_synthetic_db(path: str) -> None:
                                     "armor_class": {"base": 16, "dex_bonus": False}})
     rec("equipment", "leather-armor", {"index": "leather-armor", "name": "Leather Armor", "armor_category": "Light",
                                        "armor_class": {"base": 11, "dex_bonus": True}})
-    rec("equipment", "half-plate", {"index": "half-plate", "name": "Half Plate", "armor_category": "Medium",
+    rec("equipment", "half-plate", {"index": "half-plate", "name": "Half Plate Armor", "armor_category": "Medium",
                                     "armor_class": {"base": 15, "dex_bonus": True, "max_bonus": 2}})
+    # name-subset trap: "Plate Armor" ⊂ "Half Plate Armor", "Leather Armor" ⊂ "Studded Leather Armor"
+    rec("equipment", "plate-armor", {"index": "plate-armor", "name": "Plate Armor", "armor_category": "Heavy",
+                                     "armor_class": {"base": 18, "dex_bonus": False}})
+    rec("equipment", "studded-leather", {"index": "studded-leather", "name": "Studded Leather Armor",
+                                         "armor_category": "Light", "armor_class": {"base": 12, "dex_bonus": True}})
     rec("equipment", "shield", {"index": "shield", "name": "Shield", "armor_category": "Shield",
                                 "armor_class": {"base": 2, "dex_bonus": False}})
 
