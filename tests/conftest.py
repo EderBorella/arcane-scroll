@@ -138,6 +138,16 @@ def _build_synthetic_db(path: str) -> None:
     for idx, nm in [("common", "Common"), ("l1", "LangA"), ("l2", "LangB"), ("l3", "LangC"), ("l4", "LangD")]:
         rec("languages", idx, {"index": idx, "name": nm})
 
+    # armour equipment records (for armour-based AC detection)
+    rec("equipment", "chain-mail", {"index": "chain-mail", "name": "Chain Mail", "armor_category": "Heavy",
+                                    "armor_class": {"base": 16, "dex_bonus": False}})
+    rec("equipment", "leather-armor", {"index": "leather-armor", "name": "Leather Armor", "armor_category": "Light",
+                                       "armor_class": {"base": 11, "dex_bonus": True}})
+    rec("equipment", "half-plate", {"index": "half-plate", "name": "Half Plate", "armor_category": "Medium",
+                                    "armor_class": {"base": 15, "dex_bonus": True, "max_bonus": 2}})
+    rec("equipment", "shield", {"index": "shield", "name": "Shield", "armor_category": "Shield",
+                                "armor_class": {"base": 2, "dex_bonus": False}})
+
     # background records (the model picks a name from the backgrounds list; these resolve the grants)
     rec("backgrounds", "scholar", {"index": "scholar", "name": "Scholar",
         "starting_proficiencies": [{"index": "skill-lore", "name": "Lore"}, {"index": "skill-runes", "name": "Runes"}],

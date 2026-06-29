@@ -27,15 +27,24 @@ def hit_dice(cat, classes) -> dict:
     return out
 
 
-def armor_class(cat, scores, classes) -> int:
+def armor_class(scores, classes, armour=None, shield=False) -> int:
+    """Worn-armour AC when armour is equipped (base + Dex per the armour's rule: light = full Dex,
+    medium = +Dex capped at max_bonus, heavy = none); otherwise unarmoured (10 + Dex, taking the best
+    of Barbarian +CON / Monk +WIS). +2 for a shield."""
     dex = modifier(scores["dex"])
-    ac = 10 + dex
-    cis = {ci for ci, _ in classes}
-    if "barbarian" in cis:
-        ac = max(ac, 10 + dex + modifier(scores["con"]))
-    if "monk" in cis:
-        ac = max(ac, 10 + dex + modifier(scores["wis"]))
-    return ac
+    if armour:
+        acd = armour["armor_class"]
+        ac = acd["base"]
+        if acd.get("dex_bonus"):
+            ac += min(dex, acd["max_bonus"]) if "max_bonus" in acd else dex
+    else:
+        ac = 10 + dex
+        cis = {ci for ci, _ in classes}
+        if "barbarian" in cis:
+            ac = max(ac, 10 + dex + modifier(scores["con"]))
+        if "monk" in cis:
+            ac = max(ac, 10 + dex + modifier(scores["wis"]))
+    return ac + (2 if shield else 0)
 
 
 def speed(cat, race) -> int:
