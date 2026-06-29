@@ -192,7 +192,11 @@ def _build_synthetic_db(path: str) -> None:
     # starting-equipment category → concrete items (synthetic)
     lst("category_items", {"cat-simple": ["WeaponA", "WeaponB", "WeaponC"],
                            "cat-martial": ["MartialA", "MartialB"]})
-    lst("prompt_sheet_sys", "TEST SYSTEM PROMPT")
+    # versioned prompts (kind "prompts"): one active per locator + a superseded one for the resolver
+    rec("prompts", "sheet_sys-v1", {"index": "sheet_sys-v1", "name": "sheet_sys v1", "locator": "sheet_sys",
+                                    "version": 1, "active": False, "comment": "old", "text": "OLD SHEET PROMPT"})
+    rec("prompts", "sheet_sys-v2", {"index": "sheet_sys-v2", "name": "sheet_sys v2", "locator": "sheet_sys",
+                                    "version": 2, "active": True, "comment": "current", "text": "TEST SYSTEM PROMPT"})
     # flavour / backstory lists
     lst("race_phys", {"Human": {"age": [16, 90], "h": [58, 78], "w": [110, 270]}})
     lst("genders", ["Male", "Female", "Nonbinary"])
@@ -201,7 +205,8 @@ def _build_synthetic_db(path: str) -> None:
     lst("skin_default", ["Pale", "Tan", "Dark"])
     lst("skin_overrides", {"Scaled": ["Bronze", "Silver"]})
     lst("archetypes", ["Frame them through a mundane trade.", "Bond them to a place, not a person."])
-    lst("prompt_flavour_sys", "TEST FLAVOUR PROMPT")
+    rec("prompts", "flavour_sys-v1", {"index": "flavour_sys-v1", "name": "flavour_sys v1", "locator": "flavour_sys",
+                                      "version": 1, "active": True, "comment": "current", "text": "TEST FLAVOUR PROMPT"})
 
     con.commit()
     con.close()

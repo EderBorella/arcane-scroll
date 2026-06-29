@@ -69,6 +69,15 @@ class Catalog:
         except KeyError:
             raise KeyError(f"catalog list {name!r} not loaded") from None
 
+    # -- versioned prompts: return the active version's text for a locator --
+    def prompt(self, locator: str) -> str:
+        """Active prompt text for a locator. Prompts are versioned in the `prompts` records table;
+        superseded versions are kept (with a comment) for history but never returned here."""
+        for r in self.records("prompts").values():
+            if r.get("locator") == locator and r.get("active"):
+                return r.get("text", "")
+        raise KeyError(f"no active prompt for locator {locator!r}")
+
     @property
     def names(self) -> list[str]:
         return sorted(self._lists)

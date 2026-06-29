@@ -80,13 +80,20 @@ What's left is derivation-side + the service:**
 | **Character sheet generator** | ✅ base contract + feature/feat/equipment choices |
 | **Backstory generator** | ✅ physical + personality + backstory |
 | **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live — `/v1/characters` now returns choices **+ derived sheet** |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ 106 passing |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ 108 passing |
 | **Derivation engine (compute side)** | ✅ render-ready sheet (proficiencies, languages, features, slots, spellbook); armour/equipment/treasure parked |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
 
+- **Versioned prompts** (PR #13) — system prompts moved from bare catalog strings into a versioned
+  `prompts` records table (locator + version + active flag + comment + text). `Catalog.prompt(locator)`
+  returns the active version; superseded versions are kept for history with a comment on why. Both
+  generators read through the resolver. Tuned content (local data): the sheet prompt gained build-synergy
+  rules (feat fits role, fighting style matches weapons, background fits concept) and the flavour prompt
+  a consistency guard. +2 tests (108 total). _Note: the 4B model follows these on average but doesn't
+  guarantee cross-field coherence — engineered choice-repair would be the robust path._
 - **Subrace resolver tweaks** (PR #12) — two small derivation fixes so subraces resolve fully:
   `vitals.speed` now prefers a subrace's own `speed` (e.g. Wood Elf 35) over the parent's, and
   `features._race_traits` reads `racial_traits` on subrace records (their forward `traits` is empty)
