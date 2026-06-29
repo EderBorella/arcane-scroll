@@ -41,4 +41,11 @@ def test_parse_no_classes(catalog):
 def test_parse_multiclass(catalog):
     spec = request.parse(catalog, {"race": "Human",
                                    "classes": [{"class": "mage", "level": 3}, {"class": "oracle", "level": 2}]})
-    assert spec.classes == [("mage", 3), ("oracle", 2)]
+    assert spec.classes == [("mage", 3), ("oracle", 2)]      # mage(int) + oracle(wis,cha) = 3 abilities, legal
+
+
+def test_parse_rejects_illegal_multiclass(catalog):
+    # warrior(str,con) + oracle(wis,cha) = 4 abilities need 13+ — impossible under the standard array
+    with pytest.raises(ValueError):
+        request.parse(catalog, {"race": "Human",
+                                "classes": [{"class": "warrior", "level": 3}, {"class": "oracle", "level": 2}]})

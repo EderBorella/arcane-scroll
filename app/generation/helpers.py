@@ -18,9 +18,49 @@ def _ci(name) -> str:
 
 
 # ── abilities ────────────────────────────────────────────────────────────────
-def ability_assignment(cat, primary_class: str) -> dict:
-    """The standard array assigned to abilities by the class's priority order (pre-racial)."""
-    order = cat.get("ability_priority").get(primary_class) or cat.get("abilities")
+def _class_priority(cat, ci, sub):
+    """A class's ability priority, using a subclass override (e.g. Eldritch Knight) when present."""
+    return cat.get("ability_priority_subclass", {}).get(_norm(sub or "")) \
+        or cat.get("ability_priority", {}).get(ci) or cat.get("abilities")
+
+
+def required_abilities(cat, classes) -> set:
+    """Abilities that must be 13+ for a *multiclass* to be legal (RAW: every class's prereq). For an
+    `any` prereq (e.g. Fighter str-or-dex) the favoured one is chosen by the combined priority weight.
+    Empty for a single class (no multiclass prerequisite)."""
+    if len(classes) < 2:
+        return set()
+    prereqs, weight = cat.get("multiclass_prereqs", {}), _priority_weights(cat, classes)
+    req = set()
+    for ci, _, _ in classes:
+        p = prereqs.get(ci, {})
+        req |= set(p.get("all", []))
+        if p.get("any"):
+            req.add(max(p["any"], key=lambda ab: weight.get(ab, 0)))
+    return req
+
+
+def _priority_weights(cat, classes) -> dict:
+    """Per-ability desirability = Σ over classes of level × rank-weight in that class's priority."""
+    abilities = cat.get("abilities")
+    weight = {ab: 0 for ab in abilities}
+    for ci, lv, sub in classes:
+        pri = _class_priority(cat, ci, sub)
+        for rank, ab in enumerate(pri):
+            weight[ab] += lv * (len(pri) - rank)
+    return weight
+
+
+def ability_assignment(cat, classes) -> dict:
+    """Standard array assigned by combined (multiclass + subclass) priority, pre-racial. Abilities a
+    multiclass needs at 13+ are floated to the top so the array satisfies the prerequisites."""
+    abilities = cat.get("abilities")
+    weight = _priority_weights(cat, classes)
+    order = sorted(abilities, key=lambda ab: (-weight[ab], abilities.index(ab)))
+    required = required_abilities(cat, classes)
+    if required:                                   # float required-13+ abilities up; legality checked upstream
+        pos = {ab: i for i, ab in enumerate(order)}
+        order = sorted(order, key=lambda ab: (ab not in required, pos[ab]))
     desc = sorted(cat.get("standard_array"), reverse=True)
     return {ab: desc[i] for i, ab in enumerate(order)}
 
@@ -210,7 +250,7 @@ def repair(cat, choices, race, classes, subclasses):
     n_skill, skill_idx = class_skill_grant(cat, primary)
     choices["skill_choices"] = _dedup_pad(choices.get("skill_choices", []), skill_names(cat, skill_idx), n_skill)
     resolved = [(ci, lv, sub) for (ci, lv), sub in zip(classes, subclasses)]
-    pools = spell_pools(cat, resolved, race, ability_assignment(cat, primary))
+    pools = spell_pools(cat, resolved, race, ability_assignment(cat, resolved))
     if pools and choices.get("spell_choices"):
         cant, spl, nc, ns = pools
         sc = choices["spell_choices"]

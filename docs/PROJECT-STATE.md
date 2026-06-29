@@ -80,13 +80,21 @@ What's left is derivation-side + the service:**
 | **Character sheet generator** | ✅ base contract + feature/feat/equipment choices |
 | **Backstory generator** | ✅ physical + personality + backstory |
 | **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live — `/v1/characters` now returns choices **+ derived sheet** |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ 114 passing |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ 123 passing |
 | **Derivation engine (compute side)** | ✅ render-ready sheet (proficiencies, languages, features, slots, spellbook); armour/equipment/treasure parked |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
 
+- **Ability requirements** (PR #15) — `ability_assignment` now combines all classes (level-weighted
+  rank-sum) **+ a subclass priority override**, so a multiclass (e.g. fighter/wizard) gets a sensible
+  array instead of just the primary class's (Int no longer dumped). **Multiclass legality** enforced
+  in `request.parse`: 13+ in each class's key ability, **400** when more than three abilities would
+  need it (impossible under the standard array, e.g. Monk/Paladin). And feat eligibility gained
+  **ability-score + armour-proficiency prerequisites** (checked against the pre-call base+racial
+  scores), completing the engineered feat gate from PR #14. Data (local): multiclass prereqs, subclass
+  priority overrides, feat prereq attributes. +6 tests (120).
 - **Feat/option eligibility — capability-based ban** (PR #14) — engineered cross-field consistency,
   pre-call. A character's capabilities (`caster`/`martial`) = union over its classes **and** subclasses
   (multiclass + gish covered for free — caster subclasses grant `caster`, the martial bard subclass

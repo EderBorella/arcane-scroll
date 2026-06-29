@@ -14,7 +14,8 @@ from app.generation import helpers as H
 def build_grammar(cat, race, classes, subclasses):
     """(model_schema, fixed_fields). classes: [(ci, lv)]; subclasses aligned (None where unlocked-not)."""
     primary = classes[0][0]
-    aa = H.ability_assignment(cat, primary)
+    resolved = [(ci, lv, sub) for (ci, lv), sub in zip(classes, subclasses)]
+    aa = H.ability_assignment(cat, resolved)                  # combined multiclass + subclass priority
     n_skill, skill_idx = H.class_skill_grant(cat, primary)
 
     props = {
@@ -26,7 +27,6 @@ def build_grammar(cat, race, classes, subclasses):
     }
     req = ["name", "background", "alignment", "skill_choices"]
 
-    resolved = [(ci, lv, sub) for (ci, lv), sub in zip(classes, subclasses)]
     pools = H.spell_pools(cat, resolved, race, aa)
     if pools:
         cant, spl, nc, ns = pools
