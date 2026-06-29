@@ -29,6 +29,6 @@ def ready():
     """Readiness — the catalog is loaded into memory (proves the data mount works)."""
     try:
         cat = catalog.get_catalog()
-    except RuntimeError:
+        return {"ready": True, **cat.stats()}
+    except Exception:                       # readiness must never throw — any failure means "not ready"
         return {"ready": False}
-    return {"ready": True, **cat.stats()}

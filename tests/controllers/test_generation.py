@@ -83,3 +83,25 @@ def test_post_backstory_ok(client):
 def test_post_backstory_missing_fields_400(client):
     r = client.post("/v1/backstory", json={"character": {"name": "Nameless"}})
     assert r.status_code == 400
+
+
+def test_post_characters_model_error_502(client, monkeypatch):
+    # a model/backend failure is an upstream error, not a server bug → 502, not 500
+    import app.generation.client as model_client
+    def boom(*a, **k):
+        raise model_client.ModelError("backend down")
+    monkeypatch.setattr(model_client, "generate", boom)
+    r = client.post("/v1/characters", json={"race": "Human", "classes": [{"class": "mage", "level": 5}]})
+    assert r.status_code == 502 and "model backend" in r.json()["detail"].lower()
+
+
+def test_post_backstory_unknown_race_400(client):
+    r = client.post("/v1/backstory", json={"character": {"race": "Orc",
+                    "classes": [{"class": "mage", "level": 1}]}})
+    assert r.status_code == 400 and "race" in r.json()["detail"].lower()
+
+
+def test_post_backstory_unknown_class_400(client):
+    r = client.post("/v1/backstory", json={"character": {"race": "Human",
+                    "classes": [{"class": "bard", "level": 1}]}})
+    assert r.status_code == 400 and "class" in r.json()["detail"].lower()

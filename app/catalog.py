@@ -30,14 +30,17 @@ class Catalog:
         self._records: dict[str, dict[str, dict]] = {}
         self._lists: dict[str, Any] = {}
         self._by_name: dict[str, dict[str, dict]] = {}
-        con = sqlite3.connect(db_path)
         try:
-            for kind, idx, data in con.execute("SELECT kind, idx, data FROM entries"):
-                self._records.setdefault(kind, {})[idx] = json.loads(data)
-            for name, data in con.execute("SELECT name, data FROM catalog"):
-                self._lists[name] = json.loads(data)
-        finally:
-            con.close()
+            con = sqlite3.connect(db_path)
+            try:
+                for kind, idx, data in con.execute("SELECT kind, idx, data FROM entries"):
+                    self._records.setdefault(kind, {})[idx] = json.loads(data)
+                for name, data in con.execute("SELECT name, data FROM catalog"):
+                    self._lists[name] = json.loads(data)
+            finally:
+                con.close()
+        except (sqlite3.Error, json.JSONDecodeError) as e:
+            raise RuntimeError(f"failed to load catalog from {db_path!r}: {e}") from e
 
     # -- entity records, by kind --
     def records(self, kind: str) -> dict[str, dict]:
@@ -75,7 +78,10 @@ class Catalog:
         superseded versions are kept (with a comment) for history but never returned here."""
         for r in self.records("prompts").values():
             if r.get("locator") == locator and r.get("active"):
-                return r.get("text", "")
+                text = r.get("text", "")
+                if not text:
+                    raise KeyError(f"active prompt for locator {locator!r} has empty text")
+                return text
         raise KeyError(f"no active prompt for locator {locator!r}")
 
     @property

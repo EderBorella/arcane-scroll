@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from app import catalog
 from app.derivation import derive
 from app.generation import generate_backstory, generate_sheet, parse
+from app.generation.client import ModelError
+from app.generation.helpers import _ci, _norm
 
 router = APIRouter(prefix="/v1", tags=["generation"])
 
@@ -61,10 +63,14 @@ def create_character(req: CharacterRequest) -> CharacterResponse:
     cat = catalog.get_catalog()
     try:
         spec = parse(cat, req.model_dump(by_alias=True))
-    except (ValueError, KeyError) as e:
+    except (ValueError, KeyError, TypeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
-    choices = generate_sheet(cat, spec)
-    return CharacterResponse(choices=choices, sheet=derive(cat, choices))
+    try:
+        choices = generate_sheet(cat, spec)
+        sheet = derive(cat, choices)
+    except ModelError as e:
+        raise HTTPException(status_code=502, detail=f"model backend error: {e}")
+    return CharacterResponse(choices=choices, sheet=sheet)
 
 
 class BackstoryRequest(BaseModel):
@@ -98,8 +104,18 @@ class BackstoryResponse(BaseModel):
 def create_backstory(req: BackstoryRequest) -> BackstoryResponse:
     cat = catalog.get_catalog()
     character = dict(req.character)
-    if not character.get("race") or not character.get("classes"):
+    race, classes = character.get("race"), character.get("classes")
+    if not race or not classes:
         raise HTTPException(status_code=400, detail="character must include 'race' and 'classes'")
+    # validate against the catalog (like /v1/characters) so garbage race/class never reaches the model
+    if _norm(race) not in {_norm(r) for r in cat.get("valid_races", [])}:
+        raise HTTPException(status_code=400, detail=f"unknown race: {race!r}")
+    for c in classes:
+        if not cat.record("classes", _ci(c.get("class", ""))):
+            raise HTTPException(status_code=400, detail=f"unknown class: {c.get('class')!r}")
     if req.unique:
         character["unique"] = req.unique
-    return BackstoryResponse(flavour=generate_backstory(cat, character))
+    try:
+        return BackstoryResponse(flavour=generate_backstory(cat, character))
+    except ModelError as e:
+        raise HTTPException(status_code=502, detail=f"model backend error: {e}")
