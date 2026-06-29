@@ -80,13 +80,17 @@ What's left is derivation-side + the service:**
 | **Character sheet generator** | ✅ base contract + feature/feat/equipment choices |
 | **Backstory generator** | ✅ physical + personality + backstory |
 | **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live — `/v1/characters` now returns choices **+ derived sheet** |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ 105 passing |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ 106 passing |
 | **Derivation engine (compute side)** | ✅ render-ready sheet (proficiencies, languages, features, slots, spellbook); armour/equipment/treasure parked |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
 
+- **Subrace resolver tweaks** (PR #12) — two small derivation fixes so subraces resolve fully:
+  `vitals.speed` now prefers a subrace's own `speed` (e.g. Wood Elf 35) over the parent's, and
+  `features._race_traits` reads `racial_traits` on subrace records (their forward `traits` is empty)
+  in addition to the parent's `traits`. +1 test (106 total).
 - **Derivation fields — render-ready sheet** (PR #11) — filled the gaps against the field-inventory
   reference. `proficiency.py`: armour/weapon/tool proficiencies, **languages** (Common + race + a
   random race-option pick + the background's "choose N" from the new language table), and skill

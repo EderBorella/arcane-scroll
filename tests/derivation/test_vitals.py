@@ -26,4 +26,5 @@ def test_armor_class_unarmored_and_defences(catalog):
 
 def test_speed(catalog):
     assert vitals.speed(catalog, "Human") == 30
+    assert vitals.speed(catalog, "Highlander") == 35               # subrace sets its own speed
     assert vitals.speed(catalog, "Unknownfolk") == 30              # generic fallback

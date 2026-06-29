@@ -10,7 +10,8 @@ from app.generation import helpers as H
 
 
 def _race_traits(cat, race) -> list:
-    """Trait names for a race — a subrace plus its parent race."""
+    """Trait names for a race — a subrace plus its parent race. Base races carry `traits`; subrace
+    records carry `racial_traits` (their forward `traits` is empty), so read both from each record."""
     idx = re.sub(r"\s+", "-", str(race).strip().lower())
     recs = []
     sub = cat.record("subraces", idx)
@@ -21,7 +22,7 @@ def _race_traits(cat, race) -> list:
             recs.append(parent)
     elif cat.record("races", idx):
         recs.append(cat.record("races", idx))
-    return [t["name"] for r in recs for t in r.get("traits", [])]
+    return [t["name"] for r in recs for t in (r.get("traits", []) + r.get("racial_traits", []))]
 
 
 def features_and_traits(cat, choices) -> list:

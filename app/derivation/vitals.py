@@ -39,10 +39,13 @@ def armor_class(cat, scores, classes) -> int:
 
 
 def speed(cat, race) -> int:
-    """Race (or subrace → parent race) walking speed, with a generic fallback."""
+    """Walking speed: a subrace's own speed if it sets one (e.g. Wood Elf 35), else its parent
+    race's, else a base race's, with a generic fallback."""
     idx = re.sub(r"\s+", "-", str(race).strip().lower())
     sub = cat.record("subraces", idx)
     if sub:
+        if "speed" in sub:
+            return sub["speed"]
         parent = cat.record("races", sub.get("race", {}).get("index"))
         return (parent or {}).get("speed", 30)
     return (cat.record("races", idx) or {}).get("speed", 30)

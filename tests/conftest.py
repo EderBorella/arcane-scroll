@@ -128,6 +128,12 @@ def _build_synthetic_db(path: str) -> None:
                            "language_options": {"choose": 1, "from": {"option_set_type": "options_array",
                                "options": [{"item": {"name": "LangA"}}, {"item": {"name": "LangB"}}]}}})
 
+    # a subrace: own speed override + racial_traits (subrace records use racial_traits, not traits)
+    rec("subraces", "highlander", {"index": "highlander", "name": "Highlander", "speed": 35,
+                                   "race": {"index": "human"},
+                                   "ability_bonuses": [{"ability_score": {"index": "str"}, "bonus": 1}],
+                                   "racial_traits": [{"name": "Sure-Footed"}]})
+
     # languages master list (for background "choose N of any language")
     for idx, nm in [("common", "Common"), ("l1", "LangA"), ("l2", "LangB"), ("l3", "LangC"), ("l4", "LangD")]:
         rec("languages", idx, {"index": idx, "name": nm})
