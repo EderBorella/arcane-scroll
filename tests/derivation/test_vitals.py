@@ -19,9 +19,19 @@ def test_multiclass_hp_only_first_level_is_maxed(catalog):
 
 
 def test_armor_class_unarmored_and_defences(catalog):
-    assert vitals.armor_class(catalog, _scores(dex=16), [("mage", 5)]) == 13           # 10 + DEX
-    assert vitals.armor_class(catalog, _scores(dex=14, con=16), [("barbarian", 3)]) == 15   # +CON
-    assert vitals.armor_class(catalog, _scores(dex=14, wis=16), [("monk", 3)]) == 15        # +WIS
+    assert vitals.armor_class(_scores(dex=16), [("mage", 5)]) == 13           # 10 + DEX
+    assert vitals.armor_class(_scores(dex=14, con=16), [("barbarian", 3)]) == 15   # +CON
+    assert vitals.armor_class(_scores(dex=14, wis=16), [("monk", 3)]) == 15        # +WIS
+
+
+def test_armor_class_worn(catalog):
+    heavy = {"armor_class": {"base": 16, "dex_bonus": False}}
+    light = {"armor_class": {"base": 11, "dex_bonus": True}}
+    medium = {"armor_class": {"base": 15, "dex_bonus": True, "max_bonus": 2}}
+    assert vitals.armor_class(_scores(dex=18), [("fighter", 5)], heavy) == 16            # heavy: no Dex
+    assert vitals.armor_class(_scores(dex=14), [("rogue", 5)], light) == 13              # light: +full Dex
+    assert vitals.armor_class(_scores(dex=18), [("cleric", 5)], medium) == 17            # medium: Dex capped at 2
+    assert vitals.armor_class(_scores(dex=14), [("fighter", 5)], heavy, shield=True) == 18  # +2 shield
 
 
 def test_speed(catalog):

@@ -7,14 +7,16 @@ unit-testable in isolation. The model picked; this computes.
 `rng` exists only for language choices (race/background "choose N of your choice"); pass a seeded RNG
 for a reproducible sheet. Everything else is a pure function of the choices.
 
+AC is now armour-based (equipment.equipped_armour → vitals.armor_class), with the unarmoured /
+Barbarian / Monk path as fallback.
+
 Deferred (data/scope, not oversight):
-  * Armour AC from equipped items — no item-stat records yet → unarmoured base (see vitals).
   * Feat mechanical effects — only ASI bumps are applied (see abilities).
-  * Equipment assembly + treasure/starting wealth — no item-stat/wealth records.
+  * Full inventory assembly into [{item, qty}] + treasure/starting wealth (next phases of T42).
 """
 import random
 
-from app.derivation import abilities, features, proficiency, spellcasting, vitals
+from app.derivation import abilities, equipment, features, proficiency, spellcasting, vitals
 
 SCHEMA_VERSION = 1
 
@@ -36,7 +38,7 @@ def derive(cat, choices, *, rng=random) -> dict:
         "max_hp": vitals.max_hp(cat, classes, mods["con"]),
         "hit_dice": vitals.hit_dice(cat, classes),
         "death_saves": {"successes": 0, "failures": 0},
-        "armor_class": vitals.armor_class(cat, scores, classes),
+        "armor_class": vitals.armor_class(scores, classes, *equipment.equipped_armour(cat, choices)),
         "initiative": mods["dex"],
         "speed": vitals.speed(cat, choices["race"]),
         "saving_throws": proficiency.saving_throws(cat, scores, pb, classes[0][0]),
