@@ -21,6 +21,13 @@ def test_saving_throws(catalog):
     assert st["dex"] == {"modifier": 2, "proficient": False}
 
 
+def test_unknown_class_index_does_not_crash(catalog):
+    # an unrecognised primary class must degrade (no proficiencies) rather than AttributeError
+    st = proficiency.saving_throws(catalog, _scores(), 2, "nonexistent")
+    assert all(not v["proficient"] for v in st.values())
+    assert proficiency.proficiencies(catalog, [("nonexistent", 1)]) == {"armor": [], "weapons": [], "tools": []}
+
+
 def test_negative_modifiers_propagate(catalog):
     skills = proficiency.skill_table(catalog, _scores(str=8), 2, {"skill_choices": ["Brawn"]})
     assert skills["Brawn"]["modifier"] == 1                        # -1 (STR 8) + 2 prof

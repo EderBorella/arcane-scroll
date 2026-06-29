@@ -1,5 +1,12 @@
 """Derivation orchestrator: full-sheet assembly + cross-module multiclass behaviour through derive()."""
+import pytest
+
 from app.derivation import derive
+
+
+def test_derive_rejects_empty_classes(catalog):
+    with pytest.raises(ValueError, match="at least one class"):
+        derive(catalog, {"classes": []})
 
 
 def test_multiclass_saves_come_from_primary_class_only(catalog):
