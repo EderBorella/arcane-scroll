@@ -67,6 +67,18 @@ def test_feat_descriptor_uses_eligible(catalog):
     assert "FeatB" in feat["enum"] and "FeatA" not in feat["enum"]                   # caster feat not offered
 
 
+def test_eligible_feats_ability_prereq(catalog):
+    # FeatB needs Str 13: warrior (str-first → 15) qualifies, rogue (str dumped → 8) does not
+    assert "FeatB" in features.eligible_feats(catalog, [("warrior", 5, None)])
+    assert "FeatB" not in features.eligible_feats(catalog, [("rogue", 5, None)])
+
+
+def test_eligible_feats_proficiency_prereq(catalog):
+    # FeatD needs medium-armour proficiency: fighter (all-armor) qualifies, mage does not
+    assert "FeatD" in features.eligible_feats(catalog, [("fighter", 5, None)])
+    assert "FeatD" not in features.eligible_feats(catalog, [("mage", 5, None)])
+
+
 def test_invocations_filtered_by_level(catalog):
     at5 = _by_field(features.descriptors(catalog, [("warlock", 5, "Fiend")]))["invocations"]["enum"]
     at9 = _by_field(features.descriptors(catalog, [("warlock", 9, "Fiend")]))["invocations"]["enum"]

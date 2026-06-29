@@ -1,7 +1,7 @@
 """Normalize and validate an incoming request into a character Spec (validated against the catalog)."""
 from dataclasses import dataclass, field
 
-from app.generation.helpers import _ci, _norm
+from app.generation.helpers import _ci, _norm, required_abilities
 
 
 @dataclass
@@ -29,6 +29,10 @@ def parse(cat, payload: dict) -> Spec:
         if not 1 <= lv <= 20:
             raise ValueError(f"level out of range: {lv}")
         classes.append((ci, lv))
+
+    # multiclass legality: the standard array has only three 13+ slots
+    if len(required_abilities(cat, [(ci, lv, None) for ci, lv in classes])) > 3:
+        raise ValueError("illegal multiclass: requires 13+ in more than three abilities")
 
     return Spec(race=race, classes=classes,
                 subclasses=payload.get("subclasses") or {}, unique=payload.get("unique"))

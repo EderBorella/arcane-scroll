@@ -186,11 +186,17 @@ def _build_synthetic_db(path: str) -> None:
     lst("knowledge_skills", ["KnowA", "KnowB", "KnowC"])
     lst("nature_skills", ["NatA", "NatB"])
     # feat / ASI
-    lst("feats", ["FeatA", "FeatB", "FeatC"])
-    lst("feat_attributes", {"FeatA": {"requires": "caster"}, "FeatB": {"requires": "martial"},
-                            "FeatC": {"requires": None}})
+    lst("feats", ["FeatA", "FeatB", "FeatC", "FeatD"])
+    lst("feat_attributes", {"FeatA": {"requires": "caster"},
+                            "FeatB": {"requires": "martial", "min_ability": {"str": 13}},
+                            "FeatC": {"requires": None},
+                            "FeatD": {"requires": None, "requires_proficiency": "medium-armor"}})
     lst("martial_classes", ["warrior", "fighter", "rogue"])
     lst("subclass_capabilities", {"berserker": ["caster"]})   # warrior subclass that grants casting
+    lst("multiclass_prereqs", {"mage": {"all": ["int"]}, "warrior": {"all": ["str", "con"]},
+                               "oracle": {"all": ["wis", "cha"]}, "fighter": {"any": ["str", "dex"]},
+                               "rogue": {"all": ["dex"]}})
+    lst("ability_priority_subclass", {"berserker": ["con", "str", "dex", "int", "wis", "cha"]})
     lst("asi_levels", {"fighter": [4, 6, 8, 12, 14, 16, 19], "rogue": [4, 8, 10, 12, 16, 19]})
     lst("asi_default_levels", [4, 8, 12, 16, 19])
     lst("asi_label", {"str": "Strength", "dex": "Dexterity", "con": "Constitution",

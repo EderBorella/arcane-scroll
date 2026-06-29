@@ -6,10 +6,27 @@ from app.generation import helpers as H
 
 
 def test_ability_assignment_by_priority(catalog):
-    aa = H.ability_assignment(catalog, "mage")
+    aa = H.ability_assignment(catalog, [("mage", 5, None)])
     assert sorted(aa.values(), reverse=True) == [15, 14, 13, 12, 10, 8]
     assert aa["int"] == 15      # mage priority leads with int
     assert aa["str"] == 8       # ...and ends with str
+
+
+def test_ability_assignment_multiclass_combines_priority(catalog):
+    aa = H.ability_assignment(catalog, [("fighter", 5, None), ("mage", 5, None)])
+    assert sorted(aa.values(), reverse=True) == [15, 14, 13, 12, 10, 8]
+    assert aa["int"] >= 13                      # mage's primary no longer dumped (was 8 for a lone fighter)
+    assert max(aa["str"], aa["dex"]) >= 13      # a martial stat still high
+
+
+def test_ability_assignment_subclass_override(catalog):
+    assert H.ability_assignment(catalog, [("warrior", 5, None)])["str"] == 15        # warrior base: str first
+    assert H.ability_assignment(catalog, [("warrior", 5, "Berserker")])["con"] == 15  # subclass override: con first
+
+
+def test_required_abilities(catalog):
+    assert H.required_abilities(catalog, [("warrior", 3, None), ("mage", 2, None)]) == {"str", "con", "int"}
+    assert H.required_abilities(catalog, [("mage", 5, None)]) == set()                # single class: no prereq
 
 
 def test_class_skill_grant_and_names(catalog):
@@ -19,7 +36,7 @@ def test_class_skill_grant_and_names(catalog):
 
 
 def test_spell_pools_counts_for_caster(catalog):
-    aa = H.ability_assignment(catalog, "mage")
+    aa = H.ability_assignment(catalog, [("mage", 5, "Evoker")])
     cant, spl, nc, ns = H.spell_pools(catalog, [("mage", 5, "Evoker")], "human", aa)
     assert nc == 4               # cantrips known at L5
     assert ns == 8               # known-caster spells known at L5
@@ -52,7 +69,7 @@ def test_race_bonus(catalog):
 
 
 def test_spell_pools_prepared_caster(catalog):
-    aa = H.ability_assignment(catalog, "oracle")     # wis = 15
+    aa = H.ability_assignment(catalog, [("oracle", 3, "Seer")])     # wis = 15
     cant, spl, nc, ns = H.spell_pools(catalog, [("oracle", 3, "Seer")], "Human", aa)
     assert nc == 2           # cantrips known (3) capped at the oracle cantrip pool (2)
     assert ns == 5           # prepared: wis mod (2) + level (3)
@@ -60,7 +77,7 @@ def test_spell_pools_prepared_caster(catalog):
 
 
 def test_spell_pools_multiclass(catalog):
-    aa = H.ability_assignment(catalog, "mage")       # primary = mage: int 15, wis 12
+    aa = H.ability_assignment(catalog, [("mage", 3, "Evoker"), ("oracle", 3, "Seer")])  # combined priority
     cant, spl, nc, ns = H.spell_pools(catalog, [("mage", 3, "Evoker"), ("oracle", 3, "Seer")], "Human", aa)
     assert len(cant) == 5 and nc == 5                # union cantrip pool; 3+3 capped at 5
     assert len(spl) == 7                              # union of both leveled lists (≤ L2)

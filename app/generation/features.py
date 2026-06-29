@@ -75,13 +75,44 @@ def capabilities(cat, classes) -> set:
     return caps
 
 
-def eligible_feats(cat, classes) -> list:
-    """Feats this character can actually use — drop ones whose required capability it lacks
-    (caster-only feats from non-casters, martial/weapon feats from non-martials)."""
+_ARMOR_CATEGORIES = {"light-armor", "medium-armor", "heavy-armor"}
+
+
+def _armor_proficiencies(cat, classes) -> set:
+    """Armour-category proficiencies from the character's classes (`all-armor` expands to all three).
+    Class-granted only — racial armour training is a rare edge not covered here."""
+    profs = set()
+    for ci, _, _ in classes:
+        for p in (cat.record("classes", ci) or {}).get("proficiencies", []):
+            idx = p.get("index", "")
+            if idx == "all-armor":
+                profs |= _ARMOR_CATEGORIES
+            elif idx in _ARMOR_CATEGORIES:
+                profs.add(idx)
+    return profs
+
+
+def eligible_feats(cat, classes, race=None) -> list:
+    """Feats this character can actually use — drop ones whose prerequisite it doesn't meet:
+    capability (caster/martial), ability-score minimum, or armour proficiency. Ability scores are the
+    pre-call values (combined-priority array + racial bonuses)."""
     caps = capabilities(cat, classes)
     attrs = cat.get("feat_attributes", {})
-    return [f for f in cat.get("feats")
-            if (attrs.get(f, {}).get("requires") or "any") in (caps | {"any"})]
+    array = H.ability_assignment(cat, classes)
+    scores = {ab: array[ab] + H.race_bonus(cat, race, ab) for ab in array}
+    armor = _armor_proficiencies(cat, classes)
+    out = []
+    for f in cat.get("feats"):
+        a = attrs.get(f, {})
+        if (a.get("requires") or "any") not in (caps | {"any"}):
+            continue
+        if any(scores.get(ab, 0) < mn for ab, mn in a.get("min_ability", {}).items()):
+            continue
+        rp = a.get("requires_proficiency")
+        if rp and rp not in armor:
+            continue
+        out.append(f)
+    return out
 
 
 # ── the registry ──────────────────────────────────────────────────────────────
@@ -162,7 +193,7 @@ def descriptors(cat, classes, race=None):
     # feat / ASI (character-level). 1 slot: the model picks a feat OR an ability bump. 2+ slots: code
     # reserves one slot for an ASI, the model picks the other (N-1) as feats.
     slots = sum(_asi_slots(cat, ci, lv) for ci, lv, _ in classes)
-    feats = eligible_feats(cat, classes)                  # ban feats this character can't use
+    feats = eligible_feats(cat, classes, race)            # ban feats this character can't use
     if slots == 1:
         bumps = [f"Ability Score Improvement: {label}" for label in cat.get("asi_label", {}).values()]
         add("feat", feats + bumps, 1)
