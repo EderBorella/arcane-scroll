@@ -57,6 +57,33 @@ def _asi_slots(cat, ci, lv):
     return sum(1 for t in levels if lv >= t)
 
 
+def capabilities(cat, classes) -> set:
+    """The character's combat/casting capabilities — union over classes (multiclass) + subclasses.
+    `caster` = any spellcasting class or caster subclass (EK/AT); `martial` = any martial class or
+    martial subclass (College of Valor). Used to ban feats that would be dead for this character."""
+    caster_cl = set(cat.get("known_casters", [])) | set(cat.get("prepared_casters", []))
+    martial_cl = set(cat.get("martial_classes", []))
+    sub_caps = cat.get("subclass_capabilities", {})
+    caps = set()
+    for ci, lv, sub in classes:
+        if ci in caster_cl:
+            caps.add("caster")
+        if ci in martial_cl:
+            caps.add("martial")
+        if sub:
+            caps |= set(sub_caps.get(H._norm(sub), []))
+    return caps
+
+
+def eligible_feats(cat, classes) -> list:
+    """Feats this character can actually use — drop ones whose required capability it lacks
+    (caster-only feats from non-casters, martial/weapon feats from non-martials)."""
+    caps = capabilities(cat, classes)
+    attrs = cat.get("feat_attributes", {})
+    return [f for f in cat.get("feats")
+            if (attrs.get(f, {}).get("requires") or "any") in (caps | {"any"})]
+
+
 # ── the registry ──────────────────────────────────────────────────────────────
 def descriptors(cat, classes, race=None):
     """classes: [(ci, lv, subclass_or_None)]. Ordered [{field, enum, n}] for every choice granted."""
@@ -90,7 +117,9 @@ def descriptors(cat, classes, race=None):
                 add("draconic_ancestry", cat.get("draconic_ancestry"), 1)
         elif ci == "warlock":
             add("pact_boon", cat.get("pact_boon"), 1 if lv >= 3 else 0)
-            add("invocations", cat.get("invocations"), _invocations_n(lv))
+            prereqs = cat.get("invocation_prereqs", {})       # offer only level-eligible invocations
+            invs = [i for i in cat.get("invocations") if lv >= prereqs.get(i, {}).get("min_level", 1)]
+            add("invocations", invs, _invocations_n(lv))
         elif ci == "ranger":
             add("favored_enemy", cat.get("creature_types"), _favored_enemy_n(lv))
             add("favored_terrain", cat.get("terrain"), _favored_terrain_n(lv))
@@ -133,11 +162,12 @@ def descriptors(cat, classes, race=None):
     # feat / ASI (character-level). 1 slot: the model picks a feat OR an ability bump. 2+ slots: code
     # reserves one slot for an ASI, the model picks the other (N-1) as feats.
     slots = sum(_asi_slots(cat, ci, lv) for ci, lv, _ in classes)
+    feats = eligible_feats(cat, classes)                  # ban feats this character can't use
     if slots == 1:
         bumps = [f"Ability Score Improvement: {label}" for label in cat.get("asi_label", {}).values()]
-        add("feat", list(cat.get("feats")) + bumps, 1)
+        add("feat", feats + bumps, 1)
     elif slots >= 2:
-        add("feat", cat.get("feats"), slots - 1)
+        add("feat", feats, slots - 1)
 
     # race-level choices
     r = H._norm(race or "")
@@ -164,9 +194,39 @@ def feature_props(cat, classes, race=None):
     return props, req
 
 
+def _invocation_ok(prereqs, inv, wl_level, pact, has_eb) -> bool:
+    """Whether a warlock meeting (level, chosen pact, has-Eldritch-Blast) qualifies for an invocation."""
+    p = prereqs.get(inv, {})
+    if wl_level < p.get("min_level", 1):
+        return False
+    if p.get("requires_pact") and p["requires_pact"] not in pact:
+        return False
+    if p.get("requires_eldritch_blast") and not has_eb:
+        return False
+    return True
+
+
+def _repair_invocations(cat, ch, classes):
+    """Drop invocations whose pact/Eldritch-Blast prereq the chosen build doesn't meet (these depend
+    on pact_boon + cantrips, picked in the same call, so they can't be pre-banned), re-padding from
+    the invocations the build does qualify for."""
+    if "invocations" not in ch:
+        return
+    prereqs = cat.get("invocation_prereqs", {})
+    pact = H._norm(ch.get("pact_boon", ""))
+    has_eb = any(H._norm(c) == H._norm("Eldritch Blast")
+                 for c in (ch.get("spell_choices") or {}).get("cantrips", []))
+    wl = max((lv for ci, lv, _ in classes if ci == "warlock"), default=0)
+    n = len(ch["invocations"])
+    eligible = [i for i in cat.get("invocations") if _invocation_ok(prereqs, i, wl, pact, has_eb)]
+    kept = [i for i in ch["invocations"] if _invocation_ok(prereqs, i, wl, pact, has_eb)]
+    ch["invocations"] = H._dedup_pad(kept, eligible, n)
+
+
 def repair_features(cat, ch, classes, race=None):
     """Fit each feature field to its enum/count (a grammar can't enforce uniqueness). Expertise must
-    double *chosen* skills, so it's fit against `skill_choices` rather than the whole class list."""
+    double *chosen* skills, so it's fit against `skill_choices` rather than the whole class list.
+    Invocations get an extra cross-field pass (pact / Eldritch Blast prereqs)."""
     for d in descriptors(cat, classes, race):
         f = d["field"]
         if f not in ch:
@@ -175,4 +235,5 @@ def repair_features(cat, ch, classes, race=None):
         cur = [ch[f]] if isinstance(ch[f], str) else list(ch[f])
         fit = H._dedup_pad(cur, pool, d["n"])
         ch[f] = fit[0] if d["n"] == 1 else fit
+    _repair_invocations(cat, ch, classes)
     return ch

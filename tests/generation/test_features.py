@@ -48,6 +48,46 @@ def test_warlock_pact_and_invocations(catalog):
     assert ds["invocations"]["n"] == 3                                    # _invocations_n(5)
 
 
+def test_capabilities(catalog):
+    assert features.capabilities(catalog, [("mage", 5, "Evoker")]) == {"caster"}
+    assert features.capabilities(catalog, [("warrior", 5, "Champion")]) == {"martial"}
+    assert features.capabilities(catalog, [("warrior", 5, "Berserker")]) == {"martial", "caster"}   # subclass cap
+    assert features.capabilities(catalog, [("mage", 3, None), ("warrior", 2, None)]) == {"caster", "martial"}
+
+
+def test_eligible_feats_bans_by_capability(catalog):
+    martial = features.eligible_feats(catalog, [("warrior", 5, None)])
+    assert "FeatB" in martial and "FeatC" in martial and "FeatA" not in martial     # caster feat banned
+    caster = features.eligible_feats(catalog, [("mage", 5, None)])
+    assert "FeatA" in caster and "FeatC" in caster and "FeatB" not in caster         # martial feat banned
+
+
+def test_feat_descriptor_uses_eligible(catalog):
+    feat = _by_field(features.descriptors(catalog, [("warrior", 4, None)]))["feat"]
+    assert "FeatB" in feat["enum"] and "FeatA" not in feat["enum"]                   # caster feat not offered
+
+
+def test_invocations_filtered_by_level(catalog):
+    at5 = _by_field(features.descriptors(catalog, [("warlock", 5, "Fiend")]))["invocations"]["enum"]
+    at9 = _by_field(features.descriptors(catalog, [("warlock", 9, "Fiend")]))["invocations"]["enum"]
+    assert "InvD" not in at5 and "InvD" in at9                                        # InvD min_level 9
+
+
+def test_repair_invocations_drops_unmet_pact_eb(catalog):
+    ch = {"invocations": ["InvA", "InvB"], "pact_boon": "BoonB", "spell_choices": {"cantrips": []}}
+    features.repair_features(catalog, ch, [("warlock", 9, "Fiend")])
+    assert "InvA" not in ch["invocations"]            # needs Eldritch Blast (none chosen)
+    assert "InvB" not in ch["invocations"]            # needs pact "boona", chose BoonB
+    assert set(ch["invocations"]) <= {"InvC", "InvD"}  # re-padded from prereq-clean invocations
+
+
+def test_repair_invocations_keeps_met_pact_eb(catalog):
+    ch = {"invocations": ["InvA", "InvB"], "pact_boon": "BoonA",
+          "spell_choices": {"cantrips": ["Eldritch Blast"]}}
+    features.repair_features(catalog, ch, [("warlock", 9, "Fiend")])
+    assert "InvA" in ch["invocations"] and "InvB" in ch["invocations"]   # EB present, pact BoonA matches
+
+
 def test_battlemaster_maneuvers_and_ranger_picks(catalog):
     assert _by_field(features.descriptors(catalog, [("fighter", 3, "Battle Master")]))["maneuvers"]["n"] == 3
     ranger = _by_field(features.descriptors(catalog, [("ranger", 1, None)]))
