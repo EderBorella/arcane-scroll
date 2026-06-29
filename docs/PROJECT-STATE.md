@@ -80,13 +80,22 @@ What's left is derivation-side + the service:**
 | **Character sheet generator** | ✅ base contract + feature/feat/equipment choices |
 | **Backstory generator** | ✅ physical + personality + backstory |
 | **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live — `/v1/characters` now returns choices **+ derived sheet** |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ 108 passing |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ 114 passing |
 | **Derivation engine (compute side)** | ✅ render-ready sheet (proficiencies, languages, features, slots, spellbook); armour/equipment/treasure parked |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
 
+- **Feat/option eligibility — capability-based ban** (PR #14) — engineered cross-field consistency,
+  pre-call. A character's capabilities (`caster`/`martial`) = union over its classes **and** subclasses
+  (multiclass + gish covered for free — caster subclasses grant `caster`, the martial bard subclass
+  grants `martial`). Feats declare a required capability (`feat_attributes`, local data): caster-only
+  feats are banned from non-casters and weapon/martial feats from non-martials before the model sees
+  the grammar. Invocations are filtered by level pre-call; a post-call repair (`repair_features`)
+  drops any whose pact / Eldritch-Blast prerequisite the chosen build doesn't meet and re-pads from
+  eligible ones. +6 tests (114). Single-class blade-pact warlock is intentionally not pre-covered
+  (the pact is model-chosen); multiclass is the path for that gish.
 - **Versioned prompts** (PR #13) — system prompts moved from bare catalog strings into a versioned
   `prompts` records table (locator + version + active flag + comment + text). `Catalog.prompt(locator)`
   returns the active version; superseded versions are kept for history with a comment on why. Both

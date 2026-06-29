@@ -170,6 +170,8 @@ def _build_synthetic_db(path: str) -> None:
     # subclass feature-oddity value lists (synthetic)
     lst("metamagic", ["MetaA", "MetaB", "MetaC"])
     lst("invocations", ["InvA", "InvB", "InvC", "InvD"])
+    lst("invocation_prereqs", {"InvA": {"requires_eldritch_blast": True}, "InvB": {"requires_pact": "boona"},
+                               "InvC": {"min_level": 5}, "InvD": {"min_level": 9}})
     lst("maneuvers", ["ManA", "ManB", "ManC", "ManD"])
     lst("totem", ["TotemA", "TotemB"])
     lst("pact_boon", ["BoonA", "BoonB", "BoonC"])
@@ -185,6 +187,10 @@ def _build_synthetic_db(path: str) -> None:
     lst("nature_skills", ["NatA", "NatB"])
     # feat / ASI
     lst("feats", ["FeatA", "FeatB", "FeatC"])
+    lst("feat_attributes", {"FeatA": {"requires": "caster"}, "FeatB": {"requires": "martial"},
+                            "FeatC": {"requires": None}})
+    lst("martial_classes", ["warrior", "fighter", "rogue"])
+    lst("subclass_capabilities", {"berserker": ["caster"]})   # warrior subclass that grants casting
     lst("asi_levels", {"fighter": [4, 6, 8, 12, 14, 16, 19], "rogue": [4, 8, 10, 12, 16, 19]})
     lst("asi_default_levels", [4, 8, 12, 16, 19])
     lst("asi_label", {"str": "Strength", "dex": "Dexterity", "con": "Constitution",
