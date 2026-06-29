@@ -66,7 +66,7 @@ def build_prompt(cat, race, classes, subclasses, unique=None):
     user = f"Make a {race}: {desc}."
     if unique:
         user += f' What is unique about this character: "{unique}".'
-    return (f"<|im_start|>system\n{cat.get('prompt_sheet_sys')}<|im_end|>\n"
+    return (f"<|im_start|>system\n{cat.prompt('sheet_sys')}<|im_end|>\n"
             f"<|im_start|>user\n{user}<|im_end|>\n<|im_start|>assistant\n")
 
 

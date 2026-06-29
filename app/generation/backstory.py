@@ -43,7 +43,7 @@ def build_prompt(cat, character, *, unique=None, archetype=None):
         user += f' The player notes what is unique about this character: "{unique}". Make it central.'
     elif archetype:
         user += f" Story angle to follow: {archetype}"
-    return (f"<|im_start|>system\n{cat.get('prompt_flavour_sys')}<|im_end|>\n"
+    return (f"<|im_start|>system\n{cat.prompt('flavour_sys')}<|im_end|>\n"
             f"<|im_start|>user\n{user}<|im_end|>\n<|im_start|>assistant\n")
 
 

@@ -33,3 +33,13 @@ def test_stats(catalog):
     s = catalog.stats()
     assert s["records_total"] > 0 and s["lists"] > 0
     assert "classes" in s["records"]
+
+
+def test_prompt_returns_active_version(catalog):
+    assert catalog.prompt("sheet_sys") == "TEST SYSTEM PROMPT"      # the active v2, not superseded v1
+    assert catalog.prompt("flavour_sys") == "TEST FLAVOUR PROMPT"
+
+
+def test_prompt_unknown_locator_raises(catalog):
+    with pytest.raises(KeyError):
+        catalog.prompt("does_not_exist")
