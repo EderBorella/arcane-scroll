@@ -37,6 +37,15 @@ def test_repair_fits_routes_and_allows_repeats(catalog):
     assert ch["equipment_1_pick"] == ["MartialA"]                     # fit to n=1 (no de-dup, just truncate)
 
 
+def test_repair_equipment_synthesizes_omitted_fields(catalog):
+    # the model dropped every equipment field; repair must still produce valid picks
+    ch = {}
+    equipment.repair_equipment(catalog, ch, [("warrior", 3)])
+    assert ch["equipment_0"] in ["WeaponA", "WeaponB", "WeaponC"]
+    assert ch["equipment_1"] in ["ShieldItem", "a martial weapon"]
+    assert ch["equipment_1_pick"] == ["MartialA"]
+
+
 def test_multiclass_uses_primary_class_only(catalog):
     # primary = first class; a mage primary has no equipment slots even if warrior is second
     assert equipment.equipment_props(catalog, [("mage", 5), ("warrior", 3)]) == ({}, [])

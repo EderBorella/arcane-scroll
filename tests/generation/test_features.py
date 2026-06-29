@@ -93,6 +93,13 @@ def test_repair_invocations_drops_unmet_pact_eb(catalog):
     assert set(ch["invocations"]) <= {"InvC", "InvD"}  # re-padded from prereq-clean invocations
 
 
+def test_repair_features_synthesizes_omitted_field(catalog):
+    # the model dropped the field entirely (truncation); repair must still produce a valid pick
+    ch = {}
+    features.repair_features(catalog, ch, [("fighter", 1, None)])
+    assert ch["fighting_style"] in ["StyleA", "StyleB", "StyleC"]
+
+
 def test_repair_invocations_keeps_met_pact_eb(catalog):
     ch = {"invocations": ["InvA", "InvB"], "pact_boon": "BoonA",
           "spell_choices": {"cantrips": ["Eldritch Blast"]}}

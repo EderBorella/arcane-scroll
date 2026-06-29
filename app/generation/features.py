@@ -260,11 +260,16 @@ def repair_features(cat, ch, classes, race=None):
     Invocations get an extra cross-field pass (pact / Eldritch Blast prereqs)."""
     for d in descriptors(cat, classes, race):
         f = d["field"]
-        if f not in ch:
-            continue
         pool = ch.get("skill_choices", []) if f == "expertise" else d["enum"]
-        cur = [ch[f]] if isinstance(ch[f], str) else list(ch[f])
+        # synthesize a value for a field the model omitted entirely (grammars can't guarantee
+        # presence under truncation) — pad from the granted pool rather than leaving it missing
+        raw = ch.get(f, [])
+        cur = [raw] if isinstance(raw, str) else list(raw or [])
         fit = H._dedup_pad(cur, pool, d["n"])
-        ch[f] = fit[0] if d["n"] == 1 else fit
+        if d["n"] == 1:
+            if fit:
+                ch[f] = fit[0]
+        else:
+            ch[f] = fit
     _repair_invocations(cat, ch, classes)
     return ch
