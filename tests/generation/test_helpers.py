@@ -29,6 +29,18 @@ def test_required_abilities(catalog):
     assert H.required_abilities(catalog, [("mage", 5, None)]) == set()                # single class: no prereq
 
 
+def test_required_abilities_resolves_any(catalog):
+    # fighter's "any" prereq (str OR dex) contributes exactly one — the higher-weighted
+    req = H.required_abilities(catalog, [("fighter", 5, None), ("mage", 1, None)])
+    assert "int" in req and len(req & {"str", "dex"}) == 1
+
+
+def test_ability_assignment_satisfies_multiclass_prereqs(catalog):
+    # mage(int) + oracle(wis,cha): all three required abilities must land at 13+ in the array
+    aa = H.ability_assignment(catalog, [("mage", 3, None), ("oracle", 2, None)])
+    assert all(aa[ab] >= 13 for ab in ("int", "wis", "cha"))
+
+
 def test_class_skill_grant_and_names(catalog):
     n, idx = H.class_skill_grant(catalog, "mage")
     assert n == 2

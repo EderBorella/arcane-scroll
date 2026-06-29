@@ -80,7 +80,7 @@ What's left is derivation-side + the service:**
 | **Character sheet generator** | ✅ base contract + feature/feat/equipment choices |
 | **Backstory generator** | ✅ physical + personality + backstory |
 | **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live — `/v1/characters` now returns choices **+ derived sheet** |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ 120 passing |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ 123 passing |
 | **Derivation engine (compute side)** | ✅ render-ready sheet (proficiencies, languages, features, slots, spellbook); armour/equipment/treasure parked |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
