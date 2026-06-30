@@ -43,3 +43,29 @@ def test_prompt_returns_active_version(catalog):
 def test_prompt_unknown_locator_raises(catalog):
     with pytest.raises(KeyError):
         catalog.prompt("does_not_exist")
+
+
+def test_load_error_wraps_as_runtimeerror(tmp_path):
+    # a missing/corrupt store must surface as a clear RuntimeError, not a raw sqlite traceback
+    from app.catalog import Catalog
+    bad = tmp_path / "empty.db"
+    bad.write_bytes(b"")                       # opens as an empty DB → no 'entries' table
+    with pytest.raises(RuntimeError, match="failed to load catalog"):
+        Catalog(str(bad))
+
+
+def test_prompt_active_but_empty_text_raises(tmp_path):
+    # an active prompt with empty text is a misconfiguration — surface it, don't return ""
+    import sqlite3
+    import json as _json
+    from app.catalog import Catalog
+    p = tmp_path / "c.db"
+    con = sqlite3.connect(str(p))
+    con.execute("CREATE TABLE entries (kind TEXT, idx TEXT, name TEXT, data TEXT, PRIMARY KEY(kind, idx))")
+    con.execute("CREATE TABLE catalog (name TEXT PRIMARY KEY, data TEXT)")
+    con.execute("INSERT INTO entries VALUES (?,?,?,?)", ("prompts", "p1", "p1",
+                _json.dumps({"locator": "sheet_sys", "active": True, "text": ""})))
+    con.commit()
+    con.close()
+    with pytest.raises(KeyError, match="empty text"):
+        Catalog(str(p)).prompt("sheet_sys")

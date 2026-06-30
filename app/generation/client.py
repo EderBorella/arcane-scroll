@@ -5,7 +5,13 @@ This is the layer's only impure piece (network I/O); everything else is pure. Us
 model come from the environment."""
 import json
 import os
+import urllib.error
 import urllib.request
+
+
+class ModelError(RuntimeError):
+    """The model backend was unreachable, errored, or returned output we couldn't parse. Distinct
+    from programming errors so the controller can map it to a 502 rather than a 500."""
 
 
 def generate(prompt: str, schema: dict, *, num_ctx=2048, num_predict=1024,
@@ -18,5 +24,13 @@ def generate(prompt: str, schema: dict, *, num_ctx=2048, num_predict=1024,
     }
     req = urllib.request.Request(base + "/api/generate", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
-    resp = json.load(urllib.request.urlopen(req, timeout=timeout))
-    return json.loads(resp.get("response", "").strip())
+    try:
+        resp = json.load(urllib.request.urlopen(req, timeout=timeout))
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        raise ModelError(f"model backend unreachable at {base}: {e}") from e
+    except json.JSONDecodeError as e:
+        raise ModelError(f"model backend returned non-JSON envelope: {e}") from e
+    try:
+        return json.loads(resp.get("response", "").strip())
+    except (json.JSONDecodeError, AttributeError) as e:
+        raise ModelError(f"model returned no/invalid JSON in 'response': {e}") from e
