@@ -219,6 +219,13 @@ def _build_synthetic_db(path: str) -> None:
     # starting-equipment category → concrete items (synthetic)
     lst("category_items", {"cat-simple": ["WeaponA", "WeaponB", "WeaponC"],
                            "cat-martial": ["MartialA", "MartialB"]})
+    # class->equipment relation (seed-derived in prod; hand-mirrors warrior's options here). slots()
+    # reads THIS, not the raw class record.
+    lst("class_equipment", {"warrior": {"fixed": [], "slots": [
+        {"field": "equipment_0", "choose": 1, "category": "cat-simple"},
+        {"field": "equipment_1", "choose": 1, "alternatives": [
+            {"label": "ShieldItem", "items": [{"item": "ShieldItem", "qty": 1}], "pick": None},
+            {"label": "a martial weapon", "items": [], "pick": {"category": "cat-martial", "n": 1}}]}]}})
     # versioned prompts (kind "prompts"): one active per locator + a superseded one for the resolver
     rec("prompts", "sheet_sys-v1", {"index": "sheet_sys-v1", "name": "sheet_sys v1", "locator": "sheet_sys",
                                     "version": 1, "active": False, "comment": "old", "text": "OLD SHEET PROMPT"})

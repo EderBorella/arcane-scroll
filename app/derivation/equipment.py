@@ -1,14 +1,54 @@
-"""Equipment-derived sheet fields. For now: detect the equipped armour (for armour-based AC) from the
-chosen equipment + the fixed class package. Full inventory assembly + treasure are the next phases.
+"""Equipment-derived sheet fields: a concrete inventory and the equipped armour (for armour-based AC).
 
-The model picks equipment as route labels + `_pick` companions; the class also grants fixed items
-(e.g. paladin Chain Mail, ranger Longbow) that aren't in the choices. We scan all of it for an armour
-item and resolve its stats from the equipment records."""
+The model picks equipment as route labels + `_pick` companions; assembly resolves those — plus the
+fixed class package — into a concrete `[{item, quantity}]` list using the seed-built `class_equipment`
+relation (which maps each chosen route label back to its items and the number of companion picks it
+actually consumes). Treasure/starting wealth is the next phase."""
 import re
 
 from app.generation import helpers as H
 
 _ARMOUR_CATS = {"Light", "Medium", "Heavy"}
+
+
+def _primary_index(choices):
+    classes = choices.get("classes") or []
+    if not classes:
+        return None
+    c0 = classes[0]
+    return H._ci(c0["class"] if isinstance(c0, dict) else (c0[0] if isinstance(c0, tuple) else c0))
+
+
+def assemble_inventory(cat, choices) -> list:
+    """Concrete `[{item, quantity}]` for the primary class — fixed package + the chosen routes/picks,
+    resolved through the class_equipment relation. Each chosen route consumes only the companion picks
+    it actually needs (so an extra `_pick` from a wider sibling route isn't double-counted)."""
+    rel = (cat.get("class_equipment") or {}).get(_primary_index(choices))
+    if not rel:
+        return []
+    items: dict[str, int] = {}
+
+    def add(name, qty=1):
+        if name:
+            items[name] = items.get(name, 0) + qty
+
+    for it in rel.get("fixed", []):
+        add(it.get("item"), it.get("qty", 1))
+    for slot in rel.get("slots", []):
+        chosen = choices.get(slot["field"])
+        if "category" in slot:                                   # direct category pick (concrete name)
+            for nm in ([chosen] if isinstance(chosen, str) else list(chosen or [])):
+                add(nm)
+            continue
+        alt = next((a for a in slot.get("alternatives", []) if a["label"] == chosen), None)
+        if not alt:
+            continue
+        for it in alt["items"]:
+            add(it.get("item"), it.get("qty", 1))
+        if alt.get("pick"):                                      # consume only this route's N picks
+            for nm in (choices.get(f"{slot['field']}_pick") or [])[:alt["pick"]["n"]]:
+                add(nm)
+    return [{"item": k, "quantity": v} for k, v in items.items()]
 
 
 def _carries_shield(cat, blob: str) -> bool:
