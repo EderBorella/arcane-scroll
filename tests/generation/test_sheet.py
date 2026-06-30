@@ -22,6 +22,28 @@ def test_build_grammar_injects_fixed_fields(catalog):
     assert sorted(fixed["ability_assignment"].values(), reverse=True) == [15, 14, 13, 12, 10, 8]
 
 
+def test_predecide_picks_background_and_fighting_style(catalog):
+    spec = request.parse(catalog, {"race": "Human", "classes": [{"class": "fighter", "level": 3}]})
+    pre = sheet.predecide(catalog, spec, [("fighter", 3, None)], random.Random(0))
+    assert pre["background"] in catalog.get("backgrounds")
+    assert pre["fighting_style"] in ["StyleA", "StyleB", "StyleC"]
+    # explicit background wins; a non-granting class gets no fighting style
+    spec2 = request.parse(catalog, {"race": "Human", "classes": [{"class": "mage", "level": 5}], "background": "Scholar"})
+    pre2 = sheet.predecide(catalog, spec2, [("mage", 5, None)], random.Random(0))
+    assert pre2["background"] == "Scholar" and "fighting_style" not in pre2
+
+
+def test_build_grammar_excludes_predecided_fields(catalog):
+    # pre-decided fields are injected as fixed and removed from the model's contract
+    schema, fixed = sheet.build_grammar(catalog, "Human", [("fighter", 3)], [None],
+                                        predecided={"background": "Scholar", "fighting_style": "StyleA"})
+    props = schema["properties"]
+    assert "background" not in props and "fighting_style" not in props
+    assert fixed["background"] == "Scholar" and fixed["fighting_style"] == "StyleA"
+    # without predecided (direct call), background stays a model field
+    assert "background" in sheet.build_grammar(catalog, "Human", [("fighter", 3)], [None])[0]["properties"]
+
+
 def test_build_grammar_noncaster_has_no_spells(catalog):
     schema, _ = sheet.build_grammar(catalog, "Human", [("warrior", 3)], ["Champion"])
     assert "spell_choices" not in schema["properties"]

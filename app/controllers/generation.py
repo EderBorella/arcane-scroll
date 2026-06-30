@@ -37,6 +37,13 @@ class CharacterRequest(BaseModel):
         description="If true, the character takes rolled starting gold INSTEAD of the class equipment "
                     "package (RAW): no class equipment is granted and the treasure is the rolled class "
                     "wealth plus background gold. Default false = keep equipment + background gold.")
+    background: str | None = Field(
+        default=None,
+        description="Optional explicit background. If omitted, the service picks one (for variety).")
+    fighting_style: str | None = Field(
+        default=None,
+        description="Optional explicit fighting style (only used by classes that get one). If omitted, "
+                    "the service picks one for those classes.")
 
     model_config = ConfigDict(json_schema_extra={"examples": [
         {"race": "<race>", "classes": [{"class": "<class>", "level": 5}]},

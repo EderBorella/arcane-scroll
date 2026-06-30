@@ -11,10 +11,31 @@ from app.generation import client, equipment, features
 from app.generation import helpers as H
 
 
-def build_grammar(cat, race, classes, subclasses):
-    """(model_schema, fixed_fields) for PASS 1 — the whole sheet *except* starting equipment. Equipment
-    is a separate second pass (build_equipment_grammar) so the model picks gear that fits the rolled
-    build (style ↔ weapon). classes: [(ci, lv)]; subclasses aligned (None where unlocked-not)."""
+def predecide(cat, spec, resolved, rng):
+    """Fields decided in code *before* the model call (variety spread), so the model can't monopolise
+    them and any explicit value is honoured. Background is always picked; a fighting style is picked
+    when exactly one class grants one (the multi-grant case is left to the model). Precedence:
+    explicit (spec / future decoder) → seeded random."""
+    out = {}
+    backgrounds = cat.get("backgrounds") or []
+    bg = spec.background or (rng.choice(backgrounds) if backgrounds else None)
+    if bg:
+        out["background"] = bg
+    granting = features._fighting_style_classes(cat, resolved)
+    if spec.fighting_style:
+        out["fighting_style"] = spec.fighting_style
+    elif len(granting) == 1:
+        styles = sorted(set(cat.get("fighting_styles", {}).get(granting[0], [])))
+        if styles:
+            out["fighting_style"] = rng.choice(styles)
+    return out
+
+
+def build_grammar(cat, race, classes, subclasses, *, predecided=None):
+    """(model_schema, fixed_fields) for PASS 1 — the whole sheet *except* starting equipment (a separate
+    second pass) and any `predecided` fields (background / fighting style), which are injected as fixed
+    so the model neither picks nor overrides them. classes: [(ci, lv)]; subclasses aligned."""
+    predecided = predecided or {}
     primary = classes[0][0]
     resolved = [(ci, lv, sub) for (ci, lv), sub in zip(classes, subclasses)]
     aa = H.ability_assignment(cat, resolved)                  # combined multiclass + subclass priority
@@ -22,12 +43,14 @@ def build_grammar(cat, race, classes, subclasses):
 
     props = {
         "name": {"type": "string"},
-        "background": {"enum": cat.get("backgrounds")},
         "alignment": {"enum": cat.get("alignments_display")},
         "skill_choices": {"type": "array", "items": {"enum": H.skill_names(cat, skill_idx)},
                           "minItems": n_skill, "maxItems": n_skill, "uniqueItems": True},
     }
-    req = ["name", "background", "alignment", "skill_choices"]
+    req = ["name", "alignment", "skill_choices"]
+    if "background" not in predecided:                        # fallback: let the model pick if not pre-set
+        props["background"] = {"enum": cat.get("backgrounds")}
+        req.append("background")
 
     pools = H.spell_pools(cat, resolved, race, aa)
     if pools:
@@ -45,6 +68,9 @@ def build_grammar(cat, race, classes, subclasses):
         req.append("spell_choices")
 
     fp, freq = features.feature_props(cat, resolved, race)   # fighting style, expertise, feats, …
+    if "fighting_style" in predecided:                       # pre-decided → not a model choice
+        fp.pop("fighting_style", None)
+        freq = [f for f in freq if f != "fighting_style"]
     props.update(fp)
     req += freq
 
@@ -53,6 +79,7 @@ def build_grammar(cat, race, classes, subclasses):
         "ability_assignment": aa,
         "classes": [{"class": ci.capitalize(), "level": lv, **({"subclass": sub} if sub else {})}
                     for (ci, lv), sub in zip(classes, subclasses)],
+        **predecided,
     }
     return {"type": "object", "properties": props, "required": req}, fixed
 
@@ -100,8 +127,9 @@ def generate(cat, spec, *, rng=random):
     subclasses = H.resolve_subclasses(cat, spec.classes, spec.subclasses, rng)
     resolved = [(ci, lv, sub) for (ci, lv), sub in zip(spec.classes, subclasses)]
 
-    # pass 1 — everything but equipment
-    schema, fixed = build_grammar(cat, spec.race, spec.classes, subclasses)
+    # pass 1 — everything but equipment; background/fighting-style are pre-decided in code (variety)
+    predecided = predecide(cat, spec, resolved, rng)
+    schema, fixed = build_grammar(cat, spec.race, spec.classes, subclasses, predecided=predecided)
     raw = client.generate(build_prompt(cat, spec.race, spec.classes, subclasses, spec.unique), schema)
     choices = {**raw, **fixed, "roll_starting_wealth": spec.roll_wealth}
     H.repair(cat, choices, spec.race, spec.classes, subclasses)

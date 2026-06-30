@@ -19,6 +19,17 @@ def test_parse_roll_starting_wealth_flag(catalog):
     assert off.roll_wealth is False
 
 
+def test_parse_canonicalises_background(catalog):
+    assert request.parse(catalog, {"race": "Human", "classes": [{"class": "mage", "level": 1}],
+                                   "background": "scholar"}).background == "Scholar"
+
+
+def test_parse_unknown_background_raises(catalog):
+    with pytest.raises(ValueError):
+        request.parse(catalog, {"race": "Human", "classes": [{"class": "mage", "level": 1}],
+                                "background": "Nope"})
+
+
 def test_parse_canonicalises_race_casing(catalog):
     # a case-insensitively-valid race resolves to the catalog's display name, so downstream
     # flavour lookups (keyed by display name) don't silently fall back to generic bounds
