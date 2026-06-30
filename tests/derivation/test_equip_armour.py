@@ -44,20 +44,18 @@ def test_unarmoured_returns_none(catalog):
     assert armour is None and shield is False
 
 
-def test_assemble_inventory_category_route_consumes_one_pick(catalog):
-    # warrior slot0 = direct category (WeaponA); slot1 route "a martial weapon" consumes pick.n=1
+def test_assemble_inventory_category_route(catalog):
+    # warrior slot0 = direct category (WeaponA); slot1 union route carries its weapons inline
     choices = {"classes": [{"class": "warrior", "level": 3}],
                "equipment_0": "WeaponA",
-               "equipment_1": "a martial weapon", "equipment_1_pick": ["MartialA", "MartialB"]}
+               "equipment_1": {"route": "a martial weapon", "weapons": ["MartialA"]}}
     inv = {i["item"]: i["quantity"] for i in equipment.assemble_inventory(catalog, choices)}
-    assert inv["WeaponA"] == 1 and inv["MartialA"] == 1
-    assert "MartialB" not in inv          # E1: the route needs 1 pick — the extra companion is dropped
+    assert inv == {"WeaponA": 1, "MartialA": 1}
 
 
-def test_assemble_inventory_non_category_route_ignores_companion(catalog):
-    # the ShieldItem route has no category pick → the companion list must not leak in
+def test_assemble_inventory_concrete_route_has_no_weapons(catalog):
+    # the ShieldItem route carries no category pick — the union shape makes a stray pick impossible
     choices = {"classes": [{"class": "warrior", "level": 3}],
-               "equipment_0": "WeaponB",
-               "equipment_1": "ShieldItem", "equipment_1_pick": ["MartialA"]}
+               "equipment_0": "WeaponB", "equipment_1": {"route": "ShieldItem"}}
     inv = {i["item"]: i["quantity"] for i in equipment.assemble_inventory(catalog, choices)}
-    assert inv["ShieldItem"] == 1 and "MartialA" not in inv
+    assert inv == {"WeaponB": 1, "ShieldItem": 1}

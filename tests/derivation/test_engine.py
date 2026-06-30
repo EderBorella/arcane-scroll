@@ -21,10 +21,10 @@ def test_multiclass_saves_come_from_primary_class_only(catalog):
 def test_inventory_assembled_through_derive(catalog):
     choices = {"race": "Human", "classes": [{"class": "warrior", "level": 3}],
                "ability_assignment": {"str": 15, "dex": 13, "con": 14, "int": 10, "wis": 12, "cha": 8},
-               "equipment_0": "WeaponA", "equipment_1": "a martial weapon",
-               "equipment_1_pick": ["MartialA", "MartialB"]}
+               "equipment_0": "WeaponA",
+               "equipment_1": {"route": "a martial weapon", "weapons": ["MartialA"]}}
     inv = {i["item"]: i["quantity"] for i in derive(catalog, choices)["inventory"]}
-    assert inv == {"WeaponA": 1, "MartialA": 1}      # E1: only the 1 pick the route needs
+    assert inv == {"WeaponA": 1, "MartialA": 1}
 
 
 def test_passive_perception_through_derive(catalog):

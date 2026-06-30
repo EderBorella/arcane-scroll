@@ -21,8 +21,8 @@ def _primary_index(choices):
 
 def assemble_inventory(cat, choices) -> list:
     """Concrete `[{item, quantity}]` for the primary class — fixed package + the chosen routes/picks,
-    resolved through the class_equipment relation. Each chosen route consumes only the companion picks
-    it actually needs (so an extra `_pick` from a wider sibling route isn't double-counted)."""
+    resolved through the class_equipment relation. A category route's picks ride on the route object
+    (`{route, weapons}`) already sized to that route, so there's nothing to trim."""
     rel = (cat.get("class_equipment") or {}).get(_primary_index(choices))
     if not rel:
         return []
@@ -40,14 +40,18 @@ def assemble_inventory(cat, choices) -> list:
             for nm in ([chosen] if isinstance(chosen, str) else list(chosen or [])):
                 add(nm)
             continue
-        alt = next((a for a in slot.get("alternatives", []) if a["label"] == chosen), None)
+        # alternatives slot: a plain label (concrete routes) or a {route, weapons} object (category routes)
+        if isinstance(chosen, dict):
+            route, picks = chosen.get("route"), chosen.get("weapons") or []
+        else:
+            route, picks = chosen, []
+        alt = next((a for a in slot.get("alternatives", []) if a["label"] == route), None)
         if not alt:
             continue
         for it in alt["items"]:
             add(it.get("item"), it.get("qty", 1))
-        if alt.get("pick"):                                      # consume only this route's N picks
-            for nm in (choices.get(f"{slot['field']}_pick") or [])[:alt["pick"]["n"]]:
-                add(nm)
+        for nm in picks:
+            add(nm)
     return [{"item": k, "quantity": v} for k, v in items.items()]
 
 
@@ -65,8 +69,15 @@ def _carried_text(cat, choices) -> str:
     + the fixed class starting package."""
     parts = []
     for k, v in choices.items():
-        if k.startswith("equipment"):
-            parts += v if isinstance(v, list) else [str(v)]
+        if not k.startswith("equipment"):
+            continue
+        if isinstance(v, dict):                       # union route: {route, weapons}
+            parts.append(str(v.get("route", "")))
+            parts += [str(x) for x in (v.get("weapons") or [])]
+        elif isinstance(v, list):
+            parts += [str(x) for x in v]
+        else:
+            parts.append(str(v))
     for c in choices.get("classes", []):
         rec = cat.record("classes", H._ci(c["class"])) or {}
         parts += [e.get("equipment", {}).get("name", "") for e in rec.get("starting_equipment", [])]
