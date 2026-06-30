@@ -1,4 +1,6 @@
 """Derivation orchestrator: full-sheet assembly + cross-module multiclass behaviour through derive()."""
+import random
+
 import pytest
 
 from app.derivation import derive
@@ -25,6 +27,17 @@ def test_inventory_assembled_through_derive(catalog):
                "equipment_1": {"route": "a martial weapon", "weapons": ["MartialA"]}}
     inv = {i["item"]: i["quantity"] for i in derive(catalog, choices)["inventory"]}
     assert inv == {"WeaponA": 1, "MartialA": 1}
+
+
+def test_roll_wealth_path_through_derive(catalog):
+    # gold instead of equipment: empty inventory, unarmoured AC, treasure = rolled wealth + bg gold
+    choices = {"race": "Human", "classes": [{"class": "warrior", "level": 3}],
+               "ability_assignment": {"str": 15, "dex": 13, "con": 14, "int": 10, "wis": 12, "cha": 8},
+               "background": "Scholar", "roll_starting_wealth": True}
+    sheet = derive(catalog, choices, rng=random.Random(2))
+    assert sheet["inventory"] == []
+    assert sheet["armor_class"] == 11                       # unarmoured: 10 + DEX(13)+1
+    assert sheet["treasure"]["gp"] >= 35 and (sheet["treasure"]["gp"] - 15) % 10 == 0
 
 
 def test_passive_perception_through_derive(catalog):

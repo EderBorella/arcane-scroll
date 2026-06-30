@@ -32,6 +32,11 @@ class CharacterRequest(BaseModel):
     unique: str | None = Field(
         default=None,
         description="Optional free-text 'what is unique about this character?' hint that steers flavour.")
+    roll_starting_wealth: bool = Field(
+        default=False,
+        description="If true, the character takes rolled starting gold INSTEAD of the class equipment "
+                    "package (RAW): no class equipment is granted and the treasure is the rolled class "
+                    "wealth plus background gold. Default false = keep equipment + background gold.")
 
     model_config = ConfigDict(json_schema_extra={"examples": [
         {"race": "<race>", "classes": [{"class": "<class>", "level": 5}]},
