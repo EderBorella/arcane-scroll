@@ -25,6 +25,9 @@ def derive(cat, choices, *, rng=random) -> dict:
     classes = abilities.class_levels(choices)
     if not classes:
         raise ValueError("cannot derive a sheet without at least one class")
+    # subclass-aware view for spell-slot math (third-caster subclasses contribute to caster level)
+    subs = [c.get("subclass") for c in choices.get("classes", [])]
+    caster_classes = [(ci, lv, sub) for (ci, lv), sub in zip(classes, subs)]
     scores = abilities.ability_scores(cat, choices, classes)
     mods = {ab: abilities.modifier(s) for ab, s in scores.items()}
     total_level = sum(lv for _, lv in classes)
@@ -52,7 +55,7 @@ def derive(cat, choices, *, rng=random) -> dict:
         "languages": proficiency.languages(cat, choices["race"], choices.get("background"), rng),
         "features": features.features_and_traits(cat, choices),
         "spellcasting": spellcasting.spell_stats(cat, scores, pb, classes),
-        "spell_slots": spellcasting.spell_slots(cat, classes),
-        "pact_slots": spellcasting.pact_slots(cat, classes),
+        "spell_slots": spellcasting.spell_slots(cat, caster_classes),
+        "pact_slots": spellcasting.pact_slots(cat, caster_classes),
         "spells": spellcasting.spellbook(cat, choices),
     }

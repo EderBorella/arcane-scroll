@@ -37,12 +37,21 @@ def test_spell_slots_multiclass_uses_combined_level(catalog):
     assert spellcasting.spell_slots(catalog, [("mage", 2), ("oracle", 3)]) == {1: 4, 2: 3, 3: 2}
 
 
+def test_spell_slots_third_caster_subclass(catalog):
+    # Arcane Trickster rogue 9 → third caster → caster level 3 → {1:4, 2:2}; plain rogue → none
+    assert spellcasting.spell_slots(catalog, [("rogue", 9, "Arcane Trickster")]) == {1: 4, 2: 2}
+    assert spellcasting.spell_slots(catalog, [("rogue", 9, None)]) == {}
+
+
 def test_combined_caster_level_raw_rules():
-    # Paladin 6 (half→3) + Sorcerer 2 (full→2) = 5; Warlock (pact) excluded
+    # full +level, half +level//2, third-caster subclass +level//3; pact (warlock) excluded
     prog = {"paladin": "half", "sorcerer": "full", "warlock": "pact"}
-    assert spellcasting._combined_caster_level(prog, [("paladin", 6), ("sorcerer", 2)]) == 5
-    assert spellcasting._combined_caster_level(prog, [("paladin", 6), ("sorcerer", 2), ("warlock", 3)]) == 5
-    assert spellcasting._combined_caster_level({"fighter": None}, [("fighter", 6)]) == 0    # non-caster
+    thirds = {"eldritchknight", "arcanetrickster"}
+    cl = spellcasting._combined_caster_level
+    assert cl(prog, thirds, [("paladin", 6), ("sorcerer", 2)]) == 5
+    assert cl(prog, thirds, [("paladin", 6), ("sorcerer", 2), ("warlock", 3)]) == 5     # pact excluded
+    assert cl(prog, thirds, [("fighter", 7, "Eldritch Knight")]) == 2                   # 7 // 3
+    assert cl({"fighter": None}, thirds, [("fighter", 6, None)]) == 0                   # non-caster
 
 
 def test_spellbook_buckets_by_level_known_caster(catalog):

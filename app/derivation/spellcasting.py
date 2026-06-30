@@ -21,10 +21,25 @@ def spell_stats(cat, scores, prof_bonus, classes) -> dict:
 _DENOM = {"full": 1, "half": 2, "third": 3}      # caster-level contribution = level // denom
 
 
-def _combined_caster_level(prog, classes) -> int:
-    """RAW multiclass caster level: full classes add their full level, half (Paladin/Ranger) add
-    level//2, third (EK/AT) level//3. Pact (Warlock) is excluded — its slots are a separate pool."""
-    return sum(lv // _DENOM[prog[ci]] for ci, lv in classes if prog.get(ci) in _DENOM)
+def _unpack(item):
+    """A class entry as (index, level, subclass) — accepts (ci, lv) or (ci, lv, sub)."""
+    return item[0], item[1], (item[2] if len(item) > 2 else None)
+
+
+def _caster_share(prog, thirds, ci, lv, sub) -> int:
+    """One class's contribution to the combined caster level. full=level, half=level//2,
+    third-caster *subclass* (EK/AT)=level//3, pact (Warlock) / non-caster = 0."""
+    p = prog.get(ci)
+    if p in _DENOM:
+        return lv // _DENOM[p]
+    if sub and H._norm(sub) in thirds:                       # third-caster subclass on a non-caster base
+        return lv // 3
+    return 0
+
+
+def _combined_caster_level(prog, thirds, classes) -> int:
+    """RAW multiclass caster level — sum of every class's contribution, for any number of casters."""
+    return sum(_caster_share(prog, thirds, *_unpack(c)) for c in classes)
 
 
 def _slots_from(cat, ci, lv) -> dict:
@@ -33,12 +48,17 @@ def _slots_from(cat, ci, lv) -> dict:
             if k.startswith("spell_slots_level_") and v}
 
 
+def _thirds(cat) -> set:
+    return {H._norm(s) for s in cat.get("third_caster_subclasses", [])}
+
+
 def spell_slots(cat, classes) -> dict:
     """Spell slots by level via the RAW combined caster level — looked up in a full caster's slot table
     (a full caster's progression IS the multiclass table, so single-class casters are unchanged and
-    half-casters reproduce exactly). Warlock pact slots are excluded here (see pact_slots)."""
+    half-casters reproduce exactly). Generic over any number of caster classes, incl. third-caster
+    subclasses (EK/AT). Warlock pact slots are excluded here (see pact_slots)."""
     prog = cat.get("caster_progression", {})
-    level = _combined_caster_level(prog, classes)
+    level = _combined_caster_level(prog, _thirds(cat), classes)
     ref = next((ci for ci in sorted(prog) if prog[ci] == "full"), None)
     return _slots_from(cat, ref, level) if level and ref else {}
 
@@ -47,7 +67,8 @@ def pact_slots(cat, classes) -> dict:
     """Warlock Pact Magic — a separate pool (N slots, all of one level). Summed over any pact classes."""
     prog = cat.get("caster_progression", {})
     out = {}
-    for ci, lv in classes:
+    for c in classes:
+        ci, lv, _ = _unpack(c)
         if prog.get(ci) == "pact":
             for level, n in _slots_from(cat, ci, lv).items():
                 out[level] = out.get(level, 0) + n

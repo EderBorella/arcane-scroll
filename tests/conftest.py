@@ -176,6 +176,7 @@ def _build_synthetic_db(path: str) -> None:
     lst("known_casters", ["mage"])
     lst("prepared_casters", ["oracle"])
     lst("caster_progression", {"mage": "full", "oracle": "full"})   # synthetic full casters
+    lst("third_caster_subclasses", ["Arcane Trickster", "Eldritch Knight"])
     lst("valid_races", ["Human"])          # display names (canonical form parse resolves to)
     lst("subclass_options", {"mage": ["Evoker", "Abjurer"], "warrior": ["Champion", "Berserker"],
                              "oracle": ["Seer", "Prophet"]})
