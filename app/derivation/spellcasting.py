@@ -87,27 +87,34 @@ def _as_list(v):
 
 
 def spellbook(cat, choices) -> list:
-    """Every spell the character has, bucketed by real level and de-duped. Main `spell_choices`
-    leveled spells are tagged prepared for a prepared-caster class; feature-granted spells (EK/AT,
-    bonus/nature/high-elf cantrips, bardic magical secrets) are always known. Cantrips are known."""
+    """Every spell the character has, bucketed by real level and de-duped. A leveled `spell_choices`
+    spell is tagged **prepared** when it sits on one of the character's *prepared-caster* class lists
+    (so a prepared+known multiclass tags each spell per the class that grants it), otherwise known.
+    Feature-granted spells (EK/AT, bonus/nature/high-elf cantrips, bardic magical secrets) are always
+    known; cantrips are always known."""
     sc = choices.get("spell_choices") or {}
     prepared_set = set(cat.get("prepared_casters") or [])
-    prepared = any(H._ci(c["class"]) in prepared_set for c in choices.get("classes", []))
-    level_by_name = {s["name"]: s["level"] for s in cat.records("spells").values()}
+    char_prepared = {H._ci(c["class"]) for c in choices.get("classes", [])} & prepared_set
+    spells = cat.records("spells").values()
+    level_by_name = {s["name"]: s["level"] for s in spells}
+    classes_by_name = {s["name"]: {c["index"] for c in s.get("classes", [])} for s in spells}
+
+    def is_prepared(name):
+        return bool(classes_by_name.get(name, set()) & char_prepared)
 
     out, seen = [], set()
 
-    def add(name, level, is_prepared):
+    def add(name, level, prepared):
         if name not in seen:
             seen.add(name)
-            out.append({"name": name, "level": level, "prepared": is_prepared})
+            out.append({"name": name, "level": level, "prepared": prepared})
 
     for nm in sc.get("cantrips", []):
         add(nm, 0, False)
     for nm in sc.get("spells", []):
         lvl = level_by_name.get(nm)
         if lvl is not None:                  # drop an unknown name rather than guessing level 1
-            add(nm, lvl, prepared)
+            add(nm, lvl, is_prepared(nm))
     for field in _FEATURE_CANTRIP_FIELDS:
         for nm in _as_list(choices.get(field)):
             add(nm, 0, False)

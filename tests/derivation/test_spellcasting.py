@@ -68,6 +68,15 @@ def test_spellbook_prepared_for_prepared_caster(catalog):
     assert book[0]["prepared"] is True                                                 # oracle = prepared
 
 
+def test_spellbook_multiclass_tags_prepared_per_class(catalog):
+    # mage = known, oracle = prepared. A spell on the oracle list is prepared; a mage-only spell is known.
+    book = spellcasting.spellbook(catalog, {"classes": [{"class": "Mage", "level": 3}, {"class": "Oracle", "level": 3}],
+                                            "spell_choices": {"cantrips": [], "spells": ["Bolt", "Veil"]}})
+    by = {b["name"]: b for b in book}
+    assert by["Bolt"]["prepared"] is True        # on the oracle (prepared) list → prepared
+    assert by["Veil"]["prepared"] is False       # mage-only (known caster) → known
+
+
 def test_spellbook_includes_feature_granted_spells(catalog):
     # Arcane Trickster: at_cantrips/at_spells are separate choice fields, all known
     book = spellcasting.spellbook(catalog, {"classes": [{"class": "Rogue", "level": 3}],
