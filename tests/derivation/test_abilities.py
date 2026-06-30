@@ -57,6 +57,21 @@ def test_asi_named_ability_is_ignored(catalog):
     assert s["str"] == 16 and s["dex"] == 14 and s["cha"] == 8    # not +2 Charisma
 
 
+def test_allocate_asi_spends_lone_point_on_highest_secondary():
+    # primary 17 → 18 (1 pt); ASIs are spent in full, so the leftover point still lands on the
+    # highest-priority remaining ability (Con 14 → 15) even though it buys no modifier — never unspent
+    scores = {"str": 17, "dex": 14, "con": 14, "int": 12, "wis": 12, "cha": 10}
+    abilities._allocate_asi(scores, 2, ["str", "con", "dex", "wis", "int", "cha"])
+    assert scores["str"] == 18 and scores["con"] == 15
+
+
+def test_allocate_asi_pairs_two_points_on_an_even_ability():
+    # primary maxed, all others even: two points DO buy a modifier (highest-priority even +2), not waste
+    scores = {"str": 20, "dex": 14, "con": 14, "int": 12, "wis": 12, "cha": 10}
+    abilities._allocate_asi(scores, 2, ["str", "con", "dex", "wis", "int", "cha"])
+    assert scores["con"] == 16 and scores["str"] == 20
+
+
 def test_multiclass_asi_slots_are_summed(catalog):
     choices = {"race": "Human", "classes": [{"class": "Fighter", "level": 4}, {"class": "Rogue", "level": 4}],
                "ability_assignment": {"str": 15, "dex": 13, "con": 14, "int": 10, "wis": 12, "cha": 8}}

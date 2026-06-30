@@ -36,6 +36,8 @@ def _allocate_asi(scores, points, order) -> None:
     scores[primary] = target
     rest = [ab for ab in order if ab != primary]
     while points > 0:
+        # ASIs are spent in full: prefer an odd ability (odd → even buys a modifier); if all are even,
+        # the point still goes to the highest-priority ability (even → odd) — it can't be left unspent.
         odd = [ab for ab in rest if scores[ab] < 20 and scores[ab] % 2 == 1]
         pool = odd or [ab for ab in rest if scores[ab] < 20]
         if not pool:
