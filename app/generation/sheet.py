@@ -132,7 +132,7 @@ def generate(cat, spec, *, rng=random):
     schema, fixed = build_grammar(cat, spec.race, spec.classes, subclasses, predecided=predecided)
     raw = client.generate(build_prompt(cat, spec.race, spec.classes, subclasses, spec.unique), schema)
     choices = {**raw, **fixed, "roll_starting_wealth": spec.roll_wealth}
-    H.repair(cat, choices, spec.race, spec.classes, subclasses)
+    H.repair(cat, choices, spec.race, spec.classes, subclasses, fixed["ability_assignment"])
     features.repair_features(cat, choices, resolved, spec.race)
 
     # pass 2 — starting equipment, fitted to the built character (unless taking gold instead)

@@ -8,7 +8,8 @@ from app.derivation.abilities import modifier
 
 
 def max_hp(cat, classes, con_mod) -> int:
-    """Max at the very first level (primary class), fixed average (die/2+1) per level after, +CON each."""
+    """Max at the very first level, fixed average (die/2+1) per level after, +CON each. Relies on the
+    convention that `classes[0]` is the class taken at character level 1 (so its die is the maxed one)."""
     hp, first = 0, True
     for ci, lv in classes:
         die = (cat.record("classes", ci) or {}).get("hit_die", 8)

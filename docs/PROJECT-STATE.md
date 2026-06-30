@@ -80,13 +80,14 @@ What's left is derivation-side + the service:**
 | **Character sheet generator** | ✅ base contract + feature/feat/equipment choices |
 | **Backstory generator** | ✅ physical + personality + backstory |
 | **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live — `/v1/characters` now returns choices **+ derived sheet** |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ 174 passing |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ 172 passing |
 | **Derivation engine (compute side)** | ✅ render-ready sheet + armour-based AC + inventory assembly + **starting treasure**; two-pass next (T42/T46) |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
 
+- **Review cleanups (T51)** — F2: `_repair_invocations` takes its count from the granted level (`_invocations_n`), not the model's current list length (removes order-coupling). S1: `sheet.generate` threads the already-computed `ability_assignment` into `helpers.repair` (no recompute). PRF-3: `proficiencies` normalises `tools` to names. VIT-1: documented the `classes[0]`=level-1 convention in `max_hp`. **equipped_armour** now matches by *exact item name against the assembled inventory* — retiring the substring / name-subset / shield word-boundary heuristics (and `_carried_text`); the engine assembles the inventory once and AC reads it. GEN-4 (bare-dict response typing) deferred (low ROI). Net −2 tests (172).
 - **Catalog-driven unarmoured defence (T49)** — `vitals.armor_class` reads an `unarmoured_defence` table (`{barbarian: con, monk: wis}`) instead of hard-coded class-name strings, so a renamed/localised class index no longer silently disables it. Behaviour unchanged (Barbarian +CON, Monk +WIS); `armor_class` now takes `cat`.
 - **Style↔weapon coherence on every slot + shield rule (T55)** — extended the equipment-grammar style filter from the fighter/paladin union slot to **every weapon-bearing route**, including concrete enum slots (rogue/barbarian) and styles granted by a *secondary* class. Routes whose weapons carry an excluded property are dropped, category-pick enums are filtered, and weapon counts are gated by max (all routes) / min (union picks only — a per-slot single-weapon route isn't dropped); all with a no-empty fallback. Added an **always-on rule**: a route granting a shield never offers a two-handed weapon (kills greatsword+shield). Melee styles now also exclude ranged. Live: rogue/ranger TWF → two melee (was Rapier+Shortbow); shield route 0 two-handed leaks; Defense left weapon-agnostic. +3 tests (174).
 - **Code-side variety spread (T57; closes T45, T53)** — background and fighting style are now pre-picked in code (seeded random) and injected as **fixed fields**, instead of model choices that monopolised (Soldier/Acolyte, Dueling/Two-Weapon). Precedence: explicit request input (and the future decoder, T58) → random spread → fallback. The model can't pick or override them. Live: fighters now spread ~7 backgrounds / all 5 styles over 12 (was ~1-3 / one dominant style). Follows the T56 spike finding (variety in code, coherence in prompt). +4 tests (171).

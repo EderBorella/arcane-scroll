@@ -251,13 +251,15 @@ def _dedup_pad(chosen, pool, n) -> list:
     return out[:n]
 
 
-def repair(cat, choices, race, classes, subclasses):
-    """De-dup + pad skill/spell picks to the granted counts (a grammar can't enforce uniqueness)."""
+def repair(cat, choices, race, classes, subclasses, ability_assign=None):
+    """De-dup + pad skill/spell picks to the granted counts (a grammar can't enforce uniqueness).
+    `ability_assign` is the already-computed assignment (reused from grammar-building) — recomputed
+    only if not supplied."""
     primary = classes[0][0]
     n_skill, skill_idx = class_skill_grant(cat, primary)
     choices["skill_choices"] = _dedup_pad(choices.get("skill_choices", []), skill_names(cat, skill_idx), n_skill)
     resolved = [(ci, lv, sub) for (ci, lv), sub in zip(classes, subclasses)]
-    pools = spell_pools(cat, resolved, race, ability_assignment(cat, resolved))
+    pools = spell_pools(cat, resolved, race, ability_assign or ability_assignment(cat, resolved))
     if pools and choices.get("spell_choices"):
         cant, spl, nc, ns = pools
         sc = choices["spell_choices"]
