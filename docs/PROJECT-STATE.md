@@ -80,12 +80,19 @@ What's left is derivation-side + the service:**
 | **Character sheet generator** | ✅ base contract + feature/feat/equipment choices |
 | **Backstory generator** | ✅ physical + personality + backstory |
 | **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live — `/v1/characters` now returns choices **+ derived sheet** |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ 128 passing |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ 147 passing |
 | **Derivation engine (compute side)** | ✅ render-ready sheet + **armour-based AC**; inventory/treasure/two-pass equipment next (T42) |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
+
+- **Code-review fix batch** (PRs #17–#20) — a multi-agent review of the whole codebase (tech debt, smells, bugs), then fixes split into four file-disjoint PRs:
+  - **#17 race canonicalisation** — race was validated case-insensitively but stored verbatim, so a legal `"human"` silently got generic body bounds + default skin in the backstory; `parse` now resolves to the canonical display name and flavour lookups are casing-tolerant. Documented the `_norm`/`_ci` split; removed dead `caster_classes`.
+  - **#18 I/O + HTTP hardening** — model/network failures and unparseable model output now raise a typed `ModelError` → **502** (were opaque 500s); catalog load failures wrap as a clear `RuntimeError`; `/ready` never throws; `/backstory` validates race/class; `prompt()` rejects active-but-empty text. Added `client.py` tests (was untested).
+  - **#19 repair completeness + shield** — repair now synthesizes feature/equipment fields the model omits (truncation); shield detection matches a whole word (`"a shielded lantern"` no longer grants +2 AC).
+  - **#20 derivation guards** — `derive` rejects empty classes; vitals/proficiency tolerate unknown class indices; medium armour caps Dex at +2 even without `max_bonus`; an unparseable ASI redirects to the primary instead of vanishing; unknown spell names are dropped not mis-bucketed at level 1.
+  - Follow-ups filed as cards: T48 (split +1/+1 ASI), T49 (catalog-driven unarmoured defence), T50 (per-class prepared tagging), T51 (minor cleanups); the phantom-companion (E1) folded into T42. +19 tests (147).
 
 - **Armour-based AC** (PR #16) — AC now uses the *equipped* armour instead of always unarmoured. New `derivation/equipment.equipped_armour` finds the worn armour + shield from the chosen equipment routes/picks **and** the fixed class package; `vitals.armor_class` computes base + capped Dex (light=full, medium=+2, heavy=none) + shield, falling back to unarmoured (incl. Barbarian/Monk). Fixes the glaring case — a plate paladin read AC 9, now 18. +5 tests (128); the name-subset trap (Half Plate ⊂ Plate) is fixed and regression-tested. First slice of T42; inventory assembly, treasure, and two-pass equipment selection follow.
 - **Ability requirements** (PR #15) — `ability_assignment` now combines all classes (level-weighted
