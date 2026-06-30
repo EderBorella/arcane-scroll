@@ -13,7 +13,8 @@ def test_route_slot_is_a_union_with_per_branch_picks(catalog):
     assert s1["field"] == "equipment_1" and s1["kind"] == "union"
     by_label = {b["label"]: b for b in s1["branches"]}
     assert by_label["ShieldItem"]["pick"] is None                       # concrete route — no picks
-    assert by_label["a martial weapon"]["pick"] == {"enum": ["MartialA", "MartialB"], "n": 1}
+    assert by_label["a martial weapon"]["pick"] == {"category": "cat-martial",
+                                                    "enum": ["MartialA", "MartialB"], "n": 1}
 
 
 def test_equipment_props_shape(catalog):
@@ -54,11 +55,41 @@ def test_repair_equipment_synthesizes_omitted_fields(catalog):
     assert ch["equipment_1"]["route"] in ["ShieldItem", "a martial weapon"]
 
 
+def test_style_filter_keeps_route_and_filters_weapons():
+    branches = [
+        {"label": "weapon + shield", "pick": {"category": "martial-weapons", "enum": ["Longsword", "Greatsword"], "n": 1}},
+        {"label": "two weapons", "pick": {"category": "martial-weapons", "enum": ["Longsword", "Greatsword"], "n": 2}},
+    ]
+    wprops = {"Greatsword": {"two-handed"}, "Longsword": set()}
+    one = equipment._filter_branches(branches, {"max_weapons": 1, "exclude_props": ["two-handed"]}, wprops)
+    assert [b["label"] for b in one] == ["weapon + shield"]          # 2-weapon route dropped
+    assert one[0]["pick"]["enum"] == ["Longsword"]                   # two-handed weapon dropped
+    two = equipment._filter_branches(branches, {"min_weapons": 2}, wprops)
+    assert [b["label"] for b in two] == ["two weapons"]
+
+
+def test_style_filter_falls_back_when_a_filter_would_empty(catalog):
+    branches = [{"label": "two weapons", "pick": {"category": "martial-weapons", "enum": ["Greatsword"], "n": 2}}]
+    wprops = {"Greatsword": {"two-handed"}}
+    # dropping the only route would empty the slot → keep it
+    assert equipment._filter_branches(branches, {"max_weapons": 1}, wprops)[0]["label"] == "two weapons"
+    # requiring ranged would empty the enum → keep the full enum
+    out = equipment._filter_branches(branches, {"require_props": ["ranged"]}, wprops)
+    assert out[0]["pick"]["enum"] == ["Greatsword"]
+
+
+def test_equipment_props_threads_fighting_style(catalog):
+    # a style flows into equipment_props and still yields a valid union (warrior's routes both fit
+    # Dueling's max_weapons=1, so this exercises threading + the no-empty fallback)
+    props, _ = equipment.equipment_props(catalog, [("warrior", 3)], "Dueling")
+    assert "oneOf" in props["equipment_1"] and props["equipment_1"]["oneOf"]
+
+
 def test_multiclass_uses_primary_class_only(catalog):
     assert equipment.equipment_props(catalog, [("mage", 5), ("warrior", 3)]) == ({}, [])
 
 
-def test_sheet_grammar_merges_equipment_fields(catalog):
-    props = sheet.build_grammar(catalog, "Human", [("warrior", 3)], ["Champion"])[0]["properties"]
+def test_equipment_grammar_provides_slots(catalog):
+    props = sheet.build_equipment_grammar(catalog, [("warrior", 3)])[0]["properties"]
     assert {"equipment_0", "equipment_1"} <= set(props) and "equipment_1_pick" not in props
     assert "oneOf" in props["equipment_1"]

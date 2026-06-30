@@ -11,9 +11,10 @@ from app.generation import client, equipment, features
 from app.generation import helpers as H
 
 
-def build_grammar(cat, race, classes, subclasses, *, roll_wealth=False):
-    """(model_schema, fixed_fields). classes: [(ci, lv)]; subclasses aligned (None where unlocked-not).
-    roll_wealth omits the starting-equipment slots — the character takes gold instead (RAW)."""
+def build_grammar(cat, race, classes, subclasses):
+    """(model_schema, fixed_fields) for PASS 1 — the whole sheet *except* starting equipment. Equipment
+    is a separate second pass (build_equipment_grammar) so the model picks gear that fits the rolled
+    build (style ↔ weapon). classes: [(ci, lv)]; subclasses aligned (None where unlocked-not)."""
     primary = classes[0][0]
     resolved = [(ci, lv, sub) for (ci, lv), sub in zip(classes, subclasses)]
     aa = H.ability_assignment(cat, resolved)                  # combined multiclass + subclass priority
@@ -47,19 +48,38 @@ def build_grammar(cat, race, classes, subclasses, *, roll_wealth=False):
     props.update(fp)
     req += freq
 
-    if not roll_wealth:                                      # gold-instead-of-equipment skips these
-        ep, ereq = equipment.equipment_props(cat, classes)   # starting-equipment routes (primary class)
-        props.update(ep)
-        req += ereq
-
     fixed = {
         "race": race,
         "ability_assignment": aa,
         "classes": [{"class": ci.capitalize(), "level": lv, **({"subclass": sub} if sub else {})}
                     for (ci, lv), sub in zip(classes, subclasses)],
-        "roll_starting_wealth": roll_wealth,
     }
     return {"type": "object", "properties": props, "required": req}, fixed
+
+
+def build_equipment_grammar(cat, classes, fighting_style=None):
+    """(model_schema, required) for PASS 2 — only the primary class's starting-equipment slots,
+    constrained to the character's fighting style (so the routes/weapons offered already fit it)."""
+    props, req = equipment.equipment_props(cat, classes, fighting_style)
+    return {"type": "object", "properties": props, "required": req}, req
+
+
+def build_equipment_prompt(cat, race, classes_field, fighting_style, ability_assignment):
+    """ChatML for pass 2: the equipment system prompt + a short build summary (class, style, strongest
+    abilities) so the model picks weapons/gear coherent with the character built in pass 1."""
+    desc = " / ".join(f"{c.get('class')} {c.get('level')}" + (f" ({c['subclass']})" if c.get("subclass") else "")
+                      for c in classes_field)
+    aa = ability_assignment or {}
+    top = ", ".join(sorted(aa, key=lambda a: -aa.get(a, 0))[:2])
+    bits = [f"{race} {desc}"]
+    if fighting_style:
+        bits.append(f"fighting style: {fighting_style}")
+    if top:
+        bits.append(f"strongest abilities: {top}")
+    user = ("Choose this character's starting equipment — pick options that fit the build (a weapon "
+            "matching the fighting style and ability scores).\n" + "; ".join(bits) + ".")
+    return (f"<|im_start|>system\n{cat.prompt('equip_sys')}<|im_end|>\n"
+            f"<|im_start|>user\n{user}<|im_end|>\n<|im_start|>assistant\n")
 
 
 def build_prompt(cat, race, classes, subclasses, unique=None):
@@ -74,15 +94,26 @@ def build_prompt(cat, race, classes, subclasses, unique=None):
 
 
 def generate(cat, spec, *, rng=random):
-    """Orchestrator: request → resolve subclasses → grammar + prompt → model → repair → choices."""
+    """Two-pass orchestrator. Pass 1: the sheet minus equipment. Pass 2 (skipped when the character
+    takes gold instead of equipment): pick starting equipment, prompted with the pass-1 build so the
+    gear fits the fighting style / abilities. Each pass is grammar-constrained and repaired."""
     subclasses = H.resolve_subclasses(cat, spec.classes, spec.subclasses, rng)
-    schema, fixed = build_grammar(cat, spec.race, spec.classes, subclasses, roll_wealth=spec.roll_wealth)
-    text = build_prompt(cat, spec.race, spec.classes, subclasses, spec.unique)
-    raw = client.generate(text, schema)
-    choices = {**raw, **fixed}
-    H.repair(cat, choices, spec.race, spec.classes, subclasses)
     resolved = [(ci, lv, sub) for (ci, lv), sub in zip(spec.classes, subclasses)]
+
+    # pass 1 — everything but equipment
+    schema, fixed = build_grammar(cat, spec.race, spec.classes, subclasses)
+    raw = client.generate(build_prompt(cat, spec.race, spec.classes, subclasses, spec.unique), schema)
+    choices = {**raw, **fixed, "roll_starting_wealth": spec.roll_wealth}
+    H.repair(cat, choices, spec.race, spec.classes, subclasses)
     features.repair_features(cat, choices, resolved, spec.race)
-    if not spec.roll_wealth:                       # no equipment slots to repair when taking gold
+
+    # pass 2 — starting equipment, fitted to the built character (unless taking gold instead)
+    if not spec.roll_wealth:
+        style = choices.get("fighting_style")
+        eq_schema, eq_req = build_equipment_grammar(cat, spec.classes, style)
+        if eq_req:                                 # primary class has equipment slots
+            eq_prompt = build_equipment_prompt(cat, spec.race, choices["classes"], style,
+                                               choices.get("ability_assignment"))
+            choices.update(client.generate(eq_prompt, eq_schema))
         equipment.repair_equipment(cat, choices, spec.classes)
     return choices

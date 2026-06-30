@@ -184,6 +184,8 @@ def _build_synthetic_db(path: str) -> None:
     # feature-choice lists (fighting style; expertise reads the class skill list)
     lst("fighting_styles", {"fighter": ["StyleA", "StyleB", "StyleC"]})
     lst("fighting_style_level", {"fighter": 1})
+    lst("fighting_style_equipment", {"Dueling": {"max_weapons": 1, "exclude_props": ["two-handed"]},
+                                     "Two-Weapon Fighting": {"min_weapons": 2, "exclude_props": ["two-handed"]}})
     # subclass feature-oddity value lists (synthetic)
     lst("metamagic", ["MetaA", "MetaB", "MetaC"])
     lst("invocations", ["InvA", "InvB", "InvC", "InvD"])
@@ -243,6 +245,8 @@ def _build_synthetic_db(path: str) -> None:
     lst("archetypes", ["Frame them through a mundane trade.", "Bond them to a place, not a person."])
     rec("prompts", "flavour_sys-v1", {"index": "flavour_sys-v1", "name": "flavour_sys v1", "locator": "flavour_sys",
                                       "version": 1, "active": True, "comment": "current", "text": "TEST FLAVOUR PROMPT"})
+    rec("prompts", "equip_sys-v1", {"index": "equip_sys-v1", "name": "equip_sys v1", "locator": "equip_sys",
+                                    "version": 1, "active": True, "comment": "current", "text": "TEST EQUIP PROMPT"})
 
     con.commit()
     con.close()
