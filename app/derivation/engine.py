@@ -43,7 +43,7 @@ def derive(cat, choices, *, rng=random) -> dict:
         "max_hp": vitals.max_hp(cat, classes, mods["con"]),
         "hit_dice": vitals.hit_dice(cat, classes),
         "death_saves": {"successes": 0, "failures": 0},
-        "armor_class": vitals.armor_class(scores, classes, *equipment.equipped_armour(cat, choices)),
+        "armor_class": vitals.armor_class(cat, scores, classes, *equipment.equipped_armour(cat, choices)),
         "inventory": equipment.assemble_inventory(cat, choices),
         "treasure": equipment.treasure(cat, choices, rng),
         "initiative": mods["dex"],
