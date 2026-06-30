@@ -8,11 +8,12 @@ def test_direct_category_slot(catalog):
     assert s0["enum"] == ["WeaponA", "WeaponB", "WeaponC"] and s0["n"] == 1
 
 
-def test_route_slot_is_a_union_with_per_branch_picks(catalog):
+def test_route_slot_is_a_union_with_alternatives(catalog):
     s1 = equipment.slots(catalog, "warrior")[1]
     assert s1["field"] == "equipment_1" and s1["kind"] == "union"
-    by_label = {b["label"]: b for b in s1["branches"]}
+    by_label = {a["label"]: a for a in s1["alternatives"]}
     assert by_label["ShieldItem"]["pick"] is None                       # concrete route — no picks
+    assert by_label["ShieldItem"]["items"] == [{"item": "ShieldItem", "qty": 1}]   # routes carry items now
     assert by_label["a martial weapon"]["pick"] == {"category": "cat-martial",
                                                     "enum": ["MartialA", "MartialB"], "n": 1}
 
@@ -55,27 +56,55 @@ def test_repair_equipment_synthesizes_omitted_fields(catalog):
     assert ch["equipment_1"]["route"] in ["ShieldItem", "a martial weapon"]
 
 
-def test_style_filter_keeps_route_and_filters_weapons():
-    branches = [
-        {"label": "weapon + shield", "pick": {"category": "martial-weapons", "enum": ["Longsword", "Greatsword"], "n": 1}},
-        {"label": "two weapons", "pick": {"category": "martial-weapons", "enum": ["Longsword", "Greatsword"], "n": 2}},
+def _alts():   # two category-pick routes: one-weapon and two-weapon
+    return [
+        {"label": "weapon + shield", "items": [], "pick": {"category": "mw", "enum": ["Longsword", "Greatsword"], "n": 1}},
+        {"label": "two weapons", "items": [], "pick": {"category": "mw", "enum": ["Longsword", "Greatsword"], "n": 2}},
     ]
-    wprops = {"Greatsword": {"two-handed"}, "Longsword": set()}
-    one = equipment._filter_branches(branches, {"max_weapons": 1, "exclude_props": ["two-handed"]}, wprops)
-    assert [b["label"] for b in one] == ["weapon + shield"]          # 2-weapon route dropped
+
+
+_WP = {"Greatsword": {"two-handed"}, "Longsword": set(), "Shortbow": {"ranged"}, "Shortsword": set()}
+
+
+def test_constrain_union_keeps_route_and_filters_pick():
+    one = equipment._constrain(_alts(), {"max_weapons": 1, "exclude_props": ["two-handed"]}, _WP, set())
+    assert [a["label"] for a in one] == ["weapon + shield"]          # 2-weapon route dropped
     assert one[0]["pick"]["enum"] == ["Longsword"]                   # two-handed weapon dropped
-    two = equipment._filter_branches(branches, {"min_weapons": 2}, wprops)
-    assert [b["label"] for b in two] == ["two weapons"]
+    two = equipment._constrain(_alts(), {"min_weapons": 2}, _WP, set())
+    assert [a["label"] for a in two] == ["two weapons"]
 
 
-def test_style_filter_falls_back_when_a_filter_would_empty(catalog):
-    branches = [{"label": "two weapons", "pick": {"category": "martial-weapons", "enum": ["Greatsword"], "n": 2}}]
-    wprops = {"Greatsword": {"two-handed"}}
+def test_constrain_filters_concrete_routes_by_property():
+    # the rogue/ranger fix: a melee style drops a concrete route that grants a ranged weapon
+    alts = [{"label": "Shortsword", "items": [{"item": "Shortsword", "qty": 1}], "pick": None},
+            {"label": "Shortbow", "items": [{"item": "Shortbow", "qty": 1}], "pick": None}]
+    out = equipment._constrain(alts, {"exclude_props": ["ranged"]}, _WP, set())
+    assert [a["label"] for a in out] == ["Shortsword"]
+
+
+def test_constrain_min_weapons_keeps_concrete_single_weapon_routes():
+    # a two-weapon style must NOT drop a single-weapon concrete route (the char gets its 2nd weapon
+    # from another slot) — only the ranged route is dropped here
+    alts = [{"label": "Shortsword", "items": [{"item": "Shortsword", "qty": 1}], "pick": None},
+            {"label": "Shortbow", "items": [{"item": "Shortbow", "qty": 1}], "pick": None}]
+    out = equipment._constrain(alts, {"min_weapons": 2, "exclude_props": ["ranged"]}, _WP, set())
+    assert [a["label"] for a in out] == ["Shortsword"]
+
+
+def test_constrain_shield_route_excludes_two_handed_even_without_style():
+    # the shield rule applies regardless of fighting style
+    alts = [{"label": "weapon + shield", "items": [{"item": "Shield", "qty": 1}],
+             "pick": {"category": "mw", "enum": ["Longsword", "Greatsword"], "n": 1}}]
+    out = equipment._constrain(alts, {}, _WP, {"Shield"})
+    assert out[0]["pick"]["enum"] == ["Longsword"]                   # greatsword dropped — can't pair with a shield
+
+
+def test_constrain_falls_back_when_a_filter_would_empty():
+    alts = [{"label": "two weapons", "items": [], "pick": {"category": "mw", "enum": ["Greatsword"], "n": 2}}]
     # dropping the only route would empty the slot → keep it
-    assert equipment._filter_branches(branches, {"max_weapons": 1}, wprops)[0]["label"] == "two weapons"
+    assert [a["label"] for a in equipment._constrain(alts, {"max_weapons": 1}, _WP, set())] == ["two weapons"]
     # requiring ranged would empty the enum → keep the full enum
-    out = equipment._filter_branches(branches, {"require_props": ["ranged"]}, wprops)
-    assert out[0]["pick"]["enum"] == ["Greatsword"]
+    assert equipment._constrain(alts, {"require_props": ["ranged"]}, _WP, set())[0]["pick"]["enum"] == ["Greatsword"]
 
 
 def test_equipment_props_threads_fighting_style(catalog):
