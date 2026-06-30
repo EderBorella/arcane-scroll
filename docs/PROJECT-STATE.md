@@ -80,13 +80,14 @@ What's left is derivation-side + the service:**
 | **Character sheet generator** | ✅ base contract + feature/feat/equipment choices |
 | **Backstory generator** | ✅ physical + personality + backstory |
 | **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live — `/v1/characters` now returns choices **+ derived sheet** |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ 166 passing |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ 167 passing |
 | **Derivation engine (compute side)** | ✅ render-ready sheet + armour-based AC + inventory assembly + **starting treasure**; two-pass next (T42/T46) |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
 
+- **Per-class prepared/known spell tagging (T50)** — `spellbook` tagged every leveled spell with a single character-wide prepared flag, so a prepared+known multiclass mislabelled the known caster's spells (and vice-versa). A leveled spell is now prepared iff it sits on one of the character's *prepared-caster* class lists (per-spell, from the spell records' class lists), else known. Single-class unchanged. +1 test (167).
 - **Multiclass spell slots (T43)** — `spell_slots` now uses the RAW **combined caster level** (full +level, half-casters Paladin/Ranger +level//2) looked up in a full caster's slot table, instead of summing each class's slots. Paladin 6 / Sorcerer 2 → `{1:4, 2:3, 3:2}` (was `{1:7, 2:2}`); single-class casters unchanged and half-casters reproduce exactly. Warlock is excluded from the combined level and its Pact Magic reported in a new separate **`pact_slots`** field. Driven by a `caster_progression` table (local data). Now generic over any number of caster classes incl. third-caster subclasses (EK/AT, level//3, subclass threaded into the slot math). +3 tests (166).
 - **Two-pass equipment + style-enforced coherence (T46, completes T42)** — equipment is now a SECOND generation pass: pass 1 builds the sheet minus equipment; pass 2 picks gear, prompted with the built character. The pass-2 grammar is **constrained to the chosen fighting style** at build time — a one-weapon style (Dueling/Protection/Defense) only offers the weapon-and-shield route and excludes two-handed weapons; Two-Weapon offers only the two-weapon route; Archery ranged-only; Great-Weapon two-handed-melee-only — so an incoherent pick is impossible by construction (filters fall back to the full options if they'd empty a slot). A spike first confirmed the GBNF converter enforces the union; the measured style↔weapon route mismatch went ~20% → **0/20**. Pass 2 is skipped when taking gold instead of equipment. +6 tests (163).
 - **Starting treasure (T42 Phase B)** — `derive` now yields `treasure: {gp}`. Default = the background's starting gold. A request flag `roll_starting_wealth` takes the RAW gold-instead-of-equipment path: the equipment grammar is omitted (choices carry no equipment), inventory is empty and AC falls back to unarmoured, and treasure = rolled class `starting_wealth` (dice × x) + background gold (seeded `rng` → reproducible). +6 tests (157). T42 remaining: T46 two-pass selection.
