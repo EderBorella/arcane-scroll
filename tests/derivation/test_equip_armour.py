@@ -4,46 +4,24 @@ import random
 from app.derivation import equipment
 
 
-def test_equipped_armour_from_route(catalog):
-    armour, shield = equipment.equipped_armour(catalog, {
-        "classes": [{"class": "Fighter", "level": 5}],
-        "equipment_0": "Chain Mail", "equipment_1": "a martial weapon + Shield",
-        "equipment_1_pick": ["Longsword"]})
-    assert armour["name"] == "Chain Mail" and shield is True
+def _inv(*names):
+    return [{"item": n, "quantity": 1} for n in names]
 
 
-def test_equipped_armour_picks_highest_base(catalog):
-    armour, _ = equipment.equipped_armour(catalog, {
-        "classes": [{"class": "Fighter", "level": 5}], "equipment_0": "Leather Armor + Chain Mail"})
-    assert armour["name"] == "Chain Mail"          # heavier of the two named
+def test_equipped_armour_highest_base(catalog):
+    armour, shield = equipment.equipped_armour(catalog, _inv("Leather Armor", "Chain Mail", "Shield"))
+    assert armour["name"] == "Chain Mail" and shield is True        # heaviest worn armour + shield
 
 
-def test_half_plate_not_misread_as_plate(catalog):
-    # "Plate Armor" ⊂ "Half Plate Armor" — must NOT pick the heavier Plate just because its name is a substring
-    armour, _ = equipment.equipped_armour(catalog, {
-        "classes": [{"class": "Fighter", "level": 5}], "equipment_0": "Half Plate Armor"})
-    assert armour["name"] == "Half Plate Armor"
-
-    studded, _ = equipment.equipped_armour(catalog, {
-        "classes": [{"class": "Rogue", "level": 5}], "equipment_0": "Studded Leather Armor"})
-    assert studded["name"] == "Studded Leather Armor"
+def test_equipped_armour_exact_name_no_subset(catalog):
+    # exact-name match against the inventory — no "Plate Armor" ⊂ "Half Plate Armor" confusion
+    assert equipment.equipped_armour(catalog, _inv("Half Plate Armor"))[0]["name"] == "Half Plate Armor"
+    assert equipment.equipped_armour(catalog, _inv("Studded Leather Armor"))[0]["name"] == "Studded Leather Armor"
 
 
-def test_shield_not_false_positive_on_substring(catalog):
-    # "a shielded lantern" must NOT register a shield (naked `"shield" in blob` would)
-    _, shield = equipment.equipped_armour(catalog, {
-        "classes": [{"class": "Mage", "level": 5}], "equipment_0": "a wand and a shielded lantern"})
-    assert shield is False
-    # a genuine shield is still detected
-    _, real = equipment.equipped_armour(catalog, {
-        "classes": [{"class": "Fighter", "level": 5}], "equipment_0": "a martial weapon + Shield"})
-    assert real is True
-
-
-def test_unarmoured_returns_none(catalog):
-    armour, shield = equipment.equipped_armour(catalog, {
-        "classes": [{"class": "Mage", "level": 5}], "equipment_0": "Dagger", "equipment_1": "arcane focus"})
-    assert armour is None and shield is False
+def test_equipped_armour_unarmoured(catalog):
+    assert equipment.equipped_armour(catalog, _inv("Dagger")) == (None, False)
+    assert equipment.equipped_armour(catalog, []) == (None, False)  # empty inventory (e.g. gold-instead)
 
 
 def test_assemble_inventory_category_route(catalog):
@@ -80,5 +58,6 @@ def test_roll_wealth_drops_inventory_and_armour(catalog):
     # gold instead of equipment: no class kit, unarmoured — even if equipment fields slipped through
     choices = {"classes": [{"class": "warrior", "level": 3}], "roll_starting_wealth": True,
                "equipment_0": "WeaponA", "equipment_1": {"route": "ShieldItem"}}
-    assert equipment.assemble_inventory(catalog, choices) == []
-    assert equipment.equipped_armour(catalog, choices) == (None, False)
+    inv = equipment.assemble_inventory(catalog, choices)
+    assert inv == []                                                # no class kit (gold instead)
+    assert equipment.equipped_armour(catalog, inv) == (None, False)  # empty inventory → unarmoured

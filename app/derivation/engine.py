@@ -33,6 +33,7 @@ def derive(cat, choices, *, rng=random) -> dict:
     total_level = sum(lv for _, lv in classes)
     pb = proficiency.proficiency_bonus(total_level)
     skills = proficiency.skill_table(cat, scores, pb, choices)
+    inventory = equipment.assemble_inventory(cat, choices)    # assembled once; AC reads it too
     return {
         "schema_version": SCHEMA_VERSION,
         "level": total_level,
@@ -43,8 +44,8 @@ def derive(cat, choices, *, rng=random) -> dict:
         "max_hp": vitals.max_hp(cat, classes, mods["con"]),
         "hit_dice": vitals.hit_dice(cat, classes),
         "death_saves": {"successes": 0, "failures": 0},
-        "armor_class": vitals.armor_class(cat, scores, classes, *equipment.equipped_armour(cat, choices)),
-        "inventory": equipment.assemble_inventory(cat, choices),
+        "armor_class": vitals.armor_class(cat, scores, classes, *equipment.equipped_armour(cat, inventory)),
+        "inventory": inventory,
         "treasure": equipment.treasure(cat, choices, rng),
         "initiative": mods["dex"],
         "speed": vitals.speed(cat, choices["race"]),

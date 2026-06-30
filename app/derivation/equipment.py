@@ -6,7 +6,6 @@ via the seed-built `class_equipment` relation. When the request set `roll_starti
 character takes gold INSTEAD of the class equipment (RAW): no inventory, unarmoured AC, and the treasure
 is the rolled class starting wealth plus background gold. Otherwise treasure is the background gold."""
 import random
-import re
 
 from app.generation import helpers as H
 
@@ -89,50 +88,20 @@ def assemble_inventory(cat, choices) -> list:
     return [{"item": k, "quantity": v} for k, v in items.items()]
 
 
-def _carries_shield(cat, blob: str) -> bool:
-    """Whether a shield is carried. Matches a Shield-category record name as a whole word, so
-    'a shielded lantern' doesn't register a shield the way a naked `"shield" in blob` would."""
+def equipped_armour(cat, inventory):
+    """(armour_record, has_shield) from the assembled `inventory` — matched by EXACT item name against
+    the equipment records (the highest-base worn armour, and whether any shield is carried). Because the
+    inventory holds concrete catalog names, there's no substring/name-subset ambiguity. Unarmoured (and
+    the gold-instead-of-equipment case, where the inventory is empty) yields (None, False)."""
+    names = {i["item"] for i in inventory}
+    best, shield = None, False
     for e in cat.records("equipment").values():
-        if e.get("armor_category") == "Shield" and re.search(rf"\b{re.escape(e['name'].lower())}\b", blob):
-            return True
-    return False
-
-
-def _carried_text(cat, choices) -> str:
-    """Lower-cased blob of every equipment item the character has — chosen routes + `_pick` companions
-    + the fixed class starting package."""
-    parts = []
-    for k, v in choices.items():
-        if not k.startswith("equipment"):
+        if e["name"] not in names:
             continue
-        if isinstance(v, dict):                       # union route: {route, weapons}
-            parts.append(str(v.get("route", "")))
-            parts += [str(x) for x in (v.get("weapons") or [])]
-        elif isinstance(v, list):
-            parts += [str(x) for x in v]
-        else:
-            parts.append(str(v))
-    for c in choices.get("classes", []):
-        rec = cat.record("classes", H._ci(c["class"])) or {}
-        parts += [e.get("equipment", {}).get("name", "") for e in rec.get("starting_equipment", [])]
-    return " | ".join(parts).lower()
-
-
-def equipped_armour(cat, choices):
-    """(armour_record, has_shield) — the armour the character wears (None if unarmoured).
-    Returns (None, False) when the character took gold instead of equipment.
-
-    Names are matched as substrings of the carried-equipment blob. Some armour names are sub-phrases
-    of a more specific one ("Plate Armor" ⊂ "Half Plate Armor", "Leather Armor" ⊂ "Studded Leather
-    Armor"), so a less-specific name can match purely because the specific one is present. We drop any
-    matched name contained in another matched name, then take the highest-base survivor."""
-    if choices.get("roll_starting_wealth"):          # took gold instead of equipment → unarmoured
-        return None, False
-    blob = _carried_text(cat, choices)
-    matched = [e for e in cat.records("equipment").values()
-               if e.get("armor_category") in _ARMOUR_CATS and e["name"].lower() in blob]
-    names = {e["name"].lower() for e in matched}
-    specific = [e for e in matched
-                if not any(e["name"].lower() != n and e["name"].lower() in n for n in names)]
-    best = max(specific, key=lambda e: e["armor_class"]["base"], default=None)
-    return best, _carries_shield(cat, blob)
+        category = e.get("armor_category")
+        if category in _ARMOUR_CATS:
+            if best is None or e["armor_class"]["base"] > best["armor_class"]["base"]:
+                best = e
+        elif category == "Shield":
+            shield = True
+    return best, shield

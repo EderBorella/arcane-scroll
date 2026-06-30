@@ -64,7 +64,8 @@ def proficiencies(cat, classes, background=None) -> dict:
             armor.append(name)
         elif "weapon" in idx:
             weapons.append(name)
-    tools = list((_background(cat, background) or {}).get("tool_proficiencies", []))
+    raw_tools = (_background(cat, background) or {}).get("tool_proficiencies", [])
+    tools = [t.get("name", "") if isinstance(t, dict) else t for t in raw_tools]   # normalise to names
     return {"armor": armor, "weapons": weapons, "tools": tools}
 
 

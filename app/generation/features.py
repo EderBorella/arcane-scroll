@@ -248,7 +248,7 @@ def _repair_invocations(cat, ch, classes):
     has_eb = any(H._norm(c) == H._norm("Eldritch Blast")
                  for c in (ch.get("spell_choices") or {}).get("cantrips", []))
     wl = max((lv for ci, lv, _ in classes if ci == "warlock"), default=0)
-    n = len(ch["invocations"])
+    n = _invocations_n(wl)               # granted count from the level, not the model's current list length
     eligible = [i for i in cat.get("invocations") if _invocation_ok(prereqs, i, wl, pact, has_eb)]
     kept = [i for i in ch["invocations"] if _invocation_ok(prereqs, i, wl, pact, has_eb)]
     ch["invocations"] = H._dedup_pad(kept, eligible, n)
