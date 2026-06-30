@@ -11,6 +11,8 @@ class Spec:
     subclasses: dict = field(default_factory=dict)   # class_index -> subclass override
     unique: str | None = None           # the UI "what is unique about this character?" field
     roll_wealth: bool = False           # take rolled starting gold INSTEAD of the class equipment (RAW)
+    background: str | None = None       # explicit background; else code picks one (variety spread)
+    fighting_style: str | None = None   # explicit fighting style; else code picks one when granted
 
 
 def parse(cat, payload: dict) -> Spec:
@@ -41,6 +43,13 @@ def parse(cat, payload: dict) -> Spec:
     if len(required_abilities(cat, [(ci, lv, None) for ci, lv in classes])) > 3:
         raise ValueError("illegal multiclass: requires 13+ in more than three abilities")
 
+    bg = payload.get("background")
+    if bg:                              # validate + canonicalise an explicit background to its display name
+        bg = next((b for b in cat.get("backgrounds", []) if _norm(b) == _norm(bg)), None)
+        if bg is None:
+            raise ValueError(f"unknown background: {payload.get('background')!r}")
+
     return Spec(race=race, classes=classes,
                 subclasses=payload.get("subclasses") or {}, unique=payload.get("unique"),
-                roll_wealth=bool(payload.get("roll_starting_wealth", False)))
+                roll_wealth=bool(payload.get("roll_starting_wealth", False)),
+                background=bg, fighting_style=payload.get("fighting_style"))
