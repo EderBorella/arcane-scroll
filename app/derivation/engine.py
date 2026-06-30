@@ -53,5 +53,6 @@ def derive(cat, choices, *, rng=random) -> dict:
         "features": features.features_and_traits(cat, choices),
         "spellcasting": spellcasting.spell_stats(cat, scores, pb, classes),
         "spell_slots": spellcasting.spell_slots(cat, classes),
+        "pact_slots": spellcasting.pact_slots(cat, classes),
         "spells": spellcasting.spellbook(cat, choices),
     }

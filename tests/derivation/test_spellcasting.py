@@ -28,8 +28,21 @@ def test_spellbook_drops_unknown_spell_name(catalog):
 
 
 def test_spell_slots(catalog):
-    assert spellcasting.spell_slots(catalog, [("mage", 5)]) == {1: 4, 2: 3, 3: 2}
+    assert spellcasting.spell_slots(catalog, [("mage", 5)]) == {1: 4, 2: 3, 3: 2}        # single-class unchanged
     assert spellcasting.spell_slots(catalog, [("warrior", 3)]) == {}                    # non-caster
+
+
+def test_spell_slots_multiclass_uses_combined_level(catalog):
+    # combined caster level 5 (full 2 + full 3), NOT the old per-class sum {1:7, 2:2}
+    assert spellcasting.spell_slots(catalog, [("mage", 2), ("oracle", 3)]) == {1: 4, 2: 3, 3: 2}
+
+
+def test_combined_caster_level_raw_rules():
+    # Paladin 6 (half→3) + Sorcerer 2 (full→2) = 5; Warlock (pact) excluded
+    prog = {"paladin": "half", "sorcerer": "full", "warlock": "pact"}
+    assert spellcasting._combined_caster_level(prog, [("paladin", 6), ("sorcerer", 2)]) == 5
+    assert spellcasting._combined_caster_level(prog, [("paladin", 6), ("sorcerer", 2), ("warlock", 3)]) == 5
+    assert spellcasting._combined_caster_level({"fighter": None}, [("fighter", 6)]) == 0    # non-caster
 
 
 def test_spellbook_buckets_by_level_known_caster(catalog):

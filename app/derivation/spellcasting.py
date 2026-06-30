@@ -18,16 +18,40 @@ def spell_stats(cat, scores, prof_bonus, classes) -> dict:
     return out
 
 
+_DENOM = {"full": 1, "half": 2, "third": 3}      # caster-level contribution = level // denom
+
+
+def _combined_caster_level(prog, classes) -> int:
+    """RAW multiclass caster level: full classes add their full level, half (Paladin/Ranger) add
+    level//2, third (EK/AT) level//3. Pact (Warlock) is excluded — its slots are a separate pool."""
+    return sum(lv // _DENOM[prog[ci]] for ci, lv in classes if prog.get(ci) in _DENOM)
+
+
+def _slots_from(cat, ci, lv) -> dict:
+    """{spell level: count} from a class's level table (non-zero only)."""
+    return {int(k.rsplit("_", 1)[-1]): v for k, v in H._spellcasting(cat, ci, lv).items()
+            if k.startswith("spell_slots_level_") and v}
+
+
 def spell_slots(cat, classes) -> dict:
-    """Spell slots by level, from the per-class level tables. Single-class is exact; multiclass sums
-    per level as a best-effort (RAW's combined caster-level table is a deferred edge case)."""
-    slots = {}
+    """Spell slots by level via the RAW combined caster level — looked up in a full caster's slot table
+    (a full caster's progression IS the multiclass table, so single-class casters are unchanged and
+    half-casters reproduce exactly). Warlock pact slots are excluded here (see pact_slots)."""
+    prog = cat.get("caster_progression", {})
+    level = _combined_caster_level(prog, classes)
+    ref = next((ci for ci in sorted(prog) if prog[ci] == "full"), None)
+    return _slots_from(cat, ref, level) if level and ref else {}
+
+
+def pact_slots(cat, classes) -> dict:
+    """Warlock Pact Magic — a separate pool (N slots, all of one level). Summed over any pact classes."""
+    prog = cat.get("caster_progression", {})
+    out = {}
     for ci, lv in classes:
-        for k, v in H._spellcasting(cat, ci, lv).items():
-            if k.startswith("spell_slots_level_") and v:
-                level = int(k.rsplit("_", 1)[-1])
-                slots[level] = slots.get(level, 0) + v
-    return dict(sorted(slots.items()))
+        if prog.get(ci) == "pact":
+            for level, n in _slots_from(cat, ci, lv).items():
+                out[level] = out.get(level, 0) + n
+    return dict(sorted(out.items()))
 
 
 # Choice fields (from the feature layer) that carry extra spells beyond the main spell_choices.
