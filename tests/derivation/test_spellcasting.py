@@ -19,6 +19,14 @@ def test_multiclass_two_casters_each_get_spell_stats(catalog):
     assert out["Mage"]["save_dc"] == 15 and out["Oracle"]["save_dc"] == 13              # int vs wis
 
 
+def test_spellbook_drops_unknown_spell_name(catalog):
+    # an unknown leveled name is dropped, not mis-bucketed at level 1
+    choices = {"classes": [{"class": "Mage", "level": 5}],
+               "spell_choices": {"cantrips": ["Spark"], "spells": ["Bolt", "Bogus Spell"]}}
+    names = [s["name"] for s in spellcasting.spellbook(catalog, choices)]
+    assert "Bolt" in names and "Spark" in names and "Bogus Spell" not in names
+
+
 def test_spell_slots(catalog):
     assert spellcasting.spell_slots(catalog, [("mage", 5)]) == {1: 4, 2: 3, 3: 2}
     assert spellcasting.spell_slots(catalog, [("warrior", 3)]) == {}                    # non-caster

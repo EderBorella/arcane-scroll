@@ -34,6 +34,18 @@ def test_armor_class_worn(catalog):
     assert vitals.armor_class(_scores(dex=14), [("fighter", 5)], heavy, shield=True) == 18  # +2 shield
 
 
+def test_armor_class_medium_without_max_bonus_caps_dex(catalog):
+    # a medium-armour record missing max_bonus must still cap Dex at +2 (not grant full Dex)
+    medium = {"armor_category": "Medium", "armor_class": {"base": 14, "dex_bonus": True}}
+    assert vitals.armor_class(_scores(dex=18), [("fighter", 5)], medium) == 16     # 14 + min(4, 2)
+
+
+def test_unknown_class_index_does_not_crash(catalog):
+    # derivation trusts validated input, but must degrade gracefully (default hit die) not AttributeError
+    assert vitals.max_hp(catalog, [("nonexistent", 3)], 0) > 0
+    assert vitals.hit_dice(catalog, [("nonexistent", 3)]) == {"d8": 3}
+
+
 def test_speed(catalog):
     assert vitals.speed(catalog, "Human") == 30
     assert vitals.speed(catalog, "Highlander") == 35               # subrace sets its own speed

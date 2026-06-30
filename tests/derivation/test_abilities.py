@@ -38,6 +38,14 @@ def test_one_feat_slot_picking_a_feat_bumps_nothing(catalog):
     assert abilities.ability_scores(catalog, choices, _classes(choices))["int"] == 16   # racial only
 
 
+def test_unparseable_asi_pick_is_not_silently_lost(catalog):
+    # an ASI pick naming no recognised ability still grants +2 — redirected to the primary, not dropped
+    choices = {"race": "Human", "feat": "Ability Score Improvement: Nonsense",
+               "classes": [{"class": "Fighter", "level": 4}],     # 1 ASI slot
+               "ability_assignment": {"str": 15, "dex": 13, "con": 14, "int": 10, "wis": 12, "cha": 8}}
+    assert abilities.ability_scores(catalog, choices, _classes(choices))["str"] == 17
+
+
 def test_multiclass_asi_slots_are_summed(catalog):
     choices = {"race": "Human", "classes": [{"class": "Fighter", "level": 4}, {"class": "Rogue", "level": 4}],
                "ability_assignment": {"str": 15, "dex": 13, "con": 14, "int": 10, "wis": 12, "cha": 8}}

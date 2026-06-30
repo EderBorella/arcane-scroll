@@ -16,7 +16,7 @@ def proficiency_bonus(total_level: int) -> int:
 def saving_throws(cat, scores, prof_bonus, primary_ci) -> dict:
     """Per ability: modifier (+ prof bonus where the primary class is proficient) and the flag.
     Multiclass grants saving-throw proficiencies from the first class only (RAW)."""
-    prof = {st["index"] for st in cat.record("classes", primary_ci).get("saving_throws", [])}
+    prof = {st["index"] for st in (cat.record("classes", primary_ci) or {}).get("saving_throws", [])}
     return {ab: {"modifier": modifier(scores[ab]) + (prof_bonus if ab in prof else 0),
                  "proficient": ab in prof}
             for ab in cat.get("abilities")}
@@ -58,7 +58,7 @@ def proficiencies(cat, classes, background=None) -> dict:
     """Armour & weapon proficiencies from the primary class (RAW: these come from the first class on
     a multiclass), plus the background's tool proficiencies."""
     armor, weapons = [], []
-    for p in cat.record("classes", classes[0][0]).get("proficiencies", []):
+    for p in (cat.record("classes", classes[0][0]) or {}).get("proficiencies", []):
         idx, name = p.get("index", ""), p.get("name", "")
         if idx in _ARMOR:
             armor.append(name)

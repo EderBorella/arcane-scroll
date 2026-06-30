@@ -23,6 +23,8 @@ SCHEMA_VERSION = 1
 
 def derive(cat, choices, *, rng=random) -> dict:
     classes = abilities.class_levels(choices)
+    if not classes:
+        raise ValueError("cannot derive a sheet without at least one class")
     scores = abilities.ability_scores(cat, choices, classes)
     mods = {ab: abilities.modifier(s) for ab, s in scores.items()}
     total_level = sum(lv for _, lv in classes)

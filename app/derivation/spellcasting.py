@@ -60,11 +60,15 @@ def spellbook(cat, choices) -> list:
     for nm in sc.get("cantrips", []):
         add(nm, 0, False)
     for nm in sc.get("spells", []):
-        add(nm, level_by_name.get(nm, 1), prepared)
+        lvl = level_by_name.get(nm)
+        if lvl is not None:                  # drop an unknown name rather than guessing level 1
+            add(nm, lvl, prepared)
     for field in _FEATURE_CANTRIP_FIELDS:
         for nm in _as_list(choices.get(field)):
             add(nm, 0, False)
     for field in _FEATURE_SPELL_FIELDS:
         for nm in _as_list(choices.get(field)):
-            add(nm, level_by_name.get(nm, 1), False)
+            lvl = level_by_name.get(nm)
+            if lvl is not None:
+                add(nm, lvl, False)
     return out
