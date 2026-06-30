@@ -61,4 +61,4 @@ def test_derive_full_sheet_smoke(catalog):
     assert sheet["languages"][0] == "Common"
     assert sheet["schema_version"] == 1 and sheet["death_saves"] == {"successes": 0, "failures": 0}
     assert set(sheet) >= {"saving_throws", "skills", "passive_perception", "hit_dice", "armor_class",
-                          "proficiencies", "languages", "features", "spells", "inventory"}
+                          "proficiencies", "languages", "features", "spells", "inventory", "pact_slots"}
