@@ -11,6 +11,13 @@ def test_parse_valid(catalog):
     assert spec.subclasses == {} and spec.unique is None
 
 
+def test_parse_canonicalises_race_casing(catalog):
+    # a case-insensitively-valid race resolves to the catalog's display name, so downstream
+    # flavour lookups (keyed by display name) don't silently fall back to generic bounds
+    assert request.parse(catalog, {"race": "HUMAN", "classes": [{"class": "mage", "level": 1}]}).race == "Human"
+    assert request.parse(catalog, {"race": "human", "classes": [{"class": "mage", "level": 1}]}).race == "Human"
+
+
 def test_parse_carries_options(catalog):
     spec = request.parse(catalog, {"race": "Human", "classes": [{"class": "mage", "level": 3}],
                                    "subclasses": {"mage": "Evoker"}, "unique": "collects teeth"})

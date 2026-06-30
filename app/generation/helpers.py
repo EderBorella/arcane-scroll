@@ -9,12 +9,24 @@ import random
 import re
 
 
+# Two deliberately different normalisers, by key type:
+#   _norm — strips ALL non-alphanumerics; for display-name comparisons ("Half-Elf" == "half elf").
+#   _ci  — strips only whitespace; for class *indices* which keep hyphens ("eldritch-knight").
+# Don't merge them: _norm would collapse "eldritch-knight" → "eldritchknight" and break index lookups.
 def _norm(s) -> str:
     return re.sub(r"[^a-z0-9]", "", str(s).lower())
 
 
 def _ci(name) -> str:
     return re.sub(r"\s+", "", str(name).lower())
+
+
+def _by_norm(table: dict, key):
+    """Look a value up in a display-name-keyed table, tolerating casing/punctuation differences."""
+    if key in table:
+        return table[key]
+    nk = _norm(key)
+    return next((v for k, v in table.items() if _norm(k) == nk), None)
 
 
 # ── abilities ────────────────────────────────────────────────────────────────
@@ -169,11 +181,6 @@ def all_skill_names(cat) -> list:
     return sorted(s["name"] for s in cat.records("skills").values())
 
 
-def caster_classes(cat, classes) -> list:
-    """[(ci, lv)] of the classes that can cast at their level."""
-    return [(ci, lv) for ci, lv in classes if has_slots(cat, ci, lv) or cantrips_known(cat, ci, lv)]
-
-
 def _patron_expanded(cat, resolved, max_lv) -> set:
     """Patron-expanded spells become choosable for a warlock with a resolved subclass."""
     out, expanded = set(), cat.get("patron_expanded", {})
@@ -264,14 +271,15 @@ _DEFAULT_PHYS = {"age": [16, 100], "h": [48, 84], "w": [80, 320]}
 
 
 def physical_bounds(cat, race: str):
-    """((age_min, age_max), (h_min, h_max), (w_min, w_max)) for a race, with a generic fallback."""
-    p = cat.get("race_phys", {}).get(race) or _DEFAULT_PHYS
+    """((age_min, age_max), (h_min, h_max), (w_min, w_max)) for a race, with a generic fallback.
+    Race is matched casing/punctuation-tolerantly (the /backstory path doesn't canonicalise race)."""
+    p = _by_norm(cat.get("race_phys", {}), race) or _DEFAULT_PHYS
     return tuple(p["age"]), tuple(p["h"]), tuple(p["w"])
 
 
 def skin_options(cat, race: str) -> list:
     """Skin enum for a race — a race-specific override if present, else the default palette."""
-    return cat.get("skin_overrides", {}).get(race) or cat.get("skin_default")
+    return _by_norm(cat.get("skin_overrides", {}), race) or cat.get("skin_default")
 
 
 def character_summary(character: dict) -> str:

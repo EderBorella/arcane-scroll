@@ -173,7 +173,7 @@ def _build_synthetic_db(path: str) -> None:
     lst("alignments_display", ["Order", "Balance", "Ruin"])
     lst("known_casters", ["mage"])
     lst("prepared_casters", ["oracle"])
-    lst("valid_races", ["human"])
+    lst("valid_races", ["Human"])          # display names (canonical form parse resolves to)
     lst("subclass_options", {"mage": ["Evoker", "Abjurer"], "warrior": ["Champion", "Berserker"],
                              "oracle": ["Seer", "Prophet"]})
     lst("subclass_level", {"mage": 2, "warrior": 3, "oracle": 3})

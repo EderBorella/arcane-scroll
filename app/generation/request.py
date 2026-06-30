@@ -15,8 +15,13 @@ class Spec:
 def parse(cat, payload: dict) -> Spec:
     """payload: {race, classes:[{class, level}], subclasses?:{class:name}, unique?:str}."""
     race = str(payload.get("race", "")).strip()
-    if _norm(race) not in {_norm(r) for r in cat.get("valid_races", [])}:
+    # Validate case-insensitively, but store the catalog's canonical display name: downstream flavour
+    # lookups (physical bounds, skin palette) are keyed by display name, so a request of "human" must
+    # become "Human" or it silently falls back to generic bounds.
+    canonical = next((r for r in cat.get("valid_races", []) if _norm(r) == _norm(race)), None)
+    if canonical is None:
         raise ValueError(f"unknown race: {race!r}")
+    race = canonical
 
     classes_in = payload.get("classes") or []
     if not classes_in:

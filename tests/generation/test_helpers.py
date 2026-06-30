@@ -123,6 +123,15 @@ def test_skin_options(catalog):
     assert H.skin_options(catalog, "Human") == catalog.get("skin_default")    # default palette
 
 
+def test_flavour_lookups_tolerate_race_casing(catalog):
+    # race_phys/skin_overrides are keyed by display name; a differently-cased race (as the /backstory
+    # path may pass) must still resolve, not silently fall back to generic defaults
+    human = (tuple([16, 90]), tuple([58, 78]), tuple([110, 270]))
+    assert H.physical_bounds(catalog, "human") == human
+    assert H.physical_bounds(catalog, "HUMAN") == human
+    assert H.skin_options(catalog, "scaled") == ["Bronze", "Silver"]
+
+
 def test_school_spells_filters_by_class_school_and_level(catalog):
     assert H.school_spells(catalog, "wizard", None, 0, 0) == ["Wiz Cantrip A", "Wiz Cantrip B"]  # cantrips
     assert H.school_spells(catalog, "wizard", {"abjuration", "evocation"}, 1, 1) == ["Evoke Bolt", "Ward Sigil"]
