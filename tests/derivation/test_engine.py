@@ -18,6 +18,15 @@ def test_multiclass_saves_come_from_primary_class_only(catalog):
     assert sheet["saving_throws"]["int"]["proficient"] is False         # mage's save NOT granted (secondary)
 
 
+def test_inventory_assembled_through_derive(catalog):
+    choices = {"race": "Human", "classes": [{"class": "warrior", "level": 3}],
+               "ability_assignment": {"str": 15, "dex": 13, "con": 14, "int": 10, "wis": 12, "cha": 8},
+               "equipment_0": "WeaponA",
+               "equipment_1": {"route": "a martial weapon", "weapons": ["MartialA"]}}
+    inv = {i["item"]: i["quantity"] for i in derive(catalog, choices)["inventory"]}
+    assert inv == {"WeaponA": 1, "MartialA": 1}
+
+
 def test_passive_perception_through_derive(catalog):
     choices = {"race": "Human", "classes": [{"class": "Mage", "level": 5}], "skill_choices": ["Perception"],
                "ability_assignment": {"str": 8, "dex": 10, "con": 12, "int": 13, "wis": 14, "cha": 10}}
@@ -39,4 +48,4 @@ def test_derive_full_sheet_smoke(catalog):
     assert sheet["languages"][0] == "Common"
     assert sheet["schema_version"] == 1 and sheet["death_saves"] == {"successes": 0, "failures": 0}
     assert set(sheet) >= {"saving_throws", "skills", "passive_perception", "hit_dice", "armor_class",
-                          "proficiencies", "languages", "features", "spells"}
+                          "proficiencies", "languages", "features", "spells", "inventory"}

@@ -42,3 +42,20 @@ def test_unarmoured_returns_none(catalog):
     armour, shield = equipment.equipped_armour(catalog, {
         "classes": [{"class": "Mage", "level": 5}], "equipment_0": "Dagger", "equipment_1": "arcane focus"})
     assert armour is None and shield is False
+
+
+def test_assemble_inventory_category_route(catalog):
+    # warrior slot0 = direct category (WeaponA); slot1 union route carries its weapons inline
+    choices = {"classes": [{"class": "warrior", "level": 3}],
+               "equipment_0": "WeaponA",
+               "equipment_1": {"route": "a martial weapon", "weapons": ["MartialA"]}}
+    inv = {i["item"]: i["quantity"] for i in equipment.assemble_inventory(catalog, choices)}
+    assert inv == {"WeaponA": 1, "MartialA": 1}
+
+
+def test_assemble_inventory_concrete_route_has_no_weapons(catalog):
+    # the ShieldItem route carries no category pick — the union shape makes a stray pick impossible
+    choices = {"classes": [{"class": "warrior", "level": 3}],
+               "equipment_0": "WeaponB", "equipment_1": {"route": "ShieldItem"}}
+    inv = {i["item"]: i["quantity"] for i in equipment.assemble_inventory(catalog, choices)}
+    assert inv == {"WeaponB": 1, "ShieldItem": 1}

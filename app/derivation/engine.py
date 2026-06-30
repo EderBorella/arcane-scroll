@@ -41,6 +41,7 @@ def derive(cat, choices, *, rng=random) -> dict:
         "hit_dice": vitals.hit_dice(cat, classes),
         "death_saves": {"successes": 0, "failures": 0},
         "armor_class": vitals.armor_class(scores, classes, *equipment.equipped_armour(cat, choices)),
+        "inventory": equipment.assemble_inventory(cat, choices),
         "initiative": mods["dex"],
         "speed": vitals.speed(cat, choices["race"]),
         "saving_throws": proficiency.saving_throws(cat, scores, pb, classes[0][0]),
