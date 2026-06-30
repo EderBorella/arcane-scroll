@@ -11,6 +11,14 @@ def test_parse_valid(catalog):
     assert spec.subclasses == {} and spec.unique is None
 
 
+def test_parse_roll_starting_wealth_flag(catalog):
+    on = request.parse(catalog, {"race": "Human", "classes": [{"class": "mage", "level": 1}],
+                                 "roll_starting_wealth": True})
+    assert on.roll_wealth is True
+    off = request.parse(catalog, {"race": "Human", "classes": [{"class": "mage", "level": 1}]})
+    assert off.roll_wealth is False
+
+
 def test_parse_canonicalises_race_casing(catalog):
     # a case-insensitively-valid race resolves to the catalog's display name, so downstream
     # flavour lookups (keyed by display name) don't silently fall back to generic bounds

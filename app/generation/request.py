@@ -10,10 +10,12 @@ class Spec:
     classes: list                       # [(class_index, level)]
     subclasses: dict = field(default_factory=dict)   # class_index -> subclass override
     unique: str | None = None           # the UI "what is unique about this character?" field
+    roll_wealth: bool = False           # take rolled starting gold INSTEAD of the class equipment (RAW)
 
 
 def parse(cat, payload: dict) -> Spec:
-    """payload: {race, classes:[{class, level}], subclasses?:{class:name}, unique?:str}."""
+    """payload: {race, classes:[{class, level}], subclasses?:{class:name}, unique?:str,
+    roll_starting_wealth?:bool}."""
     race = str(payload.get("race", "")).strip()
     # Validate case-insensitively, but store the catalog's canonical display name: downstream flavour
     # lookups (physical bounds, skin palette) are keyed by display name, so a request of "human" must
@@ -40,4 +42,5 @@ def parse(cat, payload: dict) -> Spec:
         raise ValueError("illegal multiclass: requires 13+ in more than three abilities")
 
     return Spec(race=race, classes=classes,
-                subclasses=payload.get("subclasses") or {}, unique=payload.get("unique"))
+                subclasses=payload.get("subclasses") or {}, unique=payload.get("unique"),
+                roll_wealth=bool(payload.get("roll_starting_wealth", False)))

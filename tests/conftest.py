@@ -156,7 +156,8 @@ def _build_synthetic_db(path: str) -> None:
     # background records (the model picks a name from the backgrounds list; these resolve the grants)
     rec("backgrounds", "scholar", {"index": "scholar", "name": "Scholar",
         "starting_proficiencies": [{"index": "skill-lore", "name": "Lore"}, {"index": "skill-runes", "name": "Runes"}],
-        "tool_proficiencies": ["Quill"], "language_options": {"choose": 1}, "feature": {"name": "Bookish"}})
+        "tool_proficiencies": ["Quill"], "language_options": {"choose": 1}, "feature": {"name": "Bookish"},
+        "starting_gold": {"quantity": 15, "unit": "gp"}})
     rec("backgrounds", "outcast", {"index": "outcast", "name": "Outcast",
         "starting_proficiencies": [{"index": "skill-brawn", "name": "Brawn"}],
         "tool_proficiencies": [], "language_options": {"choose": 0}, "feature": {"name": "Hardened"}})
@@ -170,6 +171,7 @@ def _build_synthetic_db(path: str) -> None:
                              "fighter": ["str", "con", "dex", "wis", "cha", "int"],
                              "rogue": ["dex", "con", "int", "wis", "cha", "str"]})
     lst("backgrounds", ["Wanderer", "Scholar", "Outcast"])
+    lst("starting_wealth", {"warrior": {"dice": "2d4", "x": 10}, "mage": {"dice": "4d4", "x": 10}})
     lst("alignments_display", ["Order", "Balance", "Ruin"])
     lst("known_casters", ["mage"])
     lst("prepared_casters", ["oracle"])

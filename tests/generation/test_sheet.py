@@ -32,6 +32,16 @@ def test_build_grammar_omits_subclass_when_unresolved(catalog):
     assert "subclass" not in fixed["classes"][0]
 
 
+def test_build_grammar_roll_wealth_omits_equipment(catalog):
+    # taking gold instead of equipment drops the equipment slots and flags the choice
+    schema, fixed = sheet.build_grammar(catalog, "Human", [("warrior", 3)], ["Champion"], roll_wealth=True)
+    assert not any(k.startswith("equipment") for k in schema["properties"])
+    assert fixed["roll_starting_wealth"] is True
+    # default keeps equipment and flags false
+    schema2, fixed2 = sheet.build_grammar(catalog, "Human", [("warrior", 3)], ["Champion"])
+    assert "equipment_0" in schema2["properties"] and fixed2["roll_starting_wealth"] is False
+
+
 def test_build_prompt(catalog):
     text = sheet.build_prompt(catalog, "Human", [("mage", 5)], ["Evoker"], unique="speaks in riddles")
     assert "TEST SYSTEM PROMPT" in text

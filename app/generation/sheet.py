@@ -11,8 +11,9 @@ from app.generation import client, equipment, features
 from app.generation import helpers as H
 
 
-def build_grammar(cat, race, classes, subclasses):
-    """(model_schema, fixed_fields). classes: [(ci, lv)]; subclasses aligned (None where unlocked-not)."""
+def build_grammar(cat, race, classes, subclasses, *, roll_wealth=False):
+    """(model_schema, fixed_fields). classes: [(ci, lv)]; subclasses aligned (None where unlocked-not).
+    roll_wealth omits the starting-equipment slots — the character takes gold instead (RAW)."""
     primary = classes[0][0]
     resolved = [(ci, lv, sub) for (ci, lv), sub in zip(classes, subclasses)]
     aa = H.ability_assignment(cat, resolved)                  # combined multiclass + subclass priority
@@ -46,15 +47,17 @@ def build_grammar(cat, race, classes, subclasses):
     props.update(fp)
     req += freq
 
-    ep, ereq = equipment.equipment_props(cat, classes)       # starting-equipment routes (primary class)
-    props.update(ep)
-    req += ereq
+    if not roll_wealth:                                      # gold-instead-of-equipment skips these
+        ep, ereq = equipment.equipment_props(cat, classes)   # starting-equipment routes (primary class)
+        props.update(ep)
+        req += ereq
 
     fixed = {
         "race": race,
         "ability_assignment": aa,
         "classes": [{"class": ci.capitalize(), "level": lv, **({"subclass": sub} if sub else {})}
                     for (ci, lv), sub in zip(classes, subclasses)],
+        "roll_starting_wealth": roll_wealth,
     }
     return {"type": "object", "properties": props, "required": req}, fixed
 
@@ -73,11 +76,13 @@ def build_prompt(cat, race, classes, subclasses, unique=None):
 def generate(cat, spec, *, rng=random):
     """Orchestrator: request → resolve subclasses → grammar + prompt → model → repair → choices."""
     subclasses = H.resolve_subclasses(cat, spec.classes, spec.subclasses, rng)
-    schema, fixed = build_grammar(cat, spec.race, spec.classes, subclasses)
+    schema, fixed = build_grammar(cat, spec.race, spec.classes, subclasses, roll_wealth=spec.roll_wealth)
     text = build_prompt(cat, spec.race, spec.classes, subclasses, spec.unique)
     raw = client.generate(text, schema)
     choices = {**raw, **fixed}
     H.repair(cat, choices, spec.race, spec.classes, subclasses)
     resolved = [(ci, lv, sub) for (ci, lv), sub in zip(spec.classes, subclasses)]
     features.repair_features(cat, choices, resolved, spec.race)
-    return equipment.repair_equipment(cat, choices, spec.classes)
+    if not spec.roll_wealth:                       # no equipment slots to repair when taking gold
+        equipment.repair_equipment(cat, choices, spec.classes)
+    return choices

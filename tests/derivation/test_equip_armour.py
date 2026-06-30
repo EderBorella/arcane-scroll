@@ -1,4 +1,6 @@
-"""Equipment-derived: detect the equipped armour (for armour-based AC) from choices + fixed package."""
+"""Equipment-derived: equipped armour (for armour-based AC), inventory assembly, and treasure."""
+import random
+
 from app.derivation import equipment
 
 
@@ -59,3 +61,24 @@ def test_assemble_inventory_concrete_route_has_no_weapons(catalog):
                "equipment_0": "WeaponB", "equipment_1": {"route": "ShieldItem"}}
     inv = {i["item"]: i["quantity"] for i in equipment.assemble_inventory(catalog, choices)}
     assert inv == {"WeaponB": 1, "ShieldItem": 1}
+
+
+def test_treasure_default_is_background_gold_only(catalog):
+    choices = {"classes": [{"class": "warrior", "level": 3}], "background": "Scholar"}
+    assert equipment.treasure(catalog, choices) == {"gp": 15}        # bg gold, no class wealth roll
+
+
+def test_treasure_flag_rolls_class_wealth_plus_background(catalog):
+    choices = {"classes": [{"class": "warrior", "level": 3}], "background": "Scholar",
+               "roll_starting_wealth": True}
+    gp = equipment.treasure(catalog, choices, random.Random(1))["gp"]
+    assert 35 <= gp <= 95 and (gp - 15) % 10 == 0                    # 2d4 (2..8) x10 + 15 bg
+    assert equipment.treasure(catalog, choices, random.Random(1))["gp"] == gp   # deterministic per seed
+
+
+def test_roll_wealth_drops_inventory_and_armour(catalog):
+    # gold instead of equipment: no class kit, unarmoured — even if equipment fields slipped through
+    choices = {"classes": [{"class": "warrior", "level": 3}], "roll_starting_wealth": True,
+               "equipment_0": "WeaponA", "equipment_1": {"route": "ShieldItem"}}
+    assert equipment.assemble_inventory(catalog, choices) == []
+    assert equipment.equipped_armour(catalog, choices) == (None, False)

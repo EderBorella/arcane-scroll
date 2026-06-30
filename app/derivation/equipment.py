@@ -1,14 +1,46 @@
-"""Equipment-derived sheet fields: a concrete inventory and the equipped armour (for armour-based AC).
+"""Equipment-derived sheet fields: a concrete inventory, the equipped armour (for armour-based AC), and
+starting treasure (gold).
 
-The model picks equipment as route labels + `_pick` companions; assembly resolves those — plus the
-fixed class package — into a concrete `[{item, quantity}]` list using the seed-built `class_equipment`
-relation (which maps each chosen route label back to its items and the number of companion picks it
-actually consumes). Treasure/starting wealth is the next phase."""
+Assembly resolves the model's chosen routes — plus the fixed class package — into `[{item, quantity}]`
+via the seed-built `class_equipment` relation. When the request set `roll_starting_wealth`, the
+character takes gold INSTEAD of the class equipment (RAW): no inventory, unarmoured AC, and the treasure
+is the rolled class starting wealth plus background gold. Otherwise treasure is the background gold."""
+import random
 import re
 
 from app.generation import helpers as H
 
 _ARMOUR_CATS = {"Light", "Medium", "Heavy"}
+
+
+def _roll_dice(expr, rng) -> int:
+    """Sum of an 'NdM' roll (e.g. '5d4'); 0 if unparseable."""
+    try:
+        n, sides = (int(x) for x in str(expr).lower().split("d"))
+    except (ValueError, AttributeError):
+        return 0
+    return sum(rng.randint(1, sides) for _ in range(n))
+
+
+def _background_gold(cat, name) -> int:
+    """The chosen background's starting gold in gp (0 if none / not gp)."""
+    if not name:
+        return 0
+    n = H._norm(name)
+    bg = next((b for b in cat.records("backgrounds").values() if H._norm(b.get("name")) == n), None)
+    sg = (bg or {}).get("starting_gold") or {}
+    return sg.get("quantity", 0) if sg.get("unit", "gp") == "gp" else 0
+
+
+def treasure(cat, choices, rng=random) -> dict:
+    """Starting gold. Always the background's gold; plus the rolled class starting wealth (dice × x)
+    when the character took gold instead of equipment (`roll_starting_wealth`)."""
+    gp = _background_gold(cat, choices.get("background"))
+    if choices.get("roll_starting_wealth"):
+        sw = (cat.get("starting_wealth") or {}).get(_primary_index(choices))
+        if sw:
+            gp += _roll_dice(sw.get("dice", ""), rng) * sw.get("x", 1)
+    return {"gp": gp}
 
 
 def _primary_index(choices):
@@ -23,6 +55,8 @@ def assemble_inventory(cat, choices) -> list:
     """Concrete `[{item, quantity}]` for the primary class — fixed package + the chosen routes/picks,
     resolved through the class_equipment relation. A category route's picks ride on the route object
     (`{route, weapons}`) already sized to that route, so there's nothing to trim."""
+    if choices.get("roll_starting_wealth"):          # took gold instead of equipment → no class kit
+        return []
     rel = (cat.get("class_equipment") or {}).get(_primary_index(choices))
     if not rel:
         return []
@@ -86,11 +120,14 @@ def _carried_text(cat, choices) -> str:
 
 def equipped_armour(cat, choices):
     """(armour_record, has_shield) — the armour the character wears (None if unarmoured).
+    Returns (None, False) when the character took gold instead of equipment.
 
     Names are matched as substrings of the carried-equipment blob. Some armour names are sub-phrases
     of a more specific one ("Plate Armor" ⊂ "Half Plate Armor", "Leather Armor" ⊂ "Studded Leather
     Armor"), so a less-specific name can match purely because the specific one is present. We drop any
     matched name contained in another matched name, then take the highest-base survivor."""
+    if choices.get("roll_starting_wealth"):          # took gold instead of equipment → unarmoured
+        return None, False
     blob = _carried_text(cat, choices)
     matched = [e for e in cat.records("equipment").values()
                if e.get("armor_category") in _ARMOUR_CATS and e["name"].lower() in blob]

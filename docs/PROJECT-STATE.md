@@ -81,12 +81,13 @@ What's left is derivation-side + the service:**
 | **Backstory generator** | ✅ physical + personality + backstory |
 | **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live — `/v1/characters` now returns choices **+ derived sheet** |
 | **Test suite** (per-layer, synthetic fixtures) | ✅ 151 passing |
-| **Derivation engine (compute side)** | ✅ render-ready sheet + armour-based AC + **inventory assembly**; treasure/two-pass next (T42) |
+| **Derivation engine (compute side)** | ✅ render-ready sheet + armour-based AC + inventory assembly + **starting treasure**; two-pass next (T42/T46) |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
 
+- **Starting treasure (T42 Phase B)** — `derive` now yields `treasure: {gp}`. Default = the background's starting gold. A request flag `roll_starting_wealth` takes the RAW gold-instead-of-equipment path: the equipment grammar is omitted (choices carry no equipment), inventory is empty and AC falls back to unarmoured, and treasure = rolled class `starting_wealth` (dice × x) + background gold (seeded `rng` → reproducible). +6 tests (157). T42 remaining: T46 two-pass selection.
 - **Equipment relation + inventory assembly** (T47 + T42 Phase A) — a seed-built `class_equipment` relation normalises each class's starting equipment (fixed package + per-slot alternatives, each with its concrete items + category pick). The grammar now models a category slot as a **discriminated union**: `equipment_<i> = {route, weapons}`, where the chosen route fixes exactly how many category picks it carries — so the model emits the right count and there is no over-collected `_pick` to trim (verified by a spike: Ollama's GBNF converter enforces the `oneOf`+`const`+per-branch length cleanly). `derivation.equipment.assemble_inventory` resolves the chosen routes/picks into `inventory: [{item, quantity}]` on the sheet. The phantom-companion bug (E1) is now structurally impossible. +4 tests (151).
 - **Code-review fix batch** (PRs #17–#20) — a multi-agent review of the whole codebase (tech debt, smells, bugs), then fixes split into four file-disjoint PRs:
   - **#17 race canonicalisation** — race was validated case-insensitively but stored verbatim, so a legal `"human"` silently got generic body bounds + default skin in the backstory; `parse` now resolves to the canonical display name and flavour lookups are casing-tolerant. Documented the `_norm`/`_ci` split; removed dead `caster_classes`.
