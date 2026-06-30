@@ -27,10 +27,11 @@ def hit_dice(cat, classes) -> dict:
     return out
 
 
-def armor_class(scores, classes, armour=None, shield=False) -> int:
+def armor_class(cat, scores, classes, armour=None, shield=False) -> int:
     """Worn-armour AC when armour is equipped (base + Dex per the armour's rule: light = full Dex,
     medium = +Dex capped at max_bonus, heavy = none); otherwise unarmoured (10 + Dex, taking the best
-    of Barbarian +CON / Monk +WIS). +2 for a shield."""
+    unarmoured-defence the character's classes grant — e.g. Barbarian +CON, Monk +WIS, from the
+    `unarmoured_defence` table). +2 for a shield."""
     dex = modifier(scores["dex"])
     if armour:
         acd = armour["armor_class"]
@@ -45,10 +46,9 @@ def armor_class(scores, classes, armour=None, shield=False) -> int:
     else:
         ac = 10 + dex
         cis = {ci for ci, _ in classes}
-        if "barbarian" in cis:
-            ac = max(ac, 10 + dex + modifier(scores["con"]))
-        if "monk" in cis:
-            ac = max(ac, 10 + dex + modifier(scores["wis"]))
+        for ci, ability in (cat.get("unarmoured_defence") or {}).items():
+            if ci in cis:
+                ac = max(ac, 10 + dex + modifier(scores[ability]))
     return ac + (2 if shield else 0)
 
 
