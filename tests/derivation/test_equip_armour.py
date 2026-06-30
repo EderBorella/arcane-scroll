@@ -27,6 +27,17 @@ def test_half_plate_not_misread_as_plate(catalog):
     assert studded["name"] == "Studded Leather Armor"
 
 
+def test_shield_not_false_positive_on_substring(catalog):
+    # "a shielded lantern" must NOT register a shield (naked `"shield" in blob` would)
+    _, shield = equipment.equipped_armour(catalog, {
+        "classes": [{"class": "Mage", "level": 5}], "equipment_0": "a wand and a shielded lantern"})
+    assert shield is False
+    # a genuine shield is still detected
+    _, real = equipment.equipped_armour(catalog, {
+        "classes": [{"class": "Fighter", "level": 5}], "equipment_0": "a martial weapon + Shield"})
+    assert real is True
+
+
 def test_unarmoured_returns_none(catalog):
     armour, shield = equipment.equipped_armour(catalog, {
         "classes": [{"class": "Mage", "level": 5}], "equipment_0": "Dagger", "equipment_1": "arcane focus"})

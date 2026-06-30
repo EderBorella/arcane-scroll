@@ -4,9 +4,20 @@ chosen equipment + the fixed class package. Full inventory assembly + treasure a
 The model picks equipment as route labels + `_pick` companions; the class also grants fixed items
 (e.g. paladin Chain Mail, ranger Longbow) that aren't in the choices. We scan all of it for an armour
 item and resolve its stats from the equipment records."""
+import re
+
 from app.generation import helpers as H
 
 _ARMOUR_CATS = {"Light", "Medium", "Heavy"}
+
+
+def _carries_shield(cat, blob: str) -> bool:
+    """Whether a shield is carried. Matches a Shield-category record name as a whole word, so
+    'a shielded lantern' doesn't register a shield the way a naked `"shield" in blob` would."""
+    for e in cat.records("equipment").values():
+        if e.get("armor_category") == "Shield" and re.search(rf"\b{re.escape(e['name'].lower())}\b", blob):
+            return True
+    return False
 
 
 def _carried_text(cat, choices) -> str:
@@ -36,4 +47,4 @@ def equipped_armour(cat, choices):
     specific = [e for e in matched
                 if not any(e["name"].lower() != n and e["name"].lower() in n for n in names)]
     best = max(specific, key=lambda e: e["armor_class"]["base"], default=None)
-    return best, "shield" in blob
+    return best, _carries_shield(cat, blob)

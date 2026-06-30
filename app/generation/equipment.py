@@ -102,11 +102,17 @@ def repair_equipment(cat, ch, classes):
         return ch
     for s in slots(cat, _primary(classes)):
         for spec, is_route in ((s, True), (s["companion"], False)):
-            if not spec or spec["field"] not in ch:
+            if not spec:
                 continue
             f = spec["field"]
             single = is_route and s["n"] == 1
-            cur = [ch[f]] if isinstance(ch[f], str) else list(ch[f])
+            # synthesize an omitted field by padding from the slot's enum, rather than skipping it
+            raw = ch.get(f, [])
+            cur = [raw] if isinstance(raw, str) else list(raw or [])
             fit = _fit(cur, spec["enum"], 1 if single else spec["n"])
-            ch[f] = fit[0] if single else fit
+            if single:
+                if fit:
+                    ch[f] = fit[0]
+            else:
+                ch[f] = fit
     return ch
