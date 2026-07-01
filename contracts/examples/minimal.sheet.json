@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "name": "Placeholder",
+    "race": "race-a",
+    "classes": [{ "class": "class-a", "level": 3, "subclass": "subclass-a" }],
+    "total_level": 3,
+    "background": "background-a",
+    "alignment": "neutral",
+    "xp": 0
+  },
+  "abilities": {
+    "a1": { "base": 13, "racial_bonus": 2, "final": 15, "modifier": 2 },
+    "a2": { "base": 13, "racial_bonus": 2, "final": 15, "modifier": 2 },
+    "a3": { "base": 13, "racial_bonus": 2, "final": 15, "modifier": 2 },
+    "a4": { "base": 13, "racial_bonus": 2, "final": 15, "modifier": 2 },
+    "a5": { "base": 13, "racial_bonus": 2, "final": 15, "modifier": 2 },
+    "a6": { "base": 13, "racial_bonus": 2, "final": 15, "modifier": 2 }
+  },
+  "proficiency_bonus": 2,
+  "saving_throws": {
+    "a1": { "proficient": false, "modifier": 2 },
+    "a2": { "proficient": true, "modifier": 4 },
+    "a3": { "proficient": false, "modifier": 2 },
+    "a4": { "proficient": true, "modifier": 4 },
+    "a5": { "proficient": false, "modifier": 2 },
+    "a6": { "proficient": false, "modifier": 2 }
+  },
+  "skills": {
+    "skill-a": { "ability": "a1", "proficient": true, "expertise": false, "modifier": 4, "source": "class" }
+  },
+  "passive_perception": 12,
+  "combat": {
+    "armor_class": 14,
+    "initiative": 2,
+    "speed": 30,
+    "hit_points": { "max": 21, "current": 21, "temp": 0 },
+    "hit_dice": { "d8": 3 },
+    "death_saves": { "successes": 0, "failures": 0 }
+  },
+  "attacks": [{ "name": "weapon-a", "attack_bonus": 4, "damage": "1d8+2" }],
+  "proficiencies": { "armor": ["armor-a"], "weapons": ["weapon-a"], "tools": [] },
+  "languages": ["language-a"],
+  "equipment": [{ "name": "item-a", "quantity": 1 }],
+  "treasure": { "gp": 15 },
+  "features": [{ "name": "feature-a", "source": "class-a 1" }],
+  "spellcasting": {
+    "classes": { "class-a": { "ability": "a4", "save_dc": 13, "attack_bonus": 5 } },
+    "spell_slots": { "1": 4, "2": 2 },
+    "spells": [
+      { "name": "cantrip-a", "level": 0, "prepared": false },
+      { "name": "spell-a", "level": 1, "prepared": true }
+    ]
+  }
+}
