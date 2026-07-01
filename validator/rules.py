@@ -1,6 +1,5 @@
-"""The 2024 rules the validator checks against — functional facts loaded from the validator's data
-dir (mined from the source rulebook by extract_2024.py). No game content is hard-coded here; it all
-comes from the data files, keyed by catalog identifiers."""
+"""The 2024 rules the validator checks against — loaded from the validator's data dir (built by
+build_rules.py). No game content is hard-coded here; it comes from the data files, keyed by identifier."""
 import json
 import os
 

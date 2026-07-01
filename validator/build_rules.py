@@ -1,16 +1,22 @@
-"""Mine the 2024 rules data — functional facts ONLY (names, levels, numbers, mechanics; never prose) —
-from the source rulebook JSON into the validator's data dir. Generic: classes are discovered from
-table titles, so no game content is hard-coded here. Prose (`text`) is never read into the output.
+"""Build the validator's 2024 rules data files from the reference source.
 
-  BOOK_JSON       source rulebook extraction (default: resources/book.json)
-  VALIDATOR_DATA  output data dir           (default: arcane-validator-data)
+Reads the structured reference JSON and writes the lookup tables the validator checks against —
+class progression, backgrounds, spell lists, hit dice, class proficiencies — into the data dir.
+Output is purely structural/numeric (identifiers, levels, counts) and is regenerated whenever the
+reference is updated.
+
+  SOURCE_JSON     reference data file  (default: resources/book.json)
+  VALIDATOR_DATA  output data dir      (default: arcane-validator-data)
 """
 import json
 import os
 import re
 
-BOOK = os.environ.get("BOOK_JSON", "/data/projects/resources/book.json")
+SOURCE = os.environ.get("SOURCE_JSON", "/data/projects/resources/book.json")
 OUT = os.environ.get("VALIDATOR_DATA", "/data/projects/arcane-validator-data")
+
+_ABILITY_IDS = {"strength": "str", "dexterity": "dex", "constitution": "con",
+                "intelligence": "int", "wisdom": "wis", "charisma": "cha"}
 
 
 def _tables(book):
@@ -31,7 +37,7 @@ def _int(s):
 
 def class_progression(tables):
     """Per class → {level: {proficiency_bonus, cantrips_known?, prepared_spells?, features[]}} from the
-    '<Class> Features' tables. Feature *names* only (functional); no descriptions."""
+    '<Class> Features' tables."""
     out = {}
     for t in tables:
         m = re.fullmatch(r"(.+?) Features", (t.get("title") or "").strip())
@@ -63,13 +69,8 @@ def class_progression(tables):
     return out
 
 
-_ABILITY_IDS = {"strength": "str", "dexterity": "dex", "constitution": "con",
-                "intelligence": "int", "wisdom": "wis", "charisma": "cha"}
-
-
 def _trait_pairs(section):
-    """Label→value trait pairs for a background block, from its table rows AND its prose lines. The
-    prose is read only to capture the facts (skill names, feat name) — never stored."""
+    """Label→value trait pairs for a background block, from its table rows and section text."""
     pairs = {}
     for t in (section.get("tables") or []):
         for r in t.get("rows", []):
@@ -85,7 +86,7 @@ def _trait_pairs(section):
 def backgrounds(sections):
     """Per background → {abilities: [3 ids], skills: [names], feat?}. Abilities come from the master
     'Ability Scores and Backgrounds' table (covers all 16); skills/feat come from each background's
-    trait block — whether that's a table or prose. Functional facts only; no prose stored."""
+    trait block (table or section text)."""
     tables = [t for s in sections for t in (s.get("tables") or [])]
     out = {}
     master = next((t for t in tables if (t.get("title") or "").strip() == "Ability Scores and Backgrounds"), None)
@@ -122,8 +123,8 @@ def backgrounds(sections):
 
 
 def spell_lists(tables):
-    """Per class → {spell_name: level} from the '<Class> Spells' tables (cantrips = level 0). Names
-    only (functional). The union across classes is every spell a 2024 character can legitimately have."""
+    """Per class → {spell_name: level} from the '<Class> Spells' tables (cantrips = level 0). The union
+    across classes is the set of valid spell names."""
     out = {}
     for t in tables:
         m = re.match(r"(?:Cantrips \(Level 0 (.+?) Spells\)|Level (\d+) (.+?) Spells)", (t.get("title") or "").strip())
@@ -141,7 +142,7 @@ def spell_lists(tables):
 
 
 def class_hit_dice(tables):
-    """Per class → hit die size (int) from 'Core <Class> Traits' → the 'Hit Point Die: D8 …' row."""
+    """Per class → hit die size (int) from 'Core <Class> Traits' → the 'Hit Point Die' row."""
     out = {}
     for t in tables:
         m = re.fullmatch(r"Core (.+?) Traits", (t.get("title") or "").strip())
@@ -157,7 +158,7 @@ def class_hit_dice(tables):
 
 def class_proficiencies(tables):
     """Per class → {saving_throws: [ability ids], skills: {choose: N, from: [names] | None}} from the
-    'Core <Class> Traits' saving-throw + skill rows ('from' is None when the class picks *any* skills)."""
+    'Core <Class> Traits' saving-throw + skill rows ('from' is None when the class picks any skills)."""
     out = {}
     for t in tables:
         m = re.fullmatch(r"Core (.+?) Traits", (t.get("title") or "").strip())
@@ -188,10 +189,11 @@ def class_proficiencies(tables):
 
 
 def main():
-    with open(BOOK) as f:
+    with open(SOURCE) as f:
         book = json.load(f)
     tables = _tables(book)
     os.makedirs(OUT, exist_ok=True)
+
     prog = class_progression(tables)
     with open(os.path.join(OUT, "class_progression.json"), "w") as f:
         json.dump(prog, f, indent=1)
