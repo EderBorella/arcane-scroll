@@ -6,9 +6,10 @@ import os
 
 
 class Rules:
-    def __init__(self, class_progression=None, backgrounds=None):
+    def __init__(self, class_progression=None, backgrounds=None, spell_lists=None):
         self.class_progression = class_progression or {}
         self.backgrounds = backgrounds or {}
+        self.spell_lists = spell_lists or {}
 
     @classmethod
     def load(cls, data_dir):
@@ -21,7 +22,8 @@ class Rules:
             with open(p) as f:
                 return json.load(f)
         return cls(class_progression=rd("class_progression.json"),
-                   backgrounds=rd("backgrounds.json", required=False))
+                   backgrounds=rd("backgrounds.json", required=False),
+                   spell_lists=rd("spell_lists.json", required=False))
 
     def proficiency_bonus(self, level):
         """Proficiency bonus at a character level (read from any class's table — identical across classes)."""
@@ -45,3 +47,7 @@ class Rules:
         """The three ability ids a background offers for its ability-score increases (or None)."""
         entry = self.backgrounds.get((name or "").lower())
         return entry["abilities"] if entry else None
+
+    def all_spells(self):
+        """Every spell name across all 2024 class lists (empty if no spell-list data is loaded)."""
+        return {name for by_name in self.spell_lists.values() for name in by_name}
