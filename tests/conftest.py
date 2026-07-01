@@ -27,6 +27,7 @@ def _build_synthetic_db(path: str) -> None:
         "proficiency_choices": [{"choose": 2, "from": {"options": [
             {"item": {"index": "skill-lore"}}, {"item": {"index": "skill-runes"}},
             {"item": {"index": "skill-focus"}}]}}],
+        "proficiencies": [{"index": "foils", "name": "Foils"}],
         "spellcasting": {"spellcasting_ability": {"index": "int"}}})
     rec("classes", "warrior", {"index": "warrior", "name": "Warrior", "hit_die": 10,
         "saving_throws": [{"index": "str"}, {"index": "con"}],
@@ -152,6 +153,31 @@ def _build_synthetic_db(path: str) -> None:
                                          "armor_category": "Light", "armor_class": {"base": 12, "dex_bonus": True}})
     rec("equipment", "shield", {"index": "shield", "name": "Shield", "armor_category": "Shield",
                                 "armor_class": {"base": 2, "dex_bonus": False}})
+
+    # weapon equipment records (for attack rows) — category / range / damage / properties like the API
+    rec("equipment", "club", {"index": "club", "name": "Club", "equipment_category": {"index": "weapon"},
+        "weapon_category": "Simple", "weapon_range": "Melee",
+        "damage": {"damage_dice": "1d4", "damage_type": {"name": "Bludgeoning"}}, "properties": []})
+    rec("equipment", "pike", {"index": "pike", "name": "Pike", "equipment_category": {"index": "weapon"},
+        "weapon_category": "Simple", "weapon_range": "Melee",
+        "damage": {"damage_dice": "1d6", "damage_type": {"name": "Piercing"}},
+        "two_handed_damage": {"damage_dice": "1d8", "damage_type": {"name": "Piercing"}},
+        "properties": [{"index": "versatile", "name": "Versatile"}]})
+    rec("equipment", "blade", {"index": "blade", "name": "Blade", "equipment_category": {"index": "weapon"},
+        "weapon_category": "Martial", "weapon_range": "Melee",
+        "damage": {"damage_dice": "1d8", "damage_type": {"name": "Slashing"}}, "properties": []})
+    rec("equipment", "foil", {"index": "foil", "name": "Foil", "equipment_category": {"index": "weapon"},
+        "weapon_category": "Martial", "weapon_range": "Melee",
+        "damage": {"damage_dice": "1d8", "damage_type": {"name": "Piercing"}},
+        "properties": [{"index": "finesse", "name": "Finesse"}]})
+    rec("equipment", "maul", {"index": "maul", "name": "Maul", "equipment_category": {"index": "weapon"},
+        "weapon_category": "Martial", "weapon_range": "Melee",
+        "damage": {"damage_dice": "2d6", "damage_type": {"name": "Bludgeoning"}},
+        "properties": [{"index": "two-handed", "name": "Two-Handed"}]})
+    rec("equipment", "bow", {"index": "bow", "name": "Bow", "equipment_category": {"index": "weapon"},
+        "weapon_category": "Martial", "weapon_range": "Ranged",
+        "damage": {"damage_dice": "1d8", "damage_type": {"name": "Piercing"}},
+        "properties": [{"index": "ammunition", "name": "Ammunition"}, {"index": "two-handed", "name": "Two-Handed"}]})
 
     # background records (the model picks a name from the backgrounds list; these resolve the grants)
     rec("backgrounds", "scholar", {"index": "scholar", "name": "Scholar",

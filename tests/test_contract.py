@@ -65,3 +65,11 @@ def test_meta_included_when_provided(catalog):
 def test_meta_omitted_when_absent(catalog):
     choices = _choices(classes=[{"class": "Mage", "level": 3}])
     assert "meta" not in to_contract_sheet(choices, derive(catalog, choices))
+
+
+def test_weapon_sheet_conforms(catalog):
+    choices = _choices(classes=[{"class": "Warrior", "level": 3}], skill_choices=["Brawn", "Menace"],
+                       spell_choices={}, equipment_0="Club")
+    contract = to_contract_sheet(choices, derive(catalog, choices))
+    assert any(a["name"] == "Club" for a in contract["attacks"])
+    assert _errors(contract) == []

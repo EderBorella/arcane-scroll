@@ -13,9 +13,8 @@ this shape.
 SCHEMA_VERSION = 1
 
 # Contract fields the current generator output cannot fill (all optional in the schema):
-#   * attacks — structured weapon rows; a mini-feature (see board F01-T61).
 #   * flavour — produced by the separate /backstory endpoint, not the sheet path (by design).
-GAPS = ("attacks", "flavour")
+GAPS = ("flavour",)
 
 
 def _class_entry(c: dict) -> dict:
@@ -71,6 +70,7 @@ def to_contract_sheet(choices: dict, sheet: dict, *, seed=None, request: dict | 
         "equipment": [{"name": i["item"], "quantity": i["quantity"]} for i in sheet.get("inventory", [])],
         "treasure": sheet.get("treasure", {}),
         "features": sheet.get("features", []),
+        "attacks": sheet.get("attacks", []),
         "spellcasting": _spellcasting(sheet),
     }
     if seed is not None or request is not None:

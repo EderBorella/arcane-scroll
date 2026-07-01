@@ -16,7 +16,7 @@ Deferred (data/scope, not oversight):
 """
 import random
 
-from app.derivation import abilities, equipment, features, proficiency, spellcasting, vitals
+from app.derivation import abilities, attacks, equipment, features, proficiency, spellcasting, vitals
 
 SCHEMA_VERSION = 1
 
@@ -45,6 +45,7 @@ def derive(cat, choices, *, rng=random) -> dict:
         "death_saves": {"successes": 0, "failures": 0},
         "armor_class": vitals.armor_class(cat, scores, classes, *equipment.equipped_armour(cat, inventory)),
         "inventory": inventory,
+        "attacks": attacks.attack_rows(cat, mods, pb, classes, inventory),
         "treasure": equipment.treasure(cat, choices, rng),
         "initiative": mods["dex"],
         "speed": vitals.speed(cat, choices["race"]),
