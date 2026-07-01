@@ -3,9 +3,11 @@
 > **Master state doc (public, high-level).** One source of truth for what we're building, what
 > works, what's decided, and what's next.
 >
-> Last updated: **2026-06-28**. **Major update:** dropped the fine-tune in favour of a **base
-> model + per-request dynamic grammar** approach (§1, §4). Generation (sheet + all choices +
-> flavour) is validated and essentially complete; the derivation engine + service are next.
+> Last updated: **2026-07-01**. **Recent:** stood up an **independent validation micro-service**
+> (F02) beside the generator — a *post-hoc* gate distinct from the by-construction grammar (§1,
+> Changelog). Earlier major shift: dropped the fine-tune in favour of a **base model + per-request
+> dynamic grammar** approach (§1, §4); generation (sheet + all choices + flavour) is validated and
+> essentially complete.
 
 ---
 
@@ -73,20 +75,22 @@ What's left is derivation-side + the service:**
 | Feats / advancement + race choices | ✅ done |
 | Starting equipment choices | ✅ done |
 | Flavour bundle (physical/traits/backstory) | ✅ done (one structured call) |
-| Strict validator + reference data | ✅ working |
+| Strict validator + reference data (by-construction, generator-side) | ✅ working |
+| **Validation micro-service (independent post-hoc gate)** | ✅ five layered checks + resilient report; served over HTTP |
 | **Generation (all model choices)** | ✅ **complete & valid by construction** |
 | **Service stack (Docker: model + app)** | ✅ scaffolded — skeleton serving |
 | **Shared resource catalog (load-time)** | ✅ loaded in memory at startup |
 | **Character sheet generator** | ✅ base contract + feature/feat/equipment choices |
 | **Backstory generator** | ✅ physical + personality + backstory |
 | **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live — `/v1/characters` now returns choices **+ derived sheet** |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ 175 passing |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ 200 generator + 31 validator |
 | **Derivation engine (compute side)** | ✅ render-ready sheet + armour-based AC + inventory assembly + **starting treasure**; two-pass next (T42/T46) |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
 
+- **Independent validation micro-service (F02)** — a second, *post-hoc* validator that lives beside the generator in its own package (`validator/`) with its own FastAPI app, entrypoint, and read-only rules-data mount — distinct from the generator's *by-construction* grammar. `POST /validate` takes a finished sheet and returns one organised report `{legal, complete, violations[], summary}` — violations sorted by `(layer, code)`, each tagged ERROR/WARNING. A **resilient orchestrator** runs *every* check and aggregates *all* findings in one pass; a check that raises becomes an `internal` finding and never aborts the run. Five layers so far: **class/level** (proficiency bonus, subclass-unlock timing), **ability scores** (cap, background-granted increases + their placement pattern), **proficiencies** (saves from the first class, skill count/on-list, background skills), **spellcasting** (unified prepared model, real-spell membership), **vitals** (HP range, hit-dice pool, initiative, passive perception). Rules are **functional facts** loaded from a data dir, built offline by `build_rules.py` from a source extraction (facts only, never prose) — the repo stays content-neutral and the ruleset is *data*, not code. Built spec-first/TDD with synthetic, content-neutral fixtures (31 tests). Containerised as its own compose service. **Why it exists:** an independent gate that catches drift between what the generator was originally built to and the ruleset we now target — something the by-construction grammar cannot check itself.
 - **Smart ASI allocation (T48)** — `ability_scores` no longer dumps a flat +2 on one ability. It counts the available ASI points (2 per ASI slot; a slot spent on a real feat yields none) and places them to maximise modifiers (a point only buys a modifier when it takes an odd score to even): the primary ability is raised toward 20 through odd steps but never left stranded on a no-modifier odd, then remaining points even out the highest-priority odd abilities. The ability a model *names* on an ASI pick is now ignored (placement is optimal; the original split-ASI grammar change is unnecessary). Live: primaries land even/at-20 (Str 16→18, etc.), no wasted odd→odd jumps. +3 tests (175); a lone leftover ASI point is spent in full on the highest-priority ability (ASIs come in pairs).
 - **Review cleanups (T51)** — F2: `_repair_invocations` takes its count from the granted level (`_invocations_n`), not the model's current list length (removes order-coupling). S1: `sheet.generate` threads the already-computed `ability_assignment` into `helpers.repair` (no recompute). PRF-3: `proficiencies` normalises `tools` to names. VIT-1: documented the `classes[0]`=level-1 convention in `max_hp`. **equipped_armour** now matches by *exact item name against the assembled inventory* — retiring the substring / name-subset / shield word-boundary heuristics (and `_carried_text`); the engine assembles the inventory once and AC reads it. GEN-4 (bare-dict response typing) deferred (low ROI). Net −2 tests (172).
 - **Catalog-driven unarmoured defence (T49)** — `vitals.armor_class` reads an `unarmoured_defence` table (`{barbarian: con, monk: wis}`) instead of hard-coded class-name strings, so a renamed/localised class index no longer silently disables it. Behaviour unchanged (Barbarian +CON, Monk +WIS); `armor_class` now takes `cat`.
@@ -376,6 +380,7 @@ seconds. Stable at q4 (0 parse failures / 0 loops across 149).
 
 **Done:**
 - ✅ **Service stack scaffolded** (Docker: model + app, self-contained; app skeleton serving) — see Changelog.
+- ✅ **Validation micro-service (F02)** — independent post-hoc gate: five layered checks + a resilient, aggregate-everything report, served over HTTP as its own compose service. See Changelog. *(Next on it: features-by-level + choice-counts, expertise, deeper spellcasting, and a structural/schema-conformance layer.)*
 
 **Now (highest leverage):**
 1. **Generator** (base contract) is in — catalog-driven grammar/prompt → model → repaired choices.

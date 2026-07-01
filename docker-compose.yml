@@ -37,8 +37,8 @@ services:
       - "${APP_PORT:-8080}:8000"   # front with Nginx Proxy Manager in production
     networks: [arcane]
 
-  # Validator micro-service (2024 rules). Same image, but its own entrypoint (no model/seed) and its
-  # own read-only rules data — the 2024 functional facts, mined offline into VALIDATOR_DATA_DIR_HOST.
+  # Validation micro-service. Same image, but its own entrypoint (no model/seed) and its
+  # own read-only rules data — the functional facts, built offline into VALIDATOR_DATA_DIR_HOST.
   validator:
     build: .
     restart: unless-stopped
