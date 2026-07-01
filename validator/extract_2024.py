@@ -63,6 +63,37 @@ def class_progression(tables):
     return out
 
 
+_ABILITY_IDS = {"strength": "str", "dexterity": "dex", "constitution": "con",
+                "intelligence": "int", "wisdom": "wis", "charisma": "cha"}
+
+
+def backgrounds(tables):
+    """Per background → {abilities: [3 ids], feat?}. Primary source is the master 'Ability Scores and
+    Backgrounds' table (inverted — it lists every background under each ability, so it covers all 16);
+    the per-background traits tables enrich it with the granted feat where present. Functional facts only."""
+    out = {}
+    master = next((t for t in tables if (t.get("title") or "").strip() == "Ability Scores and Backgrounds"), None)
+    for row in (master or {}).get("rows", []):
+        if len(row) < 2:
+            continue
+        ab = _ABILITY_IDS.get(row[0].strip().lower())
+        if not ab:
+            continue
+        for name in row[1].split(","):
+            b = name.strip().lower()
+            if b:
+                out.setdefault(b, {"abilities": []})["abilities"].append(ab)
+    for t in tables:                                  # enrich with the granted feat from traits tables
+        rows = t.get("rows", [])
+        if not any(len(r) >= 2 and r[0].strip().lower().startswith("ability score") for r in rows):
+            continue
+        name = re.sub(r"\s*Background Traits$", "", (t.get("title") or "").strip()).strip().lower()
+        feat = next((r[1].strip() for r in rows if len(r) >= 2 and r[0].strip().lower().startswith("feat")), None)
+        if name in out and feat:
+            out[name]["feat"] = re.sub(r"\s*\(see.*?\)", "", feat).strip()
+    return {b: v for b, v in out.items() if len(v.get("abilities", [])) == 3}
+
+
 def main():
     with open(BOOK) as f:
         tables = _tables(json.load(f))
@@ -71,6 +102,11 @@ def main():
     with open(os.path.join(OUT, "class_progression.json"), "w") as f:
         json.dump(prog, f, indent=1)
     print(f"class_progression: {len(prog)} classes -> {OUT}/class_progression.json")
+
+    bg = backgrounds(tables)
+    with open(os.path.join(OUT, "backgrounds.json"), "w") as f:
+        json.dump(bg, f, indent=1)
+    print(f"backgrounds: {len(bg)} -> {OUT}/backgrounds.json")
 
 
 if __name__ == "__main__":
