@@ -1,5 +1,5 @@
 """HTTP entry for the validator micro-service. `POST /validate` takes a character sheet (the shared
-CharacterSheet contract) and returns the full report — every finding at once. The 2024 rules are
+CharacterSheet contract) and returns the full report — every finding at once. The rules are
 loaded once at startup from the data dir (VALIDATOR_DATA)."""
 import os
 from contextlib import asynccontextmanager
@@ -19,7 +19,7 @@ async def lifespan(app):
     _state.clear()
 
 
-app = FastAPI(title="Arcane Scroll — character-sheet validator (2024)", lifespan=lifespan)
+app = FastAPI(title="Arcane Scroll — character-sheet validator", lifespan=lifespan)
 
 
 @app.get("/health")
@@ -35,7 +35,7 @@ def ready():
                        "spells": len(r.all_spells())} if r else {})}
 
 
-@app.post("/validate", summary="Validate a character sheet against the 2024 rules",
+@app.post("/validate", summary="Validate a character sheet against the loaded rules",
           description=("Body: a CharacterSheet (the shared contract). Returns "
                        "`{legal, complete, violations[], summary}` — every finding at once; a failing "
                        "check never stops the run."))

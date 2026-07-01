@@ -1,4 +1,4 @@
-"""vitals layer (2024): HP within [min, max] for hit dice + Con; hit-dice pool matches; initiative =
+"""vitals layer: HP within [min, max] for hit dice + Con; hit-dice pool matches; initiative =
 Dex mod; passive Perception = 10 + Perception. Synthetic, content-neutral rules."""
 from validator.checks import vitals
 from validator.rules import Rules

@@ -1,4 +1,4 @@
-"""Build the validator's 2024 rules data files from the reference source.
+"""Build the validator's rules data files from the reference source.
 
 Reads the structured reference JSON and writes the lookup tables the validator checks against —
 class progression, backgrounds, spell lists, hit dice, class proficiencies — into the data dir.

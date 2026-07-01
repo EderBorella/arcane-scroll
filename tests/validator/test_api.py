@@ -1,5 +1,5 @@
 """HTTP wiring for the validator service: /health, /ready, and POST /validate returning the full
-report. Uses a synthetic 2024 rules dir written to a temp path."""
+report. Uses a synthetic rules dir written to a temp path."""
 import json
 
 from fastapi.testclient import TestClient

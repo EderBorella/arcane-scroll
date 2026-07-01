@@ -1,4 +1,4 @@
-"""Layer: proficiencies & skills (2024). Saving-throw proficiencies come from the FIRST class; the
+"""Layer: proficiencies & skills. Saving-throw proficiencies come from the FIRST class; the
 class-granted skills must number the class's 'choose N' and be drawn from its list; and a background's
 granted skills must all be present. (Expertise is a later increment.) Collects all findings; never raises."""
 from validator.report import Violation

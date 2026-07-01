@@ -1,4 +1,4 @@
-"""Layer: vitals & derived numbers (2024). Max HP within the legal range for the hit dice + Con; the
+"""Layer: vitals & derived numbers. Max HP within the legal range for the hit dice + Con; the
 hit-dice pool matches (each class contributes its level in its own hit die); plus the cheap
 self-consistent derivations — initiative = Dex modifier, passive Perception = 10 + Perception.
 Collects all findings; never raises."""

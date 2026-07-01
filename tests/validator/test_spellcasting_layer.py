@@ -1,5 +1,5 @@
-"""spellcasting layer (2024): leveled spells must be prepared (unified model); every spell must be a
-real 2024 spell. Synthetic, content-neutral rules."""
+"""spellcasting layer: leveled spells must be prepared (unified model); every spell must be a
+real spell (on a class list). Synthetic, content-neutral rules."""
 from validator.checks import spellcasting
 from validator.rules import Rules
 

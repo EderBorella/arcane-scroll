@@ -1,4 +1,4 @@
-"""proficiencies layer (2024): saves from the first class; class skills count + on-list; background
+"""proficiencies layer: saves from the first class; class skills count + on-list; background
 skills all present. Synthetic, content-neutral rules."""
 from validator.checks import proficiencies
 from validator.rules import Rules
