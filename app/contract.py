@@ -17,8 +17,11 @@ SCHEMA_VERSION = 1
 GAPS = ("flavour",)
 
 
-def _class_entry(c: dict) -> dict:
-    return {"class": c["class"], "level": c["level"], "subclass": c.get("subclass")}
+def _class_entry(c: dict, land=None) -> dict:
+    e = {"class": c["class"], "level": c["level"], "subclass": c.get("subclass")}
+    if land and "land" in (c.get("subclass") or "").lower():   # Circle of the Land: record the chosen land
+        e["subclass_detail"] = land
+    return e
 
 
 def _spellcasting(sheet: dict):
@@ -41,12 +44,14 @@ def _spellcasting(sheet: dict):
 def to_contract_sheet(choices: dict, sheet: dict, *, seed=None, request: dict | None = None) -> dict:
     """Map (choices, derived sheet) → a `character-sheet.schema.json` v1 document. Optional `seed`
     and `request` populate the provenance `meta` block — supplied by the endpoint that has them."""
+    land = choices.get("land_type")
+    land = land[0] if isinstance(land, list) else land
     out = {
         "schema_version": SCHEMA_VERSION,
         "identity": {
             "name": choices.get("name") or "",
             "race": choices.get("race") or "",
-            "classes": [_class_entry(c) for c in choices.get("classes", [])],
+            "classes": [_class_entry(c, land) for c in choices.get("classes", [])],
             "total_level": sheet.get("level"),
             "background": choices.get("background"),
             "alignment": choices.get("alignment"),

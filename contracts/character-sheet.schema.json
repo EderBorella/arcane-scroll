@@ -227,7 +227,8 @@
       "properties": {
         "class": { "type": "string", "description": "Class identifier (catalog)." },
         "level": { "type": "integer", "minimum": 1, "maximum": 20 },
-        "subclass": { "type": ["string", "null"], "description": "Subclass identifier, or null until unlocked." }
+        "subclass": { "type": ["string", "null"], "description": "Subclass identifier, or null until unlocked." },
+        "subclass_detail": { "type": ["string", "null"], "description": "An extra choice that specialises the subclass — e.g. a Circle of the Land druid's chosen land. Absent when not applicable." }
       }
     },
     "abilityEntry": {
