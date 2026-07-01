@@ -1,6 +1,6 @@
-"""Layer: proficiencies & skills (2024). Saving-throw proficiencies come from the FIRST class; and the
-class-granted skills must number the class's 'choose N' and be drawn from its skill list. (Background
-skills / expertise are later increments.) Collects all findings; never raises."""
+"""Layer: proficiencies & skills. Saving-throw proficiencies come from the FIRST class; the
+class-granted skills must number the class's 'choose N' and be drawn from its list; and a background's
+granted skills must all be present. (Expertise is a later increment.) Collects all findings; never raises."""
 from validator.report import Violation
 
 LAYER = "proficiencies"
@@ -41,4 +41,13 @@ def check(sheet, rules):
             if off:
                 out.append(Violation(LAYER, "skill_off_list",
                                      f"class skills {off} not on {first}'s list", options, off))
+
+    bg = (sheet.get("identity") or {}).get("background")
+    bg_skills = rules.background_skills(bg)
+    if bg_skills:
+        proficient = {_norm(k) for k, v in (sheet.get("skills") or {}).items() if v.get("proficient")}
+        missing = [s for s in bg_skills if _norm(s) not in proficient]
+        if missing:
+            out.append(Violation(LAYER, "background_skills_missing",
+                                 f"background '{bg}' grants {bg_skills}; missing {missing}", bg_skills, missing))
     return out

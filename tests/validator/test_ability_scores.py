@@ -1,4 +1,4 @@
-"""ability_scores layer (2024): background-granted ASIs must land on the background's abilities in a
+"""ability_scores layer: background-granted ASIs must land on the background's abilities in a
 legal pattern; final scores cap at 20. Synthetic, content-neutral rules."""
 from validator.checks import ability_scores
 from validator.rules import Rules
@@ -32,7 +32,7 @@ def test_increase_off_background():
     assert "asi_off_background" in _codes(_sheet("Scholar", {"str": 1, "int": 2}))
 
 
-def test_species_style_plus1_all():   # the exact 2014→2024 generator gap (Human +1 to everything)
+def test_species_style_plus1_all():   # the exact species-based generator gap (e.g. +1 to everything)
     codes = _codes(_sheet("Scholar", {"str": 1, "dex": 1, "con": 1, "int": 1, "wis": 1, "cha": 1}))
     assert "asi_off_background" in codes and "asi_pattern" in codes
 

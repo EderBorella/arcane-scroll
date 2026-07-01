@@ -1,6 +1,5 @@
-"""The 2024 rules the validator checks against — functional facts loaded from the validator's data
-dir (mined from the source rulebook by extract_2024.py). No game content is hard-coded here; it all
-comes from the data files, keyed by catalog identifiers."""
+"""The rules the validator checks against — loaded from the validator's data dir (built by
+build_rules.py). No game content is hard-coded here; it comes from the data files, keyed by identifier."""
 import json
 import os
 
@@ -53,8 +52,12 @@ class Rules:
         entry = self.backgrounds.get((name or "").lower())
         return entry["abilities"] if entry else None
 
+    def background_skills(self, name):
+        """The skill proficiencies a background grants (or None)."""
+        return (self.backgrounds.get((name or "").lower()) or {}).get("skills")
+
     def all_spells(self):
-        """Every spell name across all 2024 class lists (empty if no spell-list data is loaded)."""
+        """Every spell name across all class lists (empty if no spell-list data is loaded)."""
         return {name for by_name in self.spell_lists.values() for name in by_name}
 
     def hit_die(self, class_id):

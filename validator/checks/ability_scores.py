@@ -1,4 +1,4 @@
-"""Layer: ability scores (2024). No final score above 20; and the ability-score **increases** come
+"""Layer: ability scores. No final score above 20; and the ability-score **increases** come
 from the character's BACKGROUND — landing only on the background's three abilities, in a +2/+1 or
 +1/+1/+1 pattern. The granted increase is read from `abilities[].racial_bonus` on the sheet (feat/level
 ASIs are folded into `final`, not here). Collects all findings; never raises."""
@@ -23,7 +23,7 @@ def check(sheet, rules):
     if allowed is None:
         if bumped:
             out.append(Violation(LAYER, "background_unrecognised",
-                                 f"ability increases present but background {bg!r} isn't a known 2024 background",
+                                 f"ability increases present but background {bg!r} isn't a known background",
                                  None, bg))
         return out
 

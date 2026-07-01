@@ -1,16 +1,20 @@
-"""Mine the 2024 rules data — functional facts ONLY (names, levels, numbers, mechanics; never prose) —
-from the source rulebook JSON into the validator's data dir. Generic: classes are discovered from
-table titles, so no game content is hard-coded here. Prose (`text`) is never read into the output.
+"""Build the validator's rules data files from the reference source.
 
-  BOOK_JSON       source rulebook extraction (default: resources/book.json)
-  VALIDATOR_DATA  output data dir           (default: arcane-validator-data)
+Reads the structured reference JSON and writes the lookup tables the validator checks against —
+class progression, backgrounds, spell lists, hit dice, class proficiencies — into the data dir.
+Output is purely structural/numeric (identifiers, levels, counts) and is regenerated whenever the
+reference is updated.
+
+Both paths come from the environment (see .env.example) — nothing is hardcoded:
+  SOURCE_JSON               path to the reference source JSON
+  VALIDATOR_DATA_DIR_HOST   output data dir (where the validator loads its rules from)
 """
 import json
 import os
 import re
 
-BOOK = os.environ.get("BOOK_JSON", "/data/projects/resources/book.json")
-OUT = os.environ.get("VALIDATOR_DATA", "/data/projects/arcane-validator-data")
+_ABILITY_IDS = {"strength": "str", "dexterity": "dex", "constitution": "con",
+                "intelligence": "int", "wisdom": "wis", "charisma": "cha"}
 
 
 def _tables(book):
@@ -31,7 +35,7 @@ def _int(s):
 
 def class_progression(tables):
     """Per class → {level: {proficiency_bonus, cantrips_known?, prepared_spells?, features[]}} from the
-    '<Class> Features' tables. Feature *names* only (functional); no descriptions."""
+    '<Class> Features' tables."""
     out = {}
     for t in tables:
         m = re.fullmatch(r"(.+?) Features", (t.get("title") or "").strip())
@@ -63,14 +67,25 @@ def class_progression(tables):
     return out
 
 
-_ABILITY_IDS = {"strength": "str", "dexterity": "dex", "constitution": "con",
-                "intelligence": "int", "wisdom": "wis", "charisma": "cha"}
+def _trait_pairs(section):
+    """Label→value trait pairs for a background block, from its table rows and section text."""
+    pairs = {}
+    for t in (section.get("tables") or []):
+        for r in t.get("rows", []):
+            if len(r) >= 2 and r[0].strip().endswith(":"):
+                pairs.setdefault(r[0].strip().rstrip(":").strip().lower(), r[1].strip())
+    for line in (section.get("text") or "").splitlines():
+        m = re.match(r"\s*(Ability Scores|Feat|Skill Proficiencies|Tool Proficiency)\s*:\s*(.+)", line)
+        if m:
+            pairs.setdefault(m.group(1).lower(), m.group(2).strip())
+    return pairs
 
 
-def backgrounds(tables):
-    """Per background → {abilities: [3 ids], feat?}. Primary source is the master 'Ability Scores and
-    Backgrounds' table (inverted — it lists every background under each ability, so it covers all 16);
-    the per-background traits tables enrich it with the granted feat where present. Functional facts only."""
+def backgrounds(sections):
+    """Per background → {abilities: [3 ids], skills: [names], feat?}. Abilities come from the master
+    'Ability Scores and Backgrounds' table (covers all 16); skills/feat come from each background's
+    trait block (table or section text)."""
+    tables = [t for s in sections for t in (s.get("tables") or [])]
     out = {}
     master = next((t for t in tables if (t.get("title") or "").strip() == "Ability Scores and Backgrounds"), None)
     for row in (master or {}).get("rows", []):
@@ -83,20 +98,31 @@ def backgrounds(tables):
             b = name.strip().lower()
             if b:
                 out.setdefault(b, {"abilities": []})["abilities"].append(ab)
-    for t in tables:                                  # enrich with the granted feat from traits tables
-        rows = t.get("rows", [])
-        if not any(len(r) >= 2 and r[0].strip().lower().startswith("ability score") for r in rows):
+    out = {b: v for b, v in out.items() if len(v["abilities"]) == 3}
+    names = set(out)
+    for s in sections:
+        pairs = _trait_pairs(s)
+        if "skill proficiencies" not in pairs:
             continue
-        name = re.sub(r"\s*Background Traits$", "", (t.get("title") or "").strip()).strip().lower()
-        feat = next((r[1].strip() for r in rows if len(r) >= 2 and r[0].strip().lower().startswith("feat")), None)
-        if name in out and feat:
-            out[name]["feat"] = re.sub(r"\s*\(see.*?\)", "", feat).strip()
-    return {b: v for b, v in out.items() if len(v.get("abilities", [])) == 3}
+        cand = re.sub(r"\s*Background Traits$", "", (s.get("section") or "").strip()).strip().lower()
+        if cand not in names:
+            for t in (s.get("tables") or []):
+                c2 = re.sub(r"\s*Background Traits$", "", (t.get("title") or "").strip()).strip().lower()
+                if c2 in names:
+                    cand = c2
+                    break
+        if cand not in names:
+            continue
+        out[cand].setdefault("skills", [x.strip() for x in re.split(r",|\band\b", pairs["skill proficiencies"]) if x.strip()])
+        feat = pairs.get("feat")
+        if feat:
+            out[cand].setdefault("feat", re.sub(r"\s*\(see.*?\)", "", feat).strip())
+    return out
 
 
 def spell_lists(tables):
-    """Per class → {spell_name: level} from the '<Class> Spells' tables (cantrips = level 0). Names
-    only (functional). The union across classes is every spell a 2024 character can legitimately have."""
+    """Per class → {spell_name: level} from the '<Class> Spells' tables (cantrips = level 0). The union
+    across classes is the set of valid spell names."""
     out = {}
     for t in tables:
         m = re.match(r"(?:Cantrips \(Level 0 (.+?) Spells\)|Level (\d+) (.+?) Spells)", (t.get("title") or "").strip())
@@ -114,7 +140,7 @@ def spell_lists(tables):
 
 
 def class_hit_dice(tables):
-    """Per class → hit die size (int) from 'Core <Class> Traits' → the 'Hit Point Die: D8 …' row."""
+    """Per class → hit die size (int) from 'Core <Class> Traits' → the 'Hit Point Die' row."""
     out = {}
     for t in tables:
         m = re.fullmatch(r"Core (.+?) Traits", (t.get("title") or "").strip())
@@ -130,7 +156,7 @@ def class_hit_dice(tables):
 
 def class_proficiencies(tables):
     """Per class → {saving_throws: [ability ids], skills: {choose: N, from: [names] | None}} from the
-    'Core <Class> Traits' saving-throw + skill rows ('from' is None when the class picks *any* skills)."""
+    'Core <Class> Traits' saving-throw + skill rows ('from' is None when the class picks any skills)."""
     out = {}
     for t in tables:
         m = re.fullmatch(r"Core (.+?) Traits", (t.get("title") or "").strip())
@@ -161,34 +187,43 @@ def class_proficiencies(tables):
 
 
 def main():
-    with open(BOOK) as f:
-        tables = _tables(json.load(f))
-    os.makedirs(OUT, exist_ok=True)
-    prog = class_progression(tables)
-    with open(os.path.join(OUT, "class_progression.json"), "w") as f:
-        json.dump(prog, f, indent=1)
-    print(f"class_progression: {len(prog)} classes -> {OUT}/class_progression.json")
+    source = os.environ.get("SOURCE_JSON")
+    out = os.environ.get("VALIDATOR_DATA_DIR_HOST")
+    if not source or not out:
+        raise SystemExit("build_rules: set SOURCE_JSON (reference source) and "
+                         "VALIDATOR_DATA_DIR_HOST (output dir) in the environment")
+    with open(source) as f:
+        book = json.load(f)
+    tables = _tables(book)
+    os.makedirs(out, exist_ok=True)
 
-    bg = backgrounds(tables)
-    with open(os.path.join(OUT, "backgrounds.json"), "w") as f:
+    prog = class_progression(tables)
+    with open(os.path.join(out, "class_progression.json"), "w") as f:
+        json.dump(prog, f, indent=1)
+    print(f"class_progression: {len(prog)} classes -> {out}/class_progression.json")
+
+    bg = backgrounds(book["sections"])
+    with open(os.path.join(out, "backgrounds.json"), "w") as f:
         json.dump(bg, f, indent=1)
-    print(f"backgrounds: {len(bg)} -> {OUT}/backgrounds.json")
+    missing_skills = [b for b, v in bg.items() if not v.get("skills")]
+    print(f"backgrounds: {len(bg)} -> {out}/backgrounds.json"
+          + (f"  [!] no skills for: {missing_skills}" if missing_skills else "  (all have skills)"))
 
     lists = spell_lists(tables)
-    with open(os.path.join(OUT, "spell_lists.json"), "w") as f:
+    with open(os.path.join(out, "spell_lists.json"), "w") as f:
         json.dump(lists, f, indent=1)
     print(f"spell_lists: {len(lists)} classes, {len({n for d in lists.values() for n in d})} spells "
-          f"-> {OUT}/spell_lists.json")
+          f"-> {out}/spell_lists.json")
 
     hd = class_hit_dice(tables)
-    with open(os.path.join(OUT, "hit_dice.json"), "w") as f:
+    with open(os.path.join(out, "hit_dice.json"), "w") as f:
         json.dump(hd, f, indent=1)
-    print(f"hit_dice: {len(hd)} classes -> {OUT}/hit_dice.json")
+    print(f"hit_dice: {len(hd)} classes -> {out}/hit_dice.json")
 
     prof = class_proficiencies(tables)
-    with open(os.path.join(OUT, "class_proficiencies.json"), "w") as f:
+    with open(os.path.join(out, "class_proficiencies.json"), "w") as f:
         json.dump(prof, f, indent=1)
-    print(f"class_proficiencies: {len(prof)} classes -> {OUT}/class_proficiencies.json")
+    print(f"class_proficiencies: {len(prof)} classes -> {out}/class_proficiencies.json")
 
 
 if __name__ == "__main__":

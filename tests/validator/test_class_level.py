@@ -1,10 +1,10 @@
 """class_level layer + the resilient orchestrator: all findings at once, and a crashing check never
-stops the run. Uses a synthetic, content-neutral 2024-style ruleset."""
+stops the run. Uses a synthetic, content-neutral ruleset."""
 from validator.checks import class_level
 from validator.rules import Rules
 from validator.validate import validate
 
-# class 'alpha': subclass unlocks at level 3 (the 2024 convention), PB steps at 5
+# class 'alpha': subclass unlocks at level 3, PB steps at 5
 RULES = Rules(class_progression={"alpha": {
     "1": {"proficiency_bonus": 2, "features": ["Spellcasting"]},
     "3": {"proficiency_bonus": 2, "features": ["Alpha Subclass"]},
