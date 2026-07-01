@@ -6,15 +6,22 @@ import os
 
 
 class Rules:
-    def __init__(self, class_progression=None):
+    def __init__(self, class_progression=None, backgrounds=None):
         self.class_progression = class_progression or {}
+        self.backgrounds = backgrounds or {}
 
     @classmethod
     def load(cls, data_dir):
-        def rd(name):
-            with open(os.path.join(data_dir, name)) as f:
+        def rd(name, required=True):
+            p = os.path.join(data_dir, name)
+            if not os.path.exists(p):
+                if required:
+                    raise FileNotFoundError(p)
+                return {}
+            with open(p) as f:
                 return json.load(f)
-        return cls(class_progression=rd("class_progression.json"))
+        return cls(class_progression=rd("class_progression.json"),
+                   backgrounds=rd("backgrounds.json", required=False))
 
     def proficiency_bonus(self, level):
         """Proficiency bonus at a character level (read from any class's table — identical across classes)."""
@@ -33,3 +40,8 @@ class Rules:
             if any(str(f).lower().endswith("subclass") for f in levels[lv].get("features", [])):
                 return int(lv)
         return None
+
+    def background_abilities(self, name):
+        """The three ability ids a background offers for its ability-score increases (or None)."""
+        entry = self.backgrounds.get((name or "").lower())
+        return entry["abilities"] if entry else None
