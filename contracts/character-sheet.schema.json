@@ -1,0 +1,306 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arcane.local/contracts/character-sheet/v1",
+  "title": "CharacterSheet",
+  "description": "Canonical, versioned contract for a complete character sheet. Contract-first: this document is the source of truth; the generator, validator and decoder are made to conform to it. Structural only — game vocabulary (ability/skill/class/spell/background names) is catalog-driven and never hard-coded here, so this file is content-neutral.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "identity",
+    "abilities",
+    "proficiency_bonus",
+    "saving_throws",
+    "skills",
+    "passive_perception",
+    "combat",
+    "proficiencies",
+    "languages",
+    "equipment",
+    "treasure",
+    "features",
+    "spellcasting"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "description": "Contract version. Bump on any breaking change to this schema.",
+      "const": 1
+    },
+    "meta": {
+      "description": "Non-sheet provenance. Optional; ignored by the validator.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "seed": { "type": ["integer", "string", "null"], "description": "RNG seed for reproducibility." },
+        "request": { "type": ["object", "null"], "description": "The original generation request." }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "required": ["name", "race", "classes", "total_level"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "race": { "type": "string", "description": "Race or subrace identifier (catalog)." },
+        "classes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/classEntry" }
+        },
+        "total_level": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "background": { "type": ["string", "null"] },
+        "alignment": { "type": ["string", "null"] },
+        "xp": { "type": "integer", "minimum": 0, "default": 0 },
+        "player": { "type": ["string", "null"] }
+      }
+    },
+    "abilities": {
+      "description": "One entry per ability. Keys are ability identifiers from the catalog (not enumerated here to stay content-neutral).",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/abilityEntry" }
+    },
+    "proficiency_bonus": { "type": "integer", "minimum": 2, "maximum": 6 },
+    "saving_throws": {
+      "description": "One entry per ability, keyed by ability identifier (catalog).",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/savingThrow" }
+    },
+    "skills": {
+      "description": "One entry per skill, keyed by skill identifier (catalog).",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/skill" }
+    },
+    "passive_perception": { "type": "integer" },
+    "combat": {
+      "type": "object",
+      "required": ["armor_class", "initiative", "speed", "hit_points", "hit_dice", "death_saves"],
+      "additionalProperties": false,
+      "properties": {
+        "armor_class": { "type": "integer" },
+        "initiative": { "type": "integer" },
+        "speed": { "type": "integer", "minimum": 0 },
+        "hit_points": {
+          "type": "object",
+          "required": ["max"],
+          "additionalProperties": false,
+          "properties": {
+            "max": { "type": "integer", "minimum": 1 },
+            "current": { "type": "integer" },
+            "temp": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "hit_dice": {
+          "description": "Pool of hit dice by die size. Keys look like 'd8', 'd10'; values are the count at that size.",
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "pattern": "^d\\d+$" },
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "death_saves": {
+          "type": "object",
+          "required": ["successes", "failures"],
+          "additionalProperties": false,
+          "properties": {
+            "successes": { "type": "integer", "minimum": 0, "maximum": 3 },
+            "failures": { "type": "integer", "minimum": 0, "maximum": 3 }
+          }
+        }
+      }
+    },
+    "attacks": {
+      "description": "Optional weapon/attack rows as shown on the sheet. Derived/for-render; not required.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "attack_bonus": { "type": ["string", "integer", "null"] },
+          "damage": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "proficiencies": {
+      "type": "object",
+      "required": ["armor", "weapons", "tools"],
+      "additionalProperties": false,
+      "properties": {
+        "armor": { "type": "array", "items": { "type": "string" } },
+        "weapons": { "type": "array", "items": { "type": "string" } },
+        "tools": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "languages": { "type": "array", "items": { "type": "string" } },
+    "equipment": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "quantity"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "quantity": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "treasure": {
+      "description": "Coin purse. All denominations optional; absent = 0.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pp": { "type": "integer", "minimum": 0 },
+        "gp": { "type": "integer", "minimum": 0 },
+        "ep": { "type": "integer", "minimum": 0 },
+        "sp": { "type": "integer", "minimum": 0 },
+        "cp": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "features": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/feature" }
+    },
+    "spellcasting": {
+      "description": "Null for a wholly non-casting character; otherwise the casting block.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["classes", "spell_slots", "spells"],
+          "additionalProperties": false,
+          "properties": {
+            "classes": {
+              "description": "Per casting class, keyed by class identifier (catalog).",
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": { "$ref": "#/$defs/castingClass" }
+            },
+            "spell_slots": { "$ref": "#/$defs/slotTable" },
+            "pact_slots": { "$ref": "#/$defs/slotTable" },
+            "spells": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/spell" }
+            }
+          }
+        }
+      ]
+    },
+    "flavour": {
+      "description": "Optional flavour block, populated by the backstory step. NOT part of legality — the validator ignores it.",
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "personality": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "traits": { "type": "array", "items": { "type": "string" } },
+            "ideals": { "type": "string" },
+            "bonds": { "type": "string" },
+            "flaws": { "type": "string" }
+          }
+        },
+        "physical": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "age": { "type": ["string", "integer", "null"] },
+            "height": { "type": ["string", "null"] },
+            "weight": { "type": ["string", "null"] },
+            "eyes": { "type": ["string", "null"] },
+            "skin": { "type": ["string", "null"] },
+            "hair": { "type": ["string", "null"] }
+          }
+        },
+        "backstory": { "type": ["string", "null"] }
+      }
+    }
+  },
+  "$defs": {
+    "classEntry": {
+      "type": "object",
+      "required": ["class", "level"],
+      "additionalProperties": false,
+      "properties": {
+        "class": { "type": "string", "description": "Class identifier (catalog)." },
+        "level": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "subclass": { "type": ["string", "null"], "description": "Subclass identifier, or null until unlocked." }
+      }
+    },
+    "abilityEntry": {
+      "description": "One ability. base = pre-racial assignment; final includes racial + ASI/feat bumps.",
+      "type": "object",
+      "required": ["final", "modifier"],
+      "additionalProperties": false,
+      "properties": {
+        "base": { "type": "integer", "minimum": 1 },
+        "racial_bonus": { "type": "integer" },
+        "final": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "modifier": { "type": "integer" }
+      }
+    },
+    "savingThrow": {
+      "type": "object",
+      "required": ["proficient", "modifier"],
+      "additionalProperties": false,
+      "properties": {
+        "proficient": { "type": "boolean" },
+        "modifier": { "type": "integer" }
+      }
+    },
+    "skill": {
+      "type": "object",
+      "required": ["ability", "proficient", "expertise", "modifier"],
+      "additionalProperties": false,
+      "properties": {
+        "ability": { "type": "string", "description": "Governing ability identifier (catalog)." },
+        "proficient": { "type": "boolean" },
+        "expertise": { "type": "boolean" },
+        "modifier": { "type": "integer" },
+        "source": {
+          "description": "Where the proficiency comes from, or null if not proficient.",
+          "enum": ["class", "background", "race", null]
+        }
+      }
+    },
+    "feature": {
+      "type": "object",
+      "required": ["name", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "source": { "type": "string", "description": "Free-text origin, e.g. a class+level, 'Race', or 'Background'." },
+        "description": { "type": ["string", "null"] }
+      }
+    },
+    "castingClass": {
+      "type": "object",
+      "required": ["ability", "save_dc", "attack_bonus"],
+      "additionalProperties": false,
+      "properties": {
+        "ability": { "type": "string", "description": "Spellcasting ability identifier (catalog)." },
+        "save_dc": { "type": "integer" },
+        "attack_bonus": { "type": "integer" }
+      }
+    },
+    "slotTable": {
+      "description": "Slots by spell level. Keys are the spell level as a string ('1'..'9'); values are the slot count.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[1-9]$" },
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "spell": {
+      "type": "object",
+      "required": ["name", "level", "prepared"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "level": { "type": "integer", "minimum": 0, "maximum": 9, "description": "0 = cantrip." },
+        "prepared": { "type": "boolean" }
+      }
+    }
+  }
+}
