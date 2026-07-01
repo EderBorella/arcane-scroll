@@ -94,6 +94,25 @@ def backgrounds(tables):
     return {b: v for b, v in out.items() if len(v.get("abilities", [])) == 3}
 
 
+def spell_lists(tables):
+    """Per class → {spell_name: level} from the '<Class> Spells' tables (cantrips = level 0). Names
+    only (functional). The union across classes is every spell a 2024 character can legitimately have."""
+    out = {}
+    for t in tables:
+        m = re.match(r"(?:Cantrips \(Level 0 (.+?) Spells\)|Level (\d+) (.+?) Spells)", (t.get("title") or "").strip())
+        if not m:
+            continue
+        cls = (m.group(1) or m.group(3)).strip().lower()
+        lvl = 0 if m.group(1) else int(m.group(2))
+        cols = t.get("columns", [])
+        iS = next((i for i, c in enumerate(cols) if c.strip().lower() == "spell"), 0)
+        by_name = out.setdefault(cls, {})
+        for r in t.get("rows", []):
+            if iS < len(r) and r[iS].strip():
+                by_name[r[iS].strip()] = lvl
+    return out
+
+
 def main():
     with open(BOOK) as f:
         tables = _tables(json.load(f))
@@ -107,6 +126,12 @@ def main():
     with open(os.path.join(OUT, "backgrounds.json"), "w") as f:
         json.dump(bg, f, indent=1)
     print(f"backgrounds: {len(bg)} -> {OUT}/backgrounds.json")
+
+    lists = spell_lists(tables)
+    with open(os.path.join(OUT, "spell_lists.json"), "w") as f:
+        json.dump(lists, f, indent=1)
+    print(f"spell_lists: {len(lists)} classes, {len({n for d in lists.values() for n in d})} spells "
+          f"-> {OUT}/spell_lists.json")
 
 
 if __name__ == "__main__":
