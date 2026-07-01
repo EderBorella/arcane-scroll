@@ -18,11 +18,21 @@ def test_ability_scores_apply_race_and_asi(catalog):
     assert s["int"] == 18 and s["str"] == 8          # 15 + 1 racial + 2 ASI
 
 
-def test_reserved_asi_goes_to_primary_ability(catalog):
-    choices = {"race": "Human", "feat": ["FeatA", "FeatB"],     # 2 feats, 3 slots → 1 reserved ASI
+def test_reserved_asi_allocated_smartly(catalog):
+    # 2 feats + 3 slots → 1 reserved ASI (2 pts). Str 15 → 16 (not a wasted 17); the spare point evens
+    # the next-highest odd ability (Dex 13 → 14) instead.
+    choices = {"race": "Human", "feat": ["FeatA", "FeatB"],
                "classes": [{"class": "Fighter", "level": 8}],
                "ability_assignment": {"str": 15, "dex": 13, "con": 14, "int": 10, "wis": 12, "cha": 8}}
-    assert abilities.ability_scores(catalog, choices, _classes(choices))["str"] == 17
+    s = abilities.ability_scores(catalog, choices, _classes(choices))
+    assert s["str"] == 16 and s["dex"] == 14
+
+
+def test_asi_pumps_even_primary_toward_20(catalog):
+    # the main attribute climbs to 20 through odd steps (Str 16 + two ASI slots = 4 pts → 20)
+    choices = {"race": "Human", "classes": [{"class": "Fighter", "level": 4}, {"class": "Rogue", "level": 4}],
+               "ability_assignment": {"str": 16, "dex": 13, "con": 14, "int": 10, "wis": 12, "cha": 8}}
+    assert abilities.ability_scores(catalog, choices, _classes(choices))["str"] == 20
 
 
 def test_ability_scores_cap_at_20(catalog):
@@ -38,16 +48,33 @@ def test_one_feat_slot_picking_a_feat_bumps_nothing(catalog):
     assert abilities.ability_scores(catalog, choices, _classes(choices))["int"] == 16   # racial only
 
 
-def test_unparseable_asi_pick_is_not_silently_lost(catalog):
-    # an ASI pick naming no recognised ability still grants +2 — redirected to the primary, not dropped
-    choices = {"race": "Human", "feat": "Ability Score Improvement: Nonsense",
+def test_asi_named_ability_is_ignored(catalog):
+    # the ability the model names on an ASI pick is ignored — the slot's 2 points are placed optimally
+    choices = {"race": "Human", "feat": "Ability Score Improvement: Charisma",
                "classes": [{"class": "Fighter", "level": 4}],     # 1 ASI slot
                "ability_assignment": {"str": 15, "dex": 13, "con": 14, "int": 10, "wis": 12, "cha": 8}}
-    assert abilities.ability_scores(catalog, choices, _classes(choices))["str"] == 17
+    s = abilities.ability_scores(catalog, choices, _classes(choices))
+    assert s["str"] == 16 and s["dex"] == 14 and s["cha"] == 8    # not +2 Charisma
+
+
+def test_allocate_asi_spends_lone_point_on_highest_secondary():
+    # primary 17 → 18 (1 pt); ASIs are spent in full, so the leftover point still lands on the
+    # highest-priority remaining ability (Con 14 → 15) even though it buys no modifier — never unspent
+    scores = {"str": 17, "dex": 14, "con": 14, "int": 12, "wis": 12, "cha": 10}
+    abilities._allocate_asi(scores, 2, ["str", "con", "dex", "wis", "int", "cha"])
+    assert scores["str"] == 18 and scores["con"] == 15
+
+
+def test_allocate_asi_pairs_two_points_on_an_even_ability():
+    # primary maxed, all others even: two points DO buy a modifier (highest-priority even +2), not waste
+    scores = {"str": 20, "dex": 14, "con": 14, "int": 12, "wis": 12, "cha": 10}
+    abilities._allocate_asi(scores, 2, ["str", "con", "dex", "wis", "int", "cha"])
+    assert scores["con"] == 16 and scores["str"] == 20
 
 
 def test_multiclass_asi_slots_are_summed(catalog):
     choices = {"race": "Human", "classes": [{"class": "Fighter", "level": 4}, {"class": "Rogue", "level": 4}],
                "ability_assignment": {"str": 15, "dex": 13, "con": 14, "int": 10, "wis": 12, "cha": 8}}
-    # 1 slot from each class, no feat picks → 2 reserved ASIs on the primary (fighter → str)
-    assert abilities.ability_scores(catalog, choices, _classes(choices))["str"] == 19
+    # 2 ASI slots → 4 pts: Str 15 → 18 (3 pts, kept even), spare evens Dex 13 → 14
+    s = abilities.ability_scores(catalog, choices, _classes(choices))
+    assert s["str"] == 18 and s["dex"] == 14

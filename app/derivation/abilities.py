@@ -13,35 +13,46 @@ def class_levels(choices) -> list:
     return [(H._ci(c["class"]), c["level"]) for c in choices.get("classes", [])]
 
 
-def _asi_bumps(choices, asi_label) -> tuple:
-    """(resolved ability indices, total feat-slot picks, unresolved ASI picks). An ASI pick whose
-    ability label can't be parsed is counted as *unresolved* — its +2 is redirected to the primary
-    ability rather than silently dropped (the slot was spent on an ASI, so it must still grant +2)."""
+def _asi_points(choices, total_slots) -> int:
+    """ASI points available (2 per ASI slot). A slot the model spent on a real feat yields none; an
+    'Ability Score Improvement' pick or an unspent slot yields a +2. (Which ability the model named on
+    an ASI pick is ignored — the points are placed optimally by _allocate_asi.)"""
     picks = choices.get("feat")
     picks = [picks] if isinstance(picks, str) else list(picks or [])
-    by_name = {v.lower(): k for k, v in asi_label.items()}
-    bumps, unresolved = [], 0
-    for p in picks:
-        pl = str(p).lower()
-        if pl.startswith("ability score improvement"):
-            ab = next((ab for name, ab in by_name.items() if name in pl), None)
-            if ab:
-                bumps.append(ab)
-            else:
-                unresolved += 1
-    return bumps, len(picks), unresolved
+    real_feats = sum(1 for p in picks if not str(p).lower().startswith("ability score improvement"))
+    return 2 * max(0, total_slots - real_feats)
+
+
+def _allocate_asi(scores, points, order) -> None:
+    """Place ASI points to maximise modifiers (a point only buys a modifier when it takes an odd score
+    to even). The primary (highest-priority) ability is raised toward 20 first — through odd steps —
+    but never left stranded on a no-modifier odd number (that point goes elsewhere). Remaining points
+    go to the highest-priority odd ability (odd→even = +1 modifier), else the highest-priority < 20."""
+    primary = order[0]
+    target = min(20, scores[primary] + points)
+    if target % 2 == 1:                       # e.g. 17 with 1 ASI → 18 (+ a spare point elsewhere), not 19
+        target -= 1
+    points -= target - scores[primary]
+    scores[primary] = target
+    rest = [ab for ab in order if ab != primary]
+    while points > 0:
+        # ASIs are spent in full: prefer an odd ability (odd → even buys a modifier); if all are even,
+        # the point still goes to the highest-priority ability (even → odd) — it can't be left unspent.
+        odd = [ab for ab in rest if scores[ab] < 20 and scores[ab] % 2 == 1]
+        pool = odd or [ab for ab in rest if scores[ab] < 20]
+        if not pool:
+            break
+        scores[pool[0]] += 1
+        points -= 1
 
 
 def ability_scores(cat, choices, classes) -> dict:
-    """Base assignment + racial bonuses + ASIs (each pick +2, capped at 20). 2+ slots reserve one
-    code ASI on the primary class's primary ability."""
+    """Base assignment + racial bonuses, then ASI points allocated to maximise modifiers (see
+    _allocate_asi): the primary ability up to 20, the rest spent evening out odd scores."""
     scores = {ab: v + H.race_bonus(cat, choices["race"], ab)
               for ab, v in choices["ability_assignment"].items()}
-    total_slots = sum(features._asi_slots(cat, ci, lv) for ci, lv in classes)
-    bumps, n_picks, unresolved = _asi_bumps(choices, cat.get("asi_label", {}))
-    reserved = max(0, total_slots - n_picks)
-    primary = (cat.get("ability_priority", {}).get(classes[0][0]) or list(scores))[0]
-    # unfilled slots AND ASI picks we couldn't resolve to an ability both fall to the primary
-    for ab in bumps + [primary] * (reserved + unresolved):
-        scores[ab] = min(20, scores[ab] + 2)
+    points = _asi_points(choices, sum(features._asi_slots(cat, ci, lv) for ci, lv in classes))
+    if points:
+        order = cat.get("ability_priority", {}).get(classes[0][0]) or list(scores)
+        _allocate_asi(scores, points, order)
     return scores
