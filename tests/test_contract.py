@@ -75,6 +75,19 @@ def test_weapon_sheet_conforms(catalog):
     assert _errors(contract) == []
 
 
+def test_land_type_surfaced_on_class_entry(catalog):
+    choices = _choices(classes=[{"class": "Oracle", "level": 3, "subclass": "Landwarden"}], land_type="LandA")
+    contract = to_contract_sheet(choices, derive(catalog, choices))
+    assert contract["identity"]["classes"][0]["subclass_detail"] == "LandA"
+    assert _errors(contract) == []
+
+
+def test_no_subclass_detail_when_not_land(catalog):
+    choices = _choices(classes=[{"class": "Mage", "level": 3, "subclass": "Evoker"}])
+    ce = to_contract_sheet(choices, derive(catalog, choices))["identity"]["classes"][0]
+    assert "subclass_detail" not in ce
+
+
 def test_third_caster_subclass_sheet_conforms(catalog):
     # pure Eldritch Knight: has slots + spells; spellcasting.classes must be non-empty (T64)
     choices = _choices(classes=[{"class": "Fighter", "level": 3, "subclass": "Eldritch Knight"}],
