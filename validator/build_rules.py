@@ -5,15 +5,13 @@ class progression, backgrounds, spell lists, hit dice, class proficiencies — i
 Output is purely structural/numeric (identifiers, levels, counts) and is regenerated whenever the
 reference is updated.
 
-  SOURCE_JSON     reference data file  (default: resources/book.json)
-  VALIDATOR_DATA  output data dir      (default: arcane-validator-data)
+Both paths come from the environment (see .env.example) — nothing is hardcoded:
+  SOURCE_JSON               path to the reference source JSON
+  VALIDATOR_DATA_DIR_HOST   output data dir (where the validator loads its rules from)
 """
 import json
 import os
 import re
-
-SOURCE = os.environ.get("SOURCE_JSON", "/data/projects/resources/book.json")
-OUT = os.environ.get("VALIDATOR_DATA", "/data/projects/arcane-validator-data")
 
 _ABILITY_IDS = {"strength": "str", "dexterity": "dex", "constitution": "con",
                 "intelligence": "int", "wisdom": "wis", "charisma": "cha"}
@@ -189,38 +187,43 @@ def class_proficiencies(tables):
 
 
 def main():
-    with open(SOURCE) as f:
+    source = os.environ.get("SOURCE_JSON")
+    out = os.environ.get("VALIDATOR_DATA_DIR_HOST")
+    if not source or not out:
+        raise SystemExit("build_rules: set SOURCE_JSON (reference source) and "
+                         "VALIDATOR_DATA_DIR_HOST (output dir) in the environment")
+    with open(source) as f:
         book = json.load(f)
     tables = _tables(book)
-    os.makedirs(OUT, exist_ok=True)
+    os.makedirs(out, exist_ok=True)
 
     prog = class_progression(tables)
-    with open(os.path.join(OUT, "class_progression.json"), "w") as f:
+    with open(os.path.join(out, "class_progression.json"), "w") as f:
         json.dump(prog, f, indent=1)
-    print(f"class_progression: {len(prog)} classes -> {OUT}/class_progression.json")
+    print(f"class_progression: {len(prog)} classes -> {out}/class_progression.json")
 
     bg = backgrounds(book["sections"])
-    with open(os.path.join(OUT, "backgrounds.json"), "w") as f:
+    with open(os.path.join(out, "backgrounds.json"), "w") as f:
         json.dump(bg, f, indent=1)
     missing_skills = [b for b, v in bg.items() if not v.get("skills")]
-    print(f"backgrounds: {len(bg)} -> {OUT}/backgrounds.json"
+    print(f"backgrounds: {len(bg)} -> {out}/backgrounds.json"
           + (f"  [!] no skills for: {missing_skills}" if missing_skills else "  (all have skills)"))
 
     lists = spell_lists(tables)
-    with open(os.path.join(OUT, "spell_lists.json"), "w") as f:
+    with open(os.path.join(out, "spell_lists.json"), "w") as f:
         json.dump(lists, f, indent=1)
     print(f"spell_lists: {len(lists)} classes, {len({n for d in lists.values() for n in d})} spells "
-          f"-> {OUT}/spell_lists.json")
+          f"-> {out}/spell_lists.json")
 
     hd = class_hit_dice(tables)
-    with open(os.path.join(OUT, "hit_dice.json"), "w") as f:
+    with open(os.path.join(out, "hit_dice.json"), "w") as f:
         json.dump(hd, f, indent=1)
-    print(f"hit_dice: {len(hd)} classes -> {OUT}/hit_dice.json")
+    print(f"hit_dice: {len(hd)} classes -> {out}/hit_dice.json")
 
     prof = class_proficiencies(tables)
-    with open(os.path.join(OUT, "class_proficiencies.json"), "w") as f:
+    with open(os.path.join(out, "class_proficiencies.json"), "w") as f:
         json.dump(prof, f, indent=1)
-    print(f"class_proficiencies: {len(prof)} classes -> {OUT}/class_proficiencies.json")
+    print(f"class_proficiencies: {len(prof)} classes -> {out}/class_proficiencies.json")
 
 
 if __name__ == "__main__":
