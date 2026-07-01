@@ -1,10 +1,13 @@
 """HTTP controller for character generation. Thin: validate input, call the generator service,
 return JSON. No business logic here — that lives in app.generation. The request/response models
 below are what FastAPI renders into the OpenAPI docs (`/docs`)."""
+import random
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from app import catalog
+from app.contract import to_contract_sheet
 from app.derivation import derive
 from app.generation import generate_backstory, generate_sheet, parse
 from app.generation.client import ModelError
@@ -53,36 +56,30 @@ class CharacterRequest(BaseModel):
     ]})
 
 
-class CharacterResponse(BaseModel):
-    """The generated character: **choices** (what the model picked + code-injected fields) and the
-    **sheet** (the derived numbers — abilities, modifiers, proficiency bonus, HP, AC, saves, skills,
-    spell DC/attack, speed, hit dice)."""
-    choices: dict
-    sheet: dict
-
-
-@router.post("/characters", response_model=CharacterResponse,
-             summary="Generate a character (choices + derived sheet)",
+@router.post("/characters",
+             summary="Generate a character sheet (contract-conformant)",
              description=(
                  "Turn a request (race + class(es), optional per-class subclass overrides, optional "
-                 "uniqueness hint) into a character's grammar-constrained, repaired **choices** "
-                 "(name, background, alignment, abilities, skills, spells, feature/feat/equipment picks) "
-                 "and the derived **sheet** computed from them (ability scores incl. ASIs, modifiers, "
-                 "proficiency bonus, HP, AC, saving throws, skill table, spell save DC/attack, speed, "
-                 "hit dice). Race / class / level / subclass are code-resolved. **400** = unknown "
-                 "race/class or out-of-range level."))
-def create_character(req: CharacterRequest) -> CharacterResponse:
+                 "uniqueness hint) into a complete character sheet conforming to "
+                 "`contracts/character-sheet.schema.json` — identity, ability breakdown, proficiency "
+                 "bonus, saves, skills, HP/AC/speed, hit dice, proficiencies, languages, equipment, "
+                 "treasure, features and spellcasting — with a `meta` block carrying the seed and the "
+                 "original request. Race / class / level / subclass are code-resolved. **400** = "
+                 "unknown race/class or out-of-range level; **502** = model backend error."))
+def create_character(req: CharacterRequest) -> dict:
     cat = catalog.get_catalog()
+    request = req.model_dump(by_alias=True)
     try:
-        spec = parse(cat, req.model_dump(by_alias=True))
+        spec = parse(cat, request)
     except (ValueError, KeyError, TypeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     try:
         choices = generate_sheet(cat, spec)
-        sheet = derive(cat, choices)
+        seed = random.randrange(2 ** 32)
+        sheet = derive(cat, choices, rng=random.Random(seed))
     except ModelError as e:
         raise HTTPException(status_code=502, detail=f"model backend error: {e}")
-    return CharacterResponse(choices=choices, sheet=sheet)
+    return to_contract_sheet(choices, sheet, seed=seed, request=request)
 
 
 class BackstoryRequest(BaseModel):

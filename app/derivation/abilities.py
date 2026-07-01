@@ -56,3 +56,18 @@ def ability_scores(cat, choices, classes) -> dict:
         order = cat.get("ability_priority", {}).get(classes[0][0]) or list(scores)
         _allocate_asi(scores, points, order)
     return scores
+
+
+def ability_breakdown(cat, choices, scores) -> dict:
+    """Per-ability `{base, racial_bonus, final, modifier}` for the sheet. `scores` are the final
+    scores from `ability_scores()`; `base` is the pre-racial assignment and `racial_bonus` the
+    race/subrace bonus. ASIs are folded into `final` (not broken out)."""
+    base = choices.get("ability_assignment", {})
+    race = choices["race"]
+    out = {}
+    for ab, final in scores.items():
+        entry = {"racial_bonus": H.race_bonus(cat, race, ab), "final": final, "modifier": modifier(final)}
+        if ab in base:
+            entry["base"] = base[ab]
+        out[ab] = entry
+    return out
