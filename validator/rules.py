@@ -6,11 +6,13 @@ import os
 
 
 class Rules:
-    def __init__(self, class_progression=None, backgrounds=None, spell_lists=None, hit_dice=None):
+    def __init__(self, class_progression=None, backgrounds=None, spell_lists=None, hit_dice=None,
+                 class_proficiencies=None):
         self.class_progression = class_progression or {}
         self.backgrounds = backgrounds or {}
         self.spell_lists = spell_lists or {}
         self.hit_dice = hit_dice or {}
+        self.class_proficiencies = class_proficiencies or {}
 
     @classmethod
     def load(cls, data_dir):
@@ -25,7 +27,8 @@ class Rules:
         return cls(class_progression=rd("class_progression.json"),
                    backgrounds=rd("backgrounds.json", required=False),
                    spell_lists=rd("spell_lists.json", required=False),
-                   hit_dice=rd("hit_dice.json", required=False))
+                   hit_dice=rd("hit_dice.json", required=False),
+                   class_proficiencies=rd("class_proficiencies.json", required=False))
 
     def proficiency_bonus(self, level):
         """Proficiency bonus at a character level (read from any class's table — identical across classes)."""
@@ -57,3 +60,11 @@ class Rules:
     def hit_die(self, class_id):
         """The hit die size (int) for a class, or None if unknown."""
         return self.hit_dice.get((class_id or "").lower())
+
+    def class_saves(self, class_id):
+        """The class's two saving-throw proficiency ability ids, or None."""
+        return (self.class_proficiencies.get((class_id or "").lower()) or {}).get("saving_throws")
+
+    def class_skills(self, class_id):
+        """The class's skill grant {choose: N, from: [names] | None}, or None."""
+        return (self.class_proficiencies.get((class_id or "").lower()) or {}).get("skills")
