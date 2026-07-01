@@ -55,7 +55,7 @@ def derive(cat, choices, *, rng=random) -> dict:
         "proficiencies": proficiency.proficiencies(cat, classes, choices.get("background")),
         "languages": proficiency.languages(cat, choices["race"], choices.get("background"), rng),
         "features": features.features_and_traits(cat, choices),
-        "spellcasting": spellcasting.spell_stats(cat, scores, pb, classes),
+        "spellcasting": spellcasting.spell_stats(cat, scores, pb, caster_classes),
         "spell_slots": spellcasting.spell_slots(cat, caster_classes),
         "pact_slots": spellcasting.pact_slots(cat, caster_classes),
         "spells": spellcasting.spellbook(cat, choices),

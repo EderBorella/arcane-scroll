@@ -37,3 +37,15 @@ def test_land_grants_gated_by_level_and_type(catalog):
     c2 = {"classes": [{"class": "Oracle", "level": 3, "subclass": "Landwarden"}],
           "land_type": "LandB", "spell_choices": {}}
     assert spellcasting.spellbook(catalog, c2) == []          # a land with no table → no grants
+
+
+def test_third_caster_subclass_gets_int_casting_stats(catalog):
+    # a fighter's Eldritch Knight subclass casts with Intelligence though the base class doesn't cast
+    scores = {"str": 10, "dex": 12, "con": 14, "int": 16, "wis": 8, "cha": 10}
+    stats = spellcasting.spell_stats(catalog, scores, 2, [("fighter", 3, "Eldritch Knight")])
+    assert stats == {"Fighter": {"ability": "int", "save_dc": 13, "attack_bonus": 5}}  # int 16 → +3
+
+
+def test_non_third_caster_subclass_gets_no_stats(catalog):
+    scores = {k: 10 for k in ("str", "dex", "con", "int", "wis", "cha")}
+    assert spellcasting.spell_stats(catalog, scores, 2, [("fighter", 3, "Champion")]) == {}

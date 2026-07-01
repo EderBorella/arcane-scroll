@@ -5,14 +5,22 @@ from app.generation import helpers as H
 
 
 def spell_stats(cat, scores, prof_bonus, classes) -> dict:
-    """{class name: {ability, save_dc, attack_bonus}} for each class that can cast at its level."""
+    """{class name: {ability, save_dc, attack_bonus}} for each casting class. `classes` is
+    [(ci, lv, subclass?)]. A third-caster *subclass* (Eldritch Knight / Arcane Trickster) casts with
+    Intelligence even though its base class has no spellcasting — matching spell_slots, which already
+    counts these via the combined caster level."""
+    thirds = _thirds(cat)
     out = {}
-    for ci, lv in classes:
+    for item in classes:
+        ci, lv, sub = _unpack(item)
         c = cat.record("classes", ci)
         sc = (c or {}).get("spellcasting")
-        if not sc or not (H.has_slots(cat, ci, lv) or H.cantrips_known(cat, ci, lv)):
+        if sc and (H.has_slots(cat, ci, lv) or H.cantrips_known(cat, ci, lv)):
+            ab = sc["spellcasting_ability"]["index"]
+        elif sub and H._norm(sub) in thirds:
+            ab = "int"
+        else:
             continue
-        ab = sc["spellcasting_ability"]["index"]
         mod = modifier(scores[ab])
         out[c["name"]] = {"ability": ab, "save_dc": 8 + prof_bonus + mod, "attack_bonus": prof_bonus + mod}
     return out

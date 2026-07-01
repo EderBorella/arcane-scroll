@@ -73,3 +73,13 @@ def test_weapon_sheet_conforms(catalog):
     contract = to_contract_sheet(choices, derive(catalog, choices))
     assert any(a["name"] == "Club" for a in contract["attacks"])
     assert _errors(contract) == []
+
+
+def test_third_caster_subclass_sheet_conforms(catalog):
+    # pure Eldritch Knight: has slots + spells; spellcasting.classes must be non-empty (T64)
+    choices = _choices(classes=[{"class": "Fighter", "level": 3, "subclass": "Eldritch Knight"}],
+                       skill_choices=["Brawn", "Menace"],
+                       spell_choices={"cantrips": ["Spark"], "spells": ["Bolt"]})
+    contract = to_contract_sheet(choices, derive(catalog, choices))
+    assert contract["spellcasting"]["classes"]        # was {} before the fix → schema failure
+    assert _errors(contract) == []
