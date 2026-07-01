@@ -1,7 +1,14 @@
 """Controller (HTTP): /v1/characters end-to-end with the model client mocked. Exercises the wiring
 (catalog singleton via lifespan, request validation, generator orchestration), not the model."""
+import json
+import pathlib
+
 import pytest
 from fastapi.testclient import TestClient
+from jsonschema import Draft202012Validator
+
+_SCHEMA = json.loads(
+    (pathlib.Path(__file__).parents[2] / "contracts" / "character-sheet.schema.json").read_text())
 
 
 def _fake_sheet():
@@ -44,18 +51,18 @@ def test_health_and_ready(client):
 def test_post_characters_ok(client):
     r = client.post("/v1/characters", json={"race": "Human", "classes": [{"class": "mage", "level": 5}]})
     assert r.status_code == 200
-    body = r.json()
-    ch = body["choices"]
-    assert ch["race"] == "Human"
-    assert ch["classes"][0]["class"] == "Mage"          # code-injected fixed field
-    assert ch["ability_assignment"]["int"] == 15        # deterministic assignment
-    assert len(ch["skill_choices"]) == 2
-    assert len(ch["spell_choices"]["spells"]) == 8
-    # the {choices, sheet} contract: derivation runs through the endpoint
-    sheet = body["sheet"]
-    assert sheet["level"] == 5 and sheet["proficiency_bonus"] == 3
-    assert sheet["ability_scores"]["int"] == 16         # 15 + human racial
-    assert sheet["spellcasting"]["Mage"]["save_dc"] > 8 and sheet["max_hp"] > 0
+    sheet = r.json()
+    # the endpoint returns a contract-conformant CharacterSheet
+    assert list(Draft202012Validator(_SCHEMA).iter_errors(sheet)) == []
+    assert sheet["schema_version"] == 1
+    assert sheet["identity"]["name"] == "Tester" and sheet["identity"]["race"] == "Human"
+    assert sheet["identity"]["classes"][0]["class"] == "Mage"        # code-injected fixed field
+    assert sheet["identity"]["total_level"] == 5 and sheet["proficiency_bonus"] == 3
+    assert sheet["abilities"]["int"]["final"] == 16 and sheet["abilities"]["int"]["racial_bonus"] == 1  # 15 + human racial
+    assert sheet["spellcasting"]["classes"]["Mage"]["save_dc"] > 8 and sheet["combat"]["hit_points"]["max"] > 0
+    # meta carries the seed + original request
+    assert isinstance(sheet["meta"]["seed"], int)
+    assert sheet["meta"]["request"]["race"] == "Human"
 
 
 def test_post_characters_bad_race_400(client):

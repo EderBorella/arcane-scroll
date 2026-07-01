@@ -53,12 +53,12 @@ def test_derive_full_sheet_smoke(catalog):
                "spell_choices": {"cantrips": ["Spark"], "spells": ["Bolt"]}}
     sheet = derive(catalog, choices)
     assert sheet["level"] == 5 and sheet["proficiency_bonus"] == 3
-    assert sheet["ability_scores"]["int"] == 18 and sheet["ability_modifiers"]["int"] == 4  # 15+1 race +2 ASI
+    assert sheet["abilities"]["int"] == {"base": 15, "racial_bonus": 1, "final": 18, "modifier": 4}  # 15+1 race +2 ASI
     assert sheet["max_hp"] == 32        # (6+2) + 4×(4+2)
-    assert sheet["speed"] == 30 and sheet["initiative"] == sheet["ability_modifiers"]["dex"]
+    assert sheet["speed"] == 30 and sheet["initiative"] == sheet["abilities"]["dex"]["modifier"]
     assert sheet["spellcasting"]["Mage"]["save_dc"] == 15
     assert sheet["spell_slots"] == {1: 4, 2: 3, 3: 2}
     assert sheet["languages"][0] == "Common"
     assert sheet["schema_version"] == 1 and sheet["death_saves"] == {"successes": 0, "failures": 0}
-    assert set(sheet) >= {"saving_throws", "skills", "passive_perception", "hit_dice", "armor_class",
+    assert set(sheet) >= {"abilities", "saving_throws", "skills", "passive_perception", "hit_dice", "armor_class",
                           "proficiencies", "languages", "features", "spells", "inventory", "pact_slots"}
