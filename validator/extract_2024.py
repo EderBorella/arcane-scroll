@@ -128,6 +128,38 @@ def class_hit_dice(tables):
     return out
 
 
+def class_proficiencies(tables):
+    """Per class → {saving_throws: [ability ids], skills: {choose: N, from: [names] | None}} from the
+    'Core <Class> Traits' saving-throw + skill rows ('from' is None when the class picks *any* skills)."""
+    out = {}
+    for t in tables:
+        m = re.fullmatch(r"Core (.+?) Traits", (t.get("title") or "").strip())
+        if not m:
+            continue
+        entry = {}
+        for r in t.get("rows", []):
+            if len(r) < 2:
+                continue
+            k = r[0].strip().lower()
+            if "saving throw" in k:
+                saves = [_ABILITY_IDS[a.strip().lower()] for a in re.split(r"\band\b|,", r[1])
+                         if a.strip().lower() in _ABILITY_IDS]
+                if saves:
+                    entry["saving_throws"] = saves
+            elif k.startswith("skill prof"):
+                s = r[1]
+                cm = re.search(r"choose (?:any )?(\d+)", s, re.I)
+                if "any" in s.lower():
+                    frm = None
+                else:
+                    after = s.split(":", 1)[1] if ":" in s else ""
+                    frm = [x.strip() for x in re.split(r",|\bor\b", after) if x.strip()]
+                entry["skills"] = {"choose": int(cm.group(1)) if cm else None, "from": frm}
+        if entry:
+            out[m.group(1).strip().lower()] = entry
+    return out
+
+
 def main():
     with open(BOOK) as f:
         tables = _tables(json.load(f))
@@ -152,6 +184,11 @@ def main():
     with open(os.path.join(OUT, "hit_dice.json"), "w") as f:
         json.dump(hd, f, indent=1)
     print(f"hit_dice: {len(hd)} classes -> {OUT}/hit_dice.json")
+
+    prof = class_proficiencies(tables)
+    with open(os.path.join(OUT, "class_proficiencies.json"), "w") as f:
+        json.dump(prof, f, indent=1)
+    print(f"class_proficiencies: {len(prof)} classes -> {OUT}/class_proficiencies.json")
 
 
 if __name__ == "__main__":
