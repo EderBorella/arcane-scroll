@@ -113,6 +113,21 @@ def spell_lists(tables):
     return out
 
 
+def class_hit_dice(tables):
+    """Per class → hit die size (int) from 'Core <Class> Traits' → the 'Hit Point Die: D8 …' row."""
+    out = {}
+    for t in tables:
+        m = re.fullmatch(r"Core (.+?) Traits", (t.get("title") or "").strip())
+        if not m:
+            continue
+        for r in t.get("rows", []):
+            if len(r) >= 2 and "hit point die" in r[0].strip().lower():
+                dm = re.search(r"[dD](\d+)", r[1])
+                if dm:
+                    out[m.group(1).strip().lower()] = int(dm.group(1))
+    return out
+
+
 def main():
     with open(BOOK) as f:
         tables = _tables(json.load(f))
@@ -132,6 +147,11 @@ def main():
         json.dump(lists, f, indent=1)
     print(f"spell_lists: {len(lists)} classes, {len({n for d in lists.values() for n in d})} spells "
           f"-> {OUT}/spell_lists.json")
+
+    hd = class_hit_dice(tables)
+    with open(os.path.join(OUT, "hit_dice.json"), "w") as f:
+        json.dump(hd, f, indent=1)
+    print(f"hit_dice: {len(hd)} classes -> {OUT}/hit_dice.json")
 
 
 if __name__ == "__main__":

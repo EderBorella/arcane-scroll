@@ -6,10 +6,11 @@ import os
 
 
 class Rules:
-    def __init__(self, class_progression=None, backgrounds=None, spell_lists=None):
+    def __init__(self, class_progression=None, backgrounds=None, spell_lists=None, hit_dice=None):
         self.class_progression = class_progression or {}
         self.backgrounds = backgrounds or {}
         self.spell_lists = spell_lists or {}
+        self.hit_dice = hit_dice or {}
 
     @classmethod
     def load(cls, data_dir):
@@ -23,7 +24,8 @@ class Rules:
                 return json.load(f)
         return cls(class_progression=rd("class_progression.json"),
                    backgrounds=rd("backgrounds.json", required=False),
-                   spell_lists=rd("spell_lists.json", required=False))
+                   spell_lists=rd("spell_lists.json", required=False),
+                   hit_dice=rd("hit_dice.json", required=False))
 
     def proficiency_bonus(self, level):
         """Proficiency bonus at a character level (read from any class's table — identical across classes)."""
@@ -51,3 +53,7 @@ class Rules:
     def all_spells(self):
         """Every spell name across all 2024 class lists (empty if no spell-list data is loaded)."""
         return {name for by_name in self.spell_lists.values() for name in by_name}
+
+    def hit_die(self, class_id):
+        """The hit die size (int) for a class, or None if unknown."""
+        return self.hit_dice.get((class_id or "").lower())
