@@ -210,6 +210,8 @@ def _build_synthetic_db(path: str) -> None:
     lst("subclass_level", {"mage": 2, "warrior": 3, "oracle": 3})
     lst("subrace_bonus", {})
     lst("patron_expanded", {"shadow": {"1": ["Bolt"], "2": ["Quake"]}})
+    lst("subclass_spells", {"seer": {"1": ["Bolt"], "3": ["Quake", "Gale"]}})   # always-prepared grants
+    lst("land_spells", {"landa": {"1": ["Bolt"], "3": ["Quake"]}})              # Circle of the Land, by land type
     # feature-choice lists (fighting style; expertise reads the class skill list)
     lst("fighting_styles", {"fighter": ["StyleA", "StyleB", "StyleC"]})
     lst("fighting_style_level", {"fighter": 1})
