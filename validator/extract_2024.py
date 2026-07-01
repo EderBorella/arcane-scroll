@@ -67,10 +67,26 @@ _ABILITY_IDS = {"strength": "str", "dexterity": "dex", "constitution": "con",
                 "intelligence": "int", "wisdom": "wis", "charisma": "cha"}
 
 
-def backgrounds(tables):
-    """Per background → {abilities: [3 ids], feat?}. Primary source is the master 'Ability Scores and
-    Backgrounds' table (inverted — it lists every background under each ability, so it covers all 16);
-    the per-background traits tables enrich it with the granted feat where present. Functional facts only."""
+def _trait_pairs(section):
+    """Label→value trait pairs for a background block, from its table rows AND its prose lines. The
+    prose is read only to capture the facts (skill names, feat name) — never stored."""
+    pairs = {}
+    for t in (section.get("tables") or []):
+        for r in t.get("rows", []):
+            if len(r) >= 2 and r[0].strip().endswith(":"):
+                pairs.setdefault(r[0].strip().rstrip(":").strip().lower(), r[1].strip())
+    for line in (section.get("text") or "").splitlines():
+        m = re.match(r"\s*(Ability Scores|Feat|Skill Proficiencies|Tool Proficiency)\s*:\s*(.+)", line)
+        if m:
+            pairs.setdefault(m.group(1).lower(), m.group(2).strip())
+    return pairs
+
+
+def backgrounds(sections):
+    """Per background → {abilities: [3 ids], skills: [names], feat?}. Abilities come from the master
+    'Ability Scores and Backgrounds' table (covers all 16); skills/feat come from each background's
+    trait block — whether that's a table or prose. Functional facts only; no prose stored."""
+    tables = [t for s in sections for t in (s.get("tables") or [])]
     out = {}
     master = next((t for t in tables if (t.get("title") or "").strip() == "Ability Scores and Backgrounds"), None)
     for row in (master or {}).get("rows", []):
@@ -83,15 +99,26 @@ def backgrounds(tables):
             b = name.strip().lower()
             if b:
                 out.setdefault(b, {"abilities": []})["abilities"].append(ab)
-    for t in tables:                                  # enrich with the granted feat from traits tables
-        rows = t.get("rows", [])
-        if not any(len(r) >= 2 and r[0].strip().lower().startswith("ability score") for r in rows):
+    out = {b: v for b, v in out.items() if len(v["abilities"]) == 3}
+    names = set(out)
+    for s in sections:
+        pairs = _trait_pairs(s)
+        if "skill proficiencies" not in pairs:
             continue
-        name = re.sub(r"\s*Background Traits$", "", (t.get("title") or "").strip()).strip().lower()
-        feat = next((r[1].strip() for r in rows if len(r) >= 2 and r[0].strip().lower().startswith("feat")), None)
-        if name in out and feat:
-            out[name]["feat"] = re.sub(r"\s*\(see.*?\)", "", feat).strip()
-    return {b: v for b, v in out.items() if len(v.get("abilities", [])) == 3}
+        cand = re.sub(r"\s*Background Traits$", "", (s.get("section") or "").strip()).strip().lower()
+        if cand not in names:
+            for t in (s.get("tables") or []):
+                c2 = re.sub(r"\s*Background Traits$", "", (t.get("title") or "").strip()).strip().lower()
+                if c2 in names:
+                    cand = c2
+                    break
+        if cand not in names:
+            continue
+        out[cand].setdefault("skills", [x.strip() for x in re.split(r",|\band\b", pairs["skill proficiencies"]) if x.strip()])
+        feat = pairs.get("feat")
+        if feat:
+            out[cand].setdefault("feat", re.sub(r"\s*\(see.*?\)", "", feat).strip())
+    return out
 
 
 def spell_lists(tables):
@@ -162,17 +189,20 @@ def class_proficiencies(tables):
 
 def main():
     with open(BOOK) as f:
-        tables = _tables(json.load(f))
+        book = json.load(f)
+    tables = _tables(book)
     os.makedirs(OUT, exist_ok=True)
     prog = class_progression(tables)
     with open(os.path.join(OUT, "class_progression.json"), "w") as f:
         json.dump(prog, f, indent=1)
     print(f"class_progression: {len(prog)} classes -> {OUT}/class_progression.json")
 
-    bg = backgrounds(tables)
+    bg = backgrounds(book["sections"])
     with open(os.path.join(OUT, "backgrounds.json"), "w") as f:
         json.dump(bg, f, indent=1)
-    print(f"backgrounds: {len(bg)} -> {OUT}/backgrounds.json")
+    missing_skills = [b for b, v in bg.items() if not v.get("skills")]
+    print(f"backgrounds: {len(bg)} -> {OUT}/backgrounds.json"
+          + (f"  [!] no skills for: {missing_skills}" if missing_skills else "  (all have skills)"))
 
     lists = spell_lists(tables)
     with open(os.path.join(OUT, "spell_lists.json"), "w") as f:

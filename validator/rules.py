@@ -53,6 +53,10 @@ class Rules:
         entry = self.backgrounds.get((name or "").lower())
         return entry["abilities"] if entry else None
 
+    def background_skills(self, name):
+        """The skill proficiencies a background grants (or None)."""
+        return (self.backgrounds.get((name or "").lower()) or {}).get("skills")
+
     def all_spells(self):
         """Every spell name across all 2024 class lists (empty if no spell-list data is loaded)."""
         return {name for by_name in self.spell_lists.values() for name in by_name}
