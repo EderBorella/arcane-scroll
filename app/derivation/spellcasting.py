@@ -91,7 +91,9 @@ def spellbook(cat, choices) -> list:
     spell is tagged **prepared** when it sits on one of the character's *prepared-caster* class lists
     (so a prepared+known multiclass tags each spell per the class that grants it), otherwise known.
     Feature-granted spells (EK/AT, bonus/nature/high-elf cantrips, bardic magical secrets) are always
-    known; cantrips are always known."""
+    known; cantrips are always known. Subclass grants (cleric domain / paladin oath, from the
+    `subclass_spells` table, and druid Circle of the Land, from `land_spells` by the chosen land type)
+    are injected as always-prepared, gated by class level."""
     sc = choices.get("spell_choices") or {}
     prepared_set = set(cat.get("prepared_casters") or [])
     char_prepared = {H._ci(c["class"]) for c in choices.get("classes", [])} & prepared_set
@@ -115,6 +117,29 @@ def spellbook(cat, choices) -> list:
         lvl = level_by_name.get(nm)
         if lvl is not None:                  # drop an unknown name rather than guessing level 1
             add(nm, lvl, is_prepared(nm))
+    # subclass always-prepared grants (cleric domain / paladin oath / druid Circle of the Land), gated
+    # by class level. Granted outright, so they're always prepared and sit on top of — not inside —
+    # the prepared/known count.
+    granted = cat.get("subclass_spells") or {}
+    land_spells = cat.get("land_spells") or {}
+    land = choices.get("land_type")
+    land = land[0] if isinstance(land, list) else land
+    for c in choices.get("classes", []):
+        subn = H._norm(c.get("subclass") or "")
+        if not subn:
+            continue
+        tables = [t for t in (granted.get(subn),) if t]
+        if land and "land" in subn:                       # Circle of the Land: grants depend on the land
+            lt = land_spells.get(H._norm(land))
+            if lt:
+                tables.append(lt)
+        for table in tables:
+            for lvl_key, names in table.items():
+                if int(lvl_key) <= c["level"]:
+                    for nm in names:
+                        lvl = level_by_name.get(nm)
+                        if lvl is not None:
+                            add(nm, lvl, True)
     for field in _FEATURE_CANTRIP_FIELDS:
         for nm in _as_list(choices.get(field)):
             add(nm, 0, False)
