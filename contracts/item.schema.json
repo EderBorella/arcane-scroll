@@ -1,20 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://arcane.local/contracts/item/v1",
+  "$id": "https://arcane.local/contracts/item/v2",
   "title": "Item",
-  "description": "One inventory line — a mundane or magic item the character holds, plus how many and its details. Referenced by the character sheet's `inventory`. Content-neutral: item/category/rarity/property names are catalog-driven, never enumerated here.",
+  "description": "A self-describing item — a superset of every property an item MIGHT have. Only `name` is required; a torch has no damage dice, a sword has no AC, so most fields are simply absent. The same contract is used for equipped items (by slot on the sheet) and for backpack lines (with a quantity). Content-neutral: item/category/property/type names are catalog-driven, never enumerated here. Magic-item effects are deliberately NOT modelled yet — they will slot in later via a new `effects` field without restructuring.",
   "type": "object",
-  "required": ["name", "quantity"],
+  "required": ["name"],
   "additionalProperties": false,
   "properties": {
     "name": { "type": "string", "description": "Item identifier (catalog)." },
-    "quantity": { "type": "integer", "minimum": 1 },
-    "equipped": {
-      "type": "boolean",
-      "default": false,
-      "description": "Whether the item is currently worn/wielded — the source for AC and attack derivation."
-    },
-    "category": { "type": ["string", "null"], "description": "Item category identifier (catalog), e.g. armour / weapon / gear." },
+    "category": { "type": ["string", "null"], "description": "Item category identifier (catalog), e.g. weapon / armor / shield / gear." },
+    "quantity": { "type": "integer", "minimum": 1, "default": 1, "description": "How many the character holds. Used by the backpack; an equipped item is a single instance." },
+    "weight": { "type": ["number", "null"], "minimum": 0 },
+    "description": { "type": ["string", "null"] },
+
     "magic": { "type": "boolean", "default": false },
     "rarity": { "type": ["string", "null"], "description": "Rarity identifier (catalog); null for mundane items." },
     "attunement": {
@@ -26,12 +24,24 @@
         "attuned": { "type": "boolean", "default": false }
       }
     },
+
     "properties": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Item/weapon property identifiers (catalog)."
+      "description": "Item/weapon property identifiers (catalog), e.g. two-handed / versatile / light / finesse."
     },
-    "weight": { "type": ["number", "null"], "minimum": 0 },
-    "description": { "type": ["string", "null"] }
+
+    "damage_dice": { "type": ["string", "null"], "description": "Weapon: base damage dice, e.g. '1d8'." },
+    "damage_type": { "type": ["string", "null"], "description": "Weapon: damage type identifier (catalog)." },
+    "mastery": { "type": ["string", "null"], "description": "Weapon: mastery property identifier (catalog)." },
+    "range": { "type": ["string", "null"], "description": "Weapon: range, e.g. '30/120' or null for melee-only." },
+
+    "armor_category": { "type": ["string", "null"], "description": "Armour: category identifier (catalog) — light / medium / heavy." },
+    "base_ac": { "type": ["integer", "null"], "description": "Armour: base AC before the Dexterity modifier." },
+    "dex_cap": { "type": ["integer", "null"], "description": "Armour: max Dex bonus to AC — null = uncapped (light), 2 (medium), 0 (heavy)." },
+    "stealth_disadvantage": { "type": "boolean", "default": false, "description": "Armour: imposes Disadvantage on Stealth." },
+    "strength_req": { "type": ["integer", "null"], "description": "Armour: minimum Strength, or null." },
+
+    "ac_bonus": { "type": ["integer", "null"], "description": "Shield (or AC-granting item): bonus to AC." }
   }
 }

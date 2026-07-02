@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://arcane.local/contracts/character-sheet/v3",
+  "$id": "https://arcane.local/contracts/character-sheet/v4",
   "title": "CharacterSheet",
   "description": "Canonical, versioned contract for a complete character sheet. Contract-first: this document is the source of truth; the generator, validator and decoder are made to conform to it. Structural only — game vocabulary (ability/skill/class/species/spell/background/resource/condition names) is catalog-driven and never hard-coded here, so this file is content-neutral.",
   "type": "object",
@@ -15,7 +15,8 @@
     "combat",
     "proficiencies",
     "languages",
-    "inventory",
+    "equipped",
+    "backpack",
     "treasure",
     "features",
     "feats",
@@ -25,7 +26,7 @@
   "properties": {
     "schema_version": {
       "description": "Contract version. Bump on any breaking change to this schema.",
-      "const": 3
+      "const": 4
     },
     "meta": {
       "description": "Non-sheet provenance. Optional; ignored by the validator.",
@@ -38,7 +39,7 @@
     },
     "identity": {
       "type": "object",
-      "required": ["name", "species", "size", "creature_type", "classes", "total_level"],
+      "required": ["name", "species", "size", "creature_type", "classes", "total_level", "background"],
       "additionalProperties": false,
       "properties": {
         "name": { "type": "string" },
@@ -51,7 +52,7 @@
           "items": { "$ref": "#/$defs/classEntry" }
         },
         "total_level": { "type": "integer", "minimum": 1, "maximum": 20 },
-        "background": { "type": ["string", "null"] },
+        "background": { "type": "string", "description": "Background identifier (catalog); required — it grants the ability-score increases and the origin feat." },
         "alignment": { "type": ["string", "null"] },
         "xp": { "type": "integer", "minimum": 0, "default": 0 },
         "player": { "type": ["string", "null"] }
@@ -139,6 +140,17 @@
       "type": "object",
       "additionalProperties": { "type": "integer", "minimum": 0 }
     },
+    "defenses": {
+      "description": "Damage and condition defences granted by species, features, feats or items. All lists optional; absent = none. Entries are catalog identifiers (damage type / condition names).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resistances": { "type": "array", "items": { "type": "string" }, "description": "Damage-type identifiers (catalog) the character takes half damage from." },
+        "immunities": { "type": "array", "items": { "type": "string" }, "description": "Damage-type identifiers (catalog) the character takes no damage from." },
+        "vulnerabilities": { "type": "array", "items": { "type": "string" }, "description": "Damage-type identifiers (catalog) the character takes double damage from." },
+        "condition_immunities": { "type": "array", "items": { "type": "string" }, "description": "Condition identifiers (catalog) the character cannot suffer." }
+      }
+    },
     "attacks": {
       "description": "Optional weapon/attack rows as shown on the sheet. Derived/for-render; not required.",
       "type": "array",
@@ -181,10 +193,15 @@
         "attuned": { "type": "integer", "minimum": 0 }
       }
     },
-    "inventory": {
-      "description": "All carried items — mundane and magic — one line each. See item.schema.json.",
+    "equipped": {
+      "description": "Items currently worn/wielded, keyed by slot identifier (catalog) → the item in that slot. Each is a single instance. See item.schema.json.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/item" }
+    },
+    "backpack": {
+      "description": "Carried-but-not-equipped items — mundane and magic — one line each (with a quantity). See item.schema.json.",
       "type": "array",
-      "items": { "$ref": "https://arcane.local/contracts/item/v1" }
+      "items": { "$ref": "#/$defs/item" }
     },
     "treasure": {
       "description": "Coin purse. All denominations optional; absent = 0.",
@@ -211,8 +228,9 @@
       "items": { "$ref": "#/$defs/feature" }
     },
     "feats": {
-      "description": "Feats the character has taken (across all feat categories the character is entitled to).",
+      "description": "Feats the character has taken. At least one — every character gets an origin feat from its background.",
       "type": "array",
+      "minItems": 1,
       "items": { "$ref": "#/$defs/feat" }
     },
     "spellcasting": {
@@ -221,7 +239,11 @@
         { "type": "null" },
         {
           "type": "object",
-          "required": ["classes", "spell_slots", "spells"],
+          "required": ["classes", "spells"],
+          "anyOf": [
+            { "required": ["spell_slots"] },
+            { "required": ["pact_slots"] }
+          ],
           "additionalProperties": false,
           "properties": {
             "classes": {
@@ -272,6 +294,10 @@
     }
   },
   "$defs": {
+    "item": {
+      "description": "The item contract, bound by version. This is the ONLY place the item-schema version is named; equipped/backpack both point here. Resolved offline via the schema registry — arcane.local is a namespace identifier, never a network fetch.",
+      "$ref": "https://arcane.local/contracts/item/v2"
+    },
     "classEntry": {
       "type": "object",
       "required": ["class", "level"],
@@ -289,7 +315,7 @@
       "required": ["final", "modifier"],
       "additionalProperties": false,
       "properties": {
-        "base": { "type": "integer", "minimum": 1 },
+        "base": { "type": "integer", "minimum": 1, "maximum": 20, "description": "Pre-increase assignment (never above 20 at any level; later boosts land in final, capped at 30)." },
         "background_bonus": { "type": "integer", "description": "The background's ability-score increase for this ability." },
         "final": { "type": "integer", "minimum": 1, "maximum": 30 },
         "modifier": { "type": "integer" }

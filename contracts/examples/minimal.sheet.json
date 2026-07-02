@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "identity": {
     "name": "Placeholder",
     "species": "species-a",
@@ -45,6 +45,7 @@
   "conditions": [],
   "exhaustion": 0,
   "senses": { "sense-a": 60 },
+  "defenses": { "resistances": ["dtype-a"], "condition_immunities": ["condition-a"] },
   "attacks": [
     { "name": "weapon-a", "attack_bonus": 4, "damage": "1d8+2", "damage_type": "dtype-a", "weapon_mastery": "mastery-a", "properties": ["prop-a"] }
   ],
@@ -52,10 +53,14 @@
   "languages": ["language-a"],
   "weapon_masteries": ["weapon-a"],
   "attunement": { "max": 3, "attuned": 1 },
-  "inventory": [
-    { "name": "item-a", "quantity": 5, "equipped": false },
-    { "name": "weapon-a", "quantity": 1, "equipped": true, "category": "category-a", "properties": ["prop-a"] },
-    { "name": "wondrous-a", "quantity": 1, "equipped": true, "magic": true, "rarity": "rarity-a", "attunement": { "required": true, "attuned": true } }
+  "equipped": {
+    "slot-a": { "name": "weapon-a", "category": "category-a", "properties": ["prop-a"], "damage_dice": "1d8", "damage_type": "dtype-a", "mastery": "mastery-a" },
+    "slot-b": { "name": "armor-a", "category": "category-a", "armor_category": "acat-a", "base_ac": 14, "dex_cap": 2 },
+    "slot-c": { "name": "wondrous-a", "magic": true, "rarity": "rarity-a", "attunement": { "required": true, "attuned": true } }
+  },
+  "backpack": [
+    { "name": "item-a", "quantity": 5 },
+    { "name": "item-b", "quantity": 1, "weight": 3 }
   ],
   "treasure": { "gp": 15 },
   "class_resources": {
