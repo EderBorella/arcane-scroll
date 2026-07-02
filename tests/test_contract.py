@@ -157,7 +157,9 @@ _REJECT_CASES = {
     "final_above_30":             (["abilities", "a1", "final"], 31),         # final caps at 30 even with boons
     "missing_background":         (["identity", "background"], _DELETE),      # background is mandatory
     "empty_feats":                (["feats"], []),                            # at least the origin feat
-    "spellcasting_without_slots": (["spellcasting", "spell_slots"], _DELETE), # needs spell_slots OR pact_slots
+    "spellcasting_without_sources":(["spellcasting", "sources"], _DELETE),    # a casting block needs >=1 source
+    "empty_sources":              (["spellcasting", "sources"], {}),          # sources must record >=1 source
+    "casting_source_without_kind":(["spellcasting", "sources", "class-a", "kind"], _DELETE),  # a source must declare its kind
     "unknown_top_level_field":    (["bogus"], 1),                             # additionalProperties: false
     "legacy_inventory_field":     (["inventory"], []),                        # replaced by equipped + backpack
     "exhaustion_out_of_range":    (["exhaustion"], 7),                        # 0..6
@@ -197,6 +199,15 @@ def test_both_slot_kinds_conform():
     """A multiclass traditional+pact caster carries both spell_slots and pact_slots at once."""
     sheet = copy.deepcopy(_EXAMPLE)
     sheet["spellcasting"]["pact_slots"] = {"1": {"max": 2, "remaining": 2}}
+    assert _errors(sheet) == []
+
+
+def test_slotless_caster_conforms():
+    """A caster whose only spells come from a slotless source (species cantrip, origin feat) has a
+    sources block and spells but NO slot tables at all — e.g. a martial with Magic Initiate."""
+    sheet = copy.deepcopy(_EXAMPLE)
+    del sheet["spellcasting"]["spell_slots"]
+    assert "pact_slots" not in sheet["spellcasting"]
     assert _errors(sheet) == []
 
 

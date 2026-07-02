@@ -97,12 +97,18 @@
     { "name": "feat-b", "source": "class-a 4", "ability_increase": { "ability": "a1", "amount": 2 }, "uses": { "max": 2, "remaining": 2, "recharge": "recharge-a" } }
   ],
   "spellcasting": {
-    "classes": { "class-a": { "ability": "a4", "modifier": 1, "save_dc": 11, "attack_bonus": 3, "cantrips_known": 3, "prepared_limit": 4 } },
+    "sources": {
+      "class-a": { "kind": "class", "ability": "a4", "modifier": 1, "save_dc": 11, "attack_bonus": 3, "cantrips_known": 3, "prepared_limit": 4 },
+      "species-a": { "kind": "species", "ability": "a5", "modifier": 1, "save_dc": 11, "attack_bonus": 3, "cantrips_known": 1 },
+      "feat-a": { "kind": "feat", "ability": "a6", "modifier": 1, "save_dc": 11, "attack_bonus": 3 }
+    },
     "spell_slots": { "1": { "max": 4, "remaining": 3 }, "2": { "max": 2, "remaining": 2 } },
     "spells": [
-      { "name": "cantrip-a", "level": 0, "prepared": false, "class": "class-a" },
-      { "name": "spell-a", "level": 1, "prepared": true, "class": "class-a", "concentration": true },
-      { "name": "spell-b", "level": 1, "prepared": true, "class": "class-a", "always_prepared": true, "ritual": true }
+      { "name": "cantrip-a", "level": 0, "prepared": false, "source": "class-a", "recovery": "recovery-a" },
+      { "name": "cantrip-b", "level": 0, "prepared": true, "source": "species-a", "recovery": "recovery-a" },
+      { "name": "spell-a", "level": 1, "prepared": true, "source": "class-a", "concentration": true },
+      { "name": "spell-b", "level": 1, "prepared": true, "source": "class-a", "always_prepared": true, "ritual": true },
+      { "name": "spell-c", "level": 1, "prepared": true, "source": "feat-a", "always_prepared": true, "recovery": "recovery-b" }
     ]
   }
 }
