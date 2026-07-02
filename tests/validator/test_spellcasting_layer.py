@@ -46,8 +46,9 @@ RC = Rules(
     caster_types={"mage": "full", "knight": "half", "hexer": "pact"},
     class_progression={"mage": {"5": {"cantrips_known": 4, "prepared_spells": 6}},
                        "knight": {"5": {"prepared_spells": 6}}},
-    spell_slots={"classes": {"mage": {"5": {"1": 4, "2": 3, "3": 2}}},
-                 "multiclass": {"7": {"1": 4, "2": 3, "3": 3, "4": 1}},
+    spell_slots={"classes": {"mage": {"5": {"1": 4, "2": 3, "3": 2}}, "knight": {"5": {"1": 2}}},
+                 "multiclass": {"3": {"1": 4, "2": 2}, "4": {"1": 4, "2": 3},
+                                "7": {"1": 4, "2": 3, "3": 3, "4": 1}},
                  "pact": {"5": {"slots": 2, "level": 3}}, "third": {}},
     subclass_spells={"order-x": {"3": ["Big"]}})
 
@@ -75,6 +76,13 @@ def test_spell_slots_mismatch():
     s = _legal_mage()
     s["spellcasting"]["spell_slots"] = {"1": 2}
     assert "spell_slots_mismatch" in _codes(s, RC)
+
+
+def test_half_caster_multiclass_rounds_up():
+    # knight (half) level 5 → ceil(5/2)=3, + mage (full) 1 = combined 4 (NOT floor 2+1=3).
+    classes = [{"class": "knight", "level": 5, "subclass": None},
+               {"class": "mage", "level": 1, "subclass": None}]
+    assert RC.expected_slots(classes) == {"1": 4, "2": 3}          # multiclass[4], not multiclass[3]
 
 
 def test_pact_slots_ok_and_mismatch():

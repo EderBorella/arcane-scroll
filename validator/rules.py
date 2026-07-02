@@ -141,8 +141,10 @@ class Rules:
     def expected_slots(self, classes):
         """Expected leveled spell slots {spell_level: n} for the character's caster classes (pact
         excluded — see expected_pact). Single caster → its own table; multiple → the multiclass table
-        at the combined caster level (full: +level, half: +level//2, third-caster subclass: +level//3).
-        Returns {} when no leveled caster, or None if the needed row isn't in the data."""
+        at the combined caster level. Per the multiclass rule: full casters add their full level, half
+        casters (paladin/ranger) add half their level ROUNDED UP, and a third-caster subclass adds a
+        third of its class level rounded down. Returns {} when no leveled caster, or None if the needed
+        row isn't in the data."""
         ss = self.spell_slots
         if not ss:
             return None
@@ -156,10 +158,10 @@ class Rules:
                 combined += lvl
                 own.append(("class", cid, lvl))
             elif t == "half":
-                combined += lvl // 2
+                combined += (lvl + 1) // 2      # round UP per the multiclass rule, not floor
                 own.append(("class", cid, lvl))
             elif sub and sub in {self._alnum(k): 1 for k in ss.get("third", {})}:
-                combined += lvl // 3
+                combined += lvl // 3            # third-caster rounds down
                 own.append(("third", sub, lvl))
         if not own:
             return {}
