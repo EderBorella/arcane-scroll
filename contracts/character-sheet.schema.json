@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://arcane.local/contracts/character-sheet/v2",
+  "$id": "https://arcane.local/contracts/character-sheet/v3",
   "title": "CharacterSheet",
   "description": "Canonical, versioned contract for a complete character sheet. Contract-first: this document is the source of truth; the generator, validator and decoder are made to conform to it. Structural only — game vocabulary (ability/skill/class/species/spell/background/resource/condition names) is catalog-driven and never hard-coded here, so this file is content-neutral.",
   "type": "object",
@@ -11,7 +11,7 @@
     "proficiency_bonus",
     "saving_throws",
     "skills",
-    "passive_perception",
+    "passive_scores",
     "combat",
     "proficiencies",
     "languages",
@@ -25,7 +25,7 @@
   "properties": {
     "schema_version": {
       "description": "Contract version. Bump on any breaking change to this schema.",
-      "const": 2
+      "const": 3
     },
     "meta": {
       "description": "Non-sheet provenance. Optional; ignored by the validator.",
@@ -38,11 +38,13 @@
     },
     "identity": {
       "type": "object",
-      "required": ["name", "species", "classes", "total_level"],
+      "required": ["name", "species", "size", "creature_type", "classes", "total_level"],
       "additionalProperties": false,
       "properties": {
         "name": { "type": "string" },
         "species": { "type": "string", "description": "Species (or lineage) identifier (catalog)." },
+        "size": { "type": "string", "description": "Size identifier (catalog); species-set, sometimes a per-character choice." },
+        "creature_type": { "type": "string", "description": "Creature-type identifier (catalog); species-derived." },
         "classes": {
           "type": "array",
           "minItems": 1,
@@ -74,7 +76,12 @@
       "minProperties": 1,
       "additionalProperties": { "$ref": "#/$defs/skill" }
     },
-    "passive_perception": { "type": "integer" },
+    "passive_scores": {
+      "description": "Passive scores keyed by skill identifier (catalog) → value (10 + modifier, + situational bonuses). Includes at least perception.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "integer" }
+    },
     "combat": {
       "type": "object",
       "required": ["armor_class", "initiative", "speed", "hit_points", "hit_dice", "death_saves"],
@@ -82,7 +89,12 @@
       "properties": {
         "armor_class": { "type": "integer" },
         "initiative": { "type": "integer", "description": "Initiative modifier added to the d20 (Dexterity modifier plus any bonuses); not the '10 + mod' passive score." },
-        "speed": { "type": "integer", "minimum": 0 },
+        "speed": {
+          "description": "Movement speeds keyed by mode identifier (catalog) → speed in feet. At least the base walking mode is present; special modes (fly/swim/climb/burrow) appear when granted.",
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
         "hit_points": {
           "type": "object",
           "required": ["max"],
@@ -155,6 +167,20 @@
       }
     },
     "languages": { "type": "array", "items": { "type": "string" } },
+    "weapon_masteries": {
+      "description": "Weapon identifiers (catalog) the character currently has the mastery property of. Independent of the (render-only) attacks list.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "attunement": {
+      "description": "Magic-item attunement slots. max defaults to 3, raised by some features; attuned = slots currently in use.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max": { "type": "integer", "minimum": 0, "default": 3 },
+        "attuned": { "type": "integer", "minimum": 0 }
+      }
+    },
     "inventory": {
       "description": "All carried items — mundane and magic — one line each. See item.schema.json.",
       "type": "array",
@@ -289,7 +315,7 @@
         "modifier": { "type": "integer" },
         "source": {
           "description": "Where the proficiency comes from, or null if not proficient.",
-          "enum": ["class", "background", "species", "feat", null]
+          "enum": ["class", "background", "species", "feat", "feature", "item", null]
         }
       }
     },
@@ -339,12 +365,15 @@
     },
     "castingClass": {
       "type": "object",
-      "required": ["ability", "save_dc", "attack_bonus"],
+      "required": ["ability", "modifier", "save_dc", "attack_bonus", "cantrips_known", "prepared_limit"],
       "additionalProperties": false,
       "properties": {
         "ability": { "type": "string", "description": "Spellcasting ability identifier (catalog)." },
+        "modifier": { "type": "integer", "description": "Spellcasting ability modifier." },
         "save_dc": { "type": "integer" },
-        "attack_bonus": { "type": "integer" }
+        "attack_bonus": { "type": "integer" },
+        "cantrips_known": { "type": "integer", "minimum": 0, "description": "Cantrips known for this class at the current level." },
+        "prepared_limit": { "type": "integer", "minimum": 0, "description": "Number of level-1+ spells the character can prepare for this class (the budget; excludes always-prepared grants)." }
       }
     },
     "slotTable": {
@@ -362,7 +391,12 @@
         "level": { "type": "integer", "minimum": 0, "maximum": 9, "description": "0 = cantrip." },
         "prepared": { "type": "boolean" },
         "class": { "type": ["string", "null"], "description": "The casting class this spell is prepared/known under (catalog); disambiguates multiclass." },
-        "always_prepared": { "type": "boolean", "default": false, "description": "Granted always-prepared by a subclass or class feature; does not count against the prepared budget." }
+        "always_prepared": { "type": "boolean", "default": false, "description": "Granted always-prepared by a subclass or class feature; does not count against the prepared budget." },
+        "ritual": { "type": "boolean", "default": false },
+        "concentration": { "type": "boolean", "default": false },
+        "requires_material": { "type": "boolean", "default": false, "description": "Has a material component." },
+        "casting_time": { "type": ["string", "null"], "description": "Casting-time identifier (catalog)." },
+        "range": { "type": ["string", "null"] }
       }
     }
   }

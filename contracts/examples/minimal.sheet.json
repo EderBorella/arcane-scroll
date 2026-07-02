@@ -1,8 +1,10 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "identity": {
     "name": "Placeholder",
     "species": "species-a",
+    "size": "size-a",
+    "creature_type": "type-a",
     "classes": [{ "class": "class-a", "level": 3, "subclass": "subclass-a" }],
     "total_level": 3,
     "background": "background-a",
@@ -28,13 +30,13 @@
   },
   "skills": {
     "skill-a": { "ability": "a1", "proficient": true, "expertise": false, "modifier": 4, "source": "class" },
-    "skill-b": { "ability": "a4", "proficient": true, "expertise": false, "modifier": 3, "source": "feat" }
+    "skill-b": { "ability": "a4", "proficient": true, "expertise": false, "modifier": 3, "source": "feature" }
   },
-  "passive_perception": 12,
+  "passive_scores": { "skill-a": 14 },
   "combat": {
     "armor_class": 14,
     "initiative": 2,
-    "speed": 30,
+    "speed": { "mode-a": 30, "mode-b": 30 },
     "hit_points": { "max": 21, "current": 21, "temp": 0 },
     "hit_dice": { "d8": 3 },
     "death_saves": { "successes": 0, "failures": 0 }
@@ -44,10 +46,12 @@
   "exhaustion": 0,
   "senses": { "sense-a": 60 },
   "attacks": [
-    { "name": "weapon-a", "attack_bonus": 4, "damage": "1d8+2", "damage_type": "type-a", "weapon_mastery": "mastery-a", "properties": ["prop-a"] }
+    { "name": "weapon-a", "attack_bonus": 4, "damage": "1d8+2", "damage_type": "dtype-a", "weapon_mastery": "mastery-a", "properties": ["prop-a"] }
   ],
   "proficiencies": { "armor": ["armor-a"], "weapons": ["weapon-a"], "tools": [] },
   "languages": ["language-a"],
+  "weapon_masteries": ["weapon-a"],
+  "attunement": { "max": 3, "attuned": 1 },
   "inventory": [
     { "name": "item-a", "quantity": 5, "equipped": false },
     { "name": "weapon-a", "quantity": 1, "equipped": true, "category": "category-a", "properties": ["prop-a"] },
@@ -66,12 +70,12 @@
     { "name": "feat-b", "source": "class-a 4", "ability_increase": { "ability": "a1", "amount": 2 } }
   ],
   "spellcasting": {
-    "classes": { "class-a": { "ability": "a4", "save_dc": 13, "attack_bonus": 5 } },
+    "classes": { "class-a": { "ability": "a4", "modifier": 2, "save_dc": 13, "attack_bonus": 5, "cantrips_known": 3, "prepared_limit": 4 } },
     "spell_slots": { "1": 4, "2": 2 },
     "spells": [
       { "name": "cantrip-a", "level": 0, "prepared": false, "class": "class-a" },
-      { "name": "spell-a", "level": 1, "prepared": true, "class": "class-a" },
-      { "name": "spell-b", "level": 1, "prepared": true, "class": "class-a", "always_prepared": true }
+      { "name": "spell-a", "level": 1, "prepared": true, "class": "class-a", "concentration": true },
+      { "name": "spell-b", "level": 1, "prepared": true, "class": "class-a", "always_prepared": true, "ritual": true }
     ]
   }
 }
