@@ -7,7 +7,7 @@ import os
 class Rules:
     def __init__(self, class_progression=None, backgrounds=None, spell_lists=None, hit_dice=None,
                  class_proficiencies=None, spell_slots=None, caster_types=None, subclass_spells=None,
-                 caster_meta=None, feats=None):
+                 caster_meta=None, feats=None, feature_choice_counts=None):
         self.class_progression = class_progression or {}
         self.backgrounds = backgrounds or {}
         self.spell_lists = spell_lists or {}
@@ -18,6 +18,7 @@ class Rules:
         self.subclass_spells = subclass_spells or {}
         self.caster_meta = caster_meta or {}
         self.feats = feats or {}
+        self.feature_choice_counts = feature_choice_counts or {}
         self._spell_level = None      # lazy name → level index
         self._sub_by_norm = None      # lazy alnum-normalised subclass → grants
 
@@ -44,7 +45,8 @@ class Rules:
                    caster_types=rd("caster_types.json", required=False),
                    subclass_spells=rd("subclass_spells.json", required=False),
                    caster_meta=rd("caster_meta.json", required=False),
-                   feats=rd("feats.json", required=False))
+                   feats=rd("feats.json", required=False),
+                   feature_choice_counts=rd("feature_choice_counts.json", required=False))
 
     def proficiency_bonus(self, level):
         """Proficiency bonus at a character level (read from any class's table — identical across classes)."""
@@ -222,6 +224,33 @@ class Rules:
         for c in classes:
             out |= set(ap.get((c.get("class") or "").lower()) or [])
         return out
+
+    # --- features ------------------------------------------------------------
+    def class_features(self, class_id, level):
+        """Expected class-feature names granted at or below `level`, EXCLUDING the markers handled by
+        other layers: subclass unlocks (class_level), and Ability Score Improvement / Epic Boon (feats).
+        Subclass-specific and species features aren't in the progression data, so aren't covered here."""
+        levels = self.class_progression.get((class_id or "").lower()) or {}
+        out = set()
+        for lv, entry in levels.items():
+            if int(lv) <= level:
+                for f in entry.get("features", []):
+                    fl = str(f).strip().lower()
+                    if (not fl or fl == "—" or fl.endswith("subclass")
+                            or "ability score improvement" in fl or fl == "epic boon"):
+                        continue
+                    out.add(f)
+        return out
+
+    def feature_choice_expected(self, class_id, feature_name, level):
+        """Expected number of choices for a choice-count feature (invocations, weapon mastery) at a
+        class level, or None if that class/feature/level isn't tracked."""
+        by_feat = self.feature_choice_counts.get((class_id or "").lower()) or {}
+        want = self._alnum(feature_name)
+        for header, by_level in by_feat.items():
+            if self._alnum(header) == want:
+                return by_level.get(str(level))
+        return None
 
     # --- feats ---------------------------------------------------------------
     def feat(self, name):
