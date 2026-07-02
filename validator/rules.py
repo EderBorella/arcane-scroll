@@ -6,7 +6,8 @@ import os
 
 class Rules:
     def __init__(self, class_progression=None, backgrounds=None, spell_lists=None, hit_dice=None,
-                 class_proficiencies=None, spell_slots=None, caster_types=None, subclass_spells=None):
+                 class_proficiencies=None, spell_slots=None, caster_types=None, subclass_spells=None,
+                 caster_meta=None):
         self.class_progression = class_progression or {}
         self.backgrounds = backgrounds or {}
         self.spell_lists = spell_lists or {}
@@ -15,6 +16,7 @@ class Rules:
         self.spell_slots = spell_slots or {}
         self.caster_types = caster_types or {}
         self.subclass_spells = subclass_spells or {}
+        self.caster_meta = caster_meta or {}
         self._spell_level = None      # lazy name → level index
         self._sub_by_norm = None      # lazy alnum-normalised subclass → grants
 
@@ -39,7 +41,8 @@ class Rules:
                    class_proficiencies=rd("class_proficiencies.json", required=False),
                    spell_slots=rd("spell_slots.json", required=False),
                    caster_types=rd("caster_types.json", required=False),
-                   subclass_spells=rd("subclass_spells.json", required=False))
+                   subclass_spells=rd("subclass_spells.json", required=False),
+                   caster_meta=rd("caster_meta.json", required=False))
 
     def proficiency_bonus(self, level):
         """Proficiency bonus at a character level (read from any class's table — identical across classes)."""
@@ -83,6 +86,15 @@ class Rules:
     def class_skills(self, class_id):
         """The class's skill grant {choose: N, from: [names] | None}, or None."""
         return (self.class_proficiencies.get((class_id or "").lower()) or {}).get("skills")
+
+    def class_primary(self, class_id):
+        """The class's primary ability ids (>1 ⇒ any-of, e.g. Strength OR Dexterity), or None."""
+        return (self.class_proficiencies.get((class_id or "").lower()) or {}).get("primary")
+
+    def class_multiclass(self, class_id):
+        """The REDUCED proficiencies gained when this class is taken as a secondary class
+        ({skills, armor, weapons, tools}), or None if not loaded."""
+        return (self.class_proficiencies.get((class_id or "").lower()) or {}).get("multiclass")
 
     def class_armor(self, class_id):
         """The class's armour-category tokens (light/medium/heavy/shields), or None if not loaded."""
@@ -182,3 +194,29 @@ class Rules:
                 row = pact.get(str(c.get("level") or 0))
                 return {str(row["level"]): row["slots"]} if row else {}
         return None
+
+    def has_spellbook(self, classes):
+        """True if any of the character's classes prepares from a Spellbook (a known pool) — leveled
+        spells may then legally be unprepared."""
+        book = set(self.caster_meta.get("spellbook") or [])
+        return any((c.get("class") or "").lower() in book for c in classes)
+
+    def arcanum_max_level(self, classes):
+        """Highest spell level a pact caster can cast via Mystic Arcanum (0 if none) — these are cast
+        without a normal/pact slot, so they legitimately exceed the pact slot level."""
+        arc = self.caster_meta.get("arcanum") or {}
+        best = 0
+        for c in classes:
+            if self.caster_type((c.get("class") or "").lower()) == "pact":
+                lvl = c.get("level") or 0
+                best = max([best] + [sl for at, sl in arc.items() if int(at) <= lvl])
+        return best
+
+    def always_prepared(self, classes):
+        """Set of class-feature always-prepared spell names for the character's classes — these are
+        additive and don't count against the prepared budget."""
+        ap = self.caster_meta.get("always_prepared") or {}
+        out = set()
+        for c in classes:
+            out |= set(ap.get((c.get("class") or "").lower()) or [])
+        return out

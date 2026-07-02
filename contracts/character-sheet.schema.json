@@ -232,13 +232,14 @@
       }
     },
     "abilityEntry": {
-      "description": "One ability. base = pre-racial assignment; final includes racial + ASI/feat bumps.",
+      "description": "One ability. base = pre-increase assignment; final includes the background increase plus feat/ASI bumps (max 30). The background increase must not raise base above 20.",
       "type": "object",
       "required": ["final", "modifier"],
       "additionalProperties": false,
       "properties": {
         "base": { "type": "integer", "minimum": 1 },
-        "racial_bonus": { "type": "integer" },
+        "background_bonus": { "type": "integer", "description": "The background's ability-score increase for this ability. Preferred source for the granted increase." },
+        "racial_bonus": { "type": "integer", "description": "Deprecated legacy field; use background_bonus for the background-granted increase." },
         "final": { "type": "integer", "minimum": 1, "maximum": 30 },
         "modifier": { "type": "integer" }
       }

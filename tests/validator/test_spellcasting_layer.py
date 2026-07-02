@@ -42,15 +42,19 @@ def test_membership_skipped_without_data():
 # --- slots / counts / level / subclass grants -----------------------------------------------------
 
 RC = Rules(
-    spell_lists={"mage": {"Bolt": 1, "Zap": 0, "Big": 3, "Huge": 5}},
-    caster_types={"mage": "full", "knight": "half", "hexer": "pact"},
+    spell_lists={"mage": {"Bolt": 1, "Zap": 0, "Big": 3, "Huge": 5, "Arc": 6}},
+    caster_types={"mage": "full", "knight": "half", "hexer": "pact", "scribe": "full"},
     class_progression={"mage": {"5": {"cantrips_known": 4, "prepared_spells": 6}},
-                       "knight": {"5": {"prepared_spells": 6}}},
-    spell_slots={"classes": {"mage": {"5": {"1": 4, "2": 3, "3": 2}}, "knight": {"5": {"1": 2}}},
+                       "knight": {"5": {"prepared_spells": 6}},
+                       "scribe": {"5": {"cantrips_known": 4, "prepared_spells": 6}}},
+    spell_slots={"classes": {"mage": {"5": {"1": 4, "2": 3, "3": 2}}, "knight": {"5": {"1": 2}},
+                             "scribe": {"5": {"1": 4, "2": 3, "3": 2}}},
                  "multiclass": {"3": {"1": 4, "2": 2}, "4": {"1": 4, "2": 3},
                                 "7": {"1": 4, "2": 3, "3": 3, "4": 1}},
-                 "pact": {"5": {"slots": 2, "level": 3}}, "third": {}},
-    subclass_spells={"order-x": {"3": ["Big"]}})
+                 "pact": {"5": {"slots": 2, "level": 3}, "17": {"slots": 4, "level": 5}}, "third": {}},
+    subclass_spells={"order-x": {"3": ["Big"]}, "order-y": {"3": ["Offlist-Z"]}},
+    caster_meta={"spellbook": ["scribe"], "arcanum": {"11": 6, "13": 7, "15": 8, "17": 9},
+                 "always_prepared": {"knight": ["Smite-A"]}})
 
 
 def _csheet(classes, spells, spell_slots=None, pact_slots=None):
@@ -127,3 +131,46 @@ def test_subclass_grant_present_not_double_counted():
                 spell_slots={"1": 4, "2": 3, "3": 2})
     codes = _codes(s, RC)
     assert "subclass_spell_missing" not in codes and "prepared_count" not in codes
+
+
+def test_spellbook_unprepared_leveled_ok():
+    # 'scribe' is a spellbook caster: an unprepared leveled spell (spellbook entry) must NOT be flagged.
+    spells = ([{"name": "Zap", "level": 0, "prepared": True}] * 4
+              + [{"name": "Bolt", "level": 1, "prepared": True}] * 6
+              + [{"name": "Big", "level": 3, "prepared": False}])          # spellbook, unprepared
+    s = _csheet([{"class": "scribe", "level": 5, "subclass": None}], spells,
+                spell_slots={"1": 4, "2": 3, "3": 2})
+    assert "spell_not_prepared" not in _codes(s, RC)
+
+
+def test_arcanum_allows_high_spell():
+    # Warlock-like pact caster L17 with a level-6 spell cast via Mystic Arcanum (no matching slot).
+    s = _csheet([{"class": "hexer", "level": 17, "subclass": None}],
+                [{"name": "Arc", "level": 6, "prepared": True}], pact_slots={"5": 4})
+    assert "spell_level_too_high" not in _codes(s, RC)
+
+
+def test_no_arcanum_flags_high_spell():
+    # Same spell at L5 (no arcanum yet) exceeds the level-3 pact slot → flagged.
+    s = _csheet([{"class": "hexer", "level": 5, "subclass": None}],
+                [{"name": "Arc", "level": 6, "prepared": True}], pact_slots={"3": 2})
+    assert "spell_level_too_high" in _codes(s, RC)
+
+
+def test_class_feature_always_prepared_not_counted():
+    # 'Smite-A' is a class-feature always-prepared spell for 'knight' → excluded from the budget.
+    spells = [{"name": "Bolt", "level": 1, "prepared": True}] * 6 + [{"name": "Smite-A", "level": 1, "prepared": True}]
+    s = _csheet([{"class": "knight", "level": 5, "subclass": None}], spells, spell_slots={"1": 2})
+    assert "prepared_count" not in _codes(s, RC)
+
+
+def test_offlist_subclass_grant_is_known_and_normalised():
+    # 'order-y' grants 'Offlist-Z' (not on any base list); it's folded into the known set, and the
+    # present/prepared check is normalised (sheet uses lowercase).
+    spells = ([{"name": "Zap", "level": 0, "prepared": True}] * 4
+              + [{"name": "Bolt", "level": 1, "prepared": True}] * 6
+              + [{"name": "offlist-z", "level": 2, "prepared": True}])
+    s = _csheet([{"class": "mage", "level": 5, "subclass": "Order-Y"}], spells,
+                spell_slots={"1": 4, "2": 3, "3": 2})
+    codes = _codes(s, RC)
+    assert "unknown_spell" not in codes and "subclass_spell_missing" not in codes

@@ -36,16 +36,15 @@ def check(sheet, rules):
         return out
     classes = (sheet.get("identity") or {}).get("classes") or []
     spells = cb.get("spells") or []
-    known = rules.all_spells()
 
-    # Subclass always-prepared grants: must be present + prepared; also collected to exclude from the
-    # prepared-spell budget below.
-    granted = set()
+    # Subclass always-prepared grants: must be present + prepared; collected (with class-feature
+    # always-prepared spells) as additive grants that don't count against the prepared budget.
+    subclass_granted = set()
     present = {_norm(s.get("name")) for s in spells}
     prepared_names = {_norm(s.get("name")) for s in spells if s.get("prepared")}
     for c in classes:
         for n in rules.subclass_grants(c.get("subclass"), c.get("level") or 0):
-            granted.add(_norm(n))
+            subclass_granted.add(_norm(n))
             if _norm(n) not in present:
                 out.append(Violation(LAYER, "subclass_spell_missing",
                                      f"subclass '{c.get('subclass')}' grants '{n}' as always-prepared; "
@@ -53,15 +52,22 @@ def check(sheet, rules):
             elif _norm(n) not in prepared_names:
                 out.append(Violation(LAYER, "subclass_spell_not_prepared",
                                      f"subclass-granted spell '{n}' must be prepared", True, False))
+    always = {_norm(n) for n in rules.always_prepared(classes)}
+    excluded = subclass_granted | always      # additive grants — see prepared_count below
 
-    # Unified prepared model + real-spell membership.
+    # Real-spell membership — grants can sit off the base class lists, so include them and normalise
+    # the comparison. The unified prepared model is skipped for a spellbook caster (its known pool may
+    # legally hold unprepared leveled spells).
+    base = rules.all_spells()
+    known = {_norm(n) for n in base} | excluded
+    spellbook = rules.has_spellbook(classes)
     for s in spells:
         name, lvl, prepared = s.get("name"), s.get("level") or 0, s.get("prepared")
-        if lvl >= 1 and prepared is False:
+        if lvl >= 1 and prepared is False and not spellbook:
             out.append(Violation(LAYER, "spell_not_prepared",
                                  f"leveled spell '{name}' is not prepared; casters use one prepared list",
                                  True, prepared))
-        if known and name not in known:
+        if base and _norm(name) not in known:
             out.append(Violation(LAYER, "unknown_spell",
                                  f"'{name}' is not on any class spell list", None, name))
 
@@ -89,15 +95,16 @@ def check(sheet, rules):
 
     exp_prepared = _sum_or_none(rules.prepared_count, caster_cls)
     n_prepared = sum(1 for s in spells if (s.get("level") or 0) >= 1 and s.get("prepared")
-                     and _norm(s.get("name")) not in granted)
+                     and _norm(s.get("name")) not in excluded)
     if exp_prepared is not None and n_prepared != exp_prepared:
         out.append(Violation(LAYER, "prepared_count",
-                             f"{n_prepared} prepared leveled spell(s) (excluding subclass grants); "
+                             f"{n_prepared} prepared leveled spell(s) (excluding always-prepared grants); "
                              f"expected {exp_prepared}", exp_prepared, n_prepared, severity=sev))
 
-    # No spell above the highest available slot level.
+    # No spell above the highest available slot level (pact casters may exceed it via Mystic Arcanum).
     max_level = max([int(k) for k, v in (expected or {}).items() if v]
-                    + [int(k) for k, v in (exp_pact or {}).items() if v] + [0])
+                    + [int(k) for k, v in (exp_pact or {}).items() if v]
+                    + [rules.arcanum_max_level(classes), 0])
     if max_level:
         for s in spells:
             lvl = s.get("level") or 0
