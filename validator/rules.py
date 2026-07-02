@@ -87,6 +87,10 @@ class Rules:
         """The class's skill grant {choose: N, from: [names] | None}, or None."""
         return (self.class_proficiencies.get((class_id or "").lower()) or {}).get("skills")
 
+    def class_primary(self, class_id):
+        """The class's primary ability ids (>1 ⇒ any-of, e.g. Strength OR Dexterity), or None."""
+        return (self.class_proficiencies.get((class_id or "").lower()) or {}).get("primary")
+
     def class_multiclass(self, class_id):
         """The REDUCED proficiencies gained when this class is taken as a secondary class
         ({skills, armor, weapons, tools}), or None if not loaded."""

@@ -195,7 +195,12 @@ def class_proficiencies(tables):
             if len(r) < 2:
                 continue
             k = r[0].strip().lower()
-            if "saving throw" in k:
+            if "primary ability" in k:
+                prim = [_ABILITY_IDS[a.strip().lower()] for a in re.split(r"\bor\b|,|\band\b", r[1])
+                        if a.strip().lower() in _ABILITY_IDS]
+                if prim:
+                    entry["primary"] = prim       # >1 ⇒ any-of (e.g. "Strength or Dexterity")
+            elif "saving throw" in k:
                 saves = [_ABILITY_IDS[a.strip().lower()] for a in re.split(r"\band\b|,", r[1])
                          if a.strip().lower() in _ABILITY_IDS]
                 if saves:
