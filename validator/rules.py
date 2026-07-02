@@ -303,7 +303,8 @@ class Rules:
 
     # --- weapon mastery ------------------------------------------------------
     def weapon_has_mastery(self, name):
-        """True if the weapon has a mastery property to master; None if the weapon isn't in the data."""
+        """True if the weapon has a mastery property to master; False if it isn't in the data or has no
+        mastery; None only when no weapon-mastery data is loaded (so the check stays silent)."""
         key = (name or "").lower()
         return key in self.weapon_masteries if self.weapon_masteries else None
 

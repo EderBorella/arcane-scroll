@@ -24,10 +24,15 @@ def check(sheet, rules):
 
     if len(classes) == 1 and len(tracked) == 1:
         cid, exp = tracked[0]
-        if len(mastered) != exp:
+        if len(mastered) < exp:                       # fewer than the class grants — no legal source reduces it
             out.append(Violation(LAYER, "mastery_count",
                                  f"{len(mastered)} mastered weapon(s); class '{cid}' grants {exp}",
                                  exp, len(mastered)))
+        elif len(mastered) > exp:                     # extras can be legal (a feat / subclass grant) → advisory
+            out.append(Violation(LAYER, "mastery_count",
+                                 f"{len(mastered)} mastered weapon(s) exceeds the {exp} class '{cid}' grants "
+                                 f"(extra masteries may come from a feat or subclass)",
+                                 exp, len(mastered), severity=WARNING))
     elif tracked and len(mastered) > sum(n for _, n in tracked):
         total = sum(n for _, n in tracked)
         out.append(Violation(LAYER, "mastery_count",

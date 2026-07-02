@@ -35,3 +35,7 @@ def test_creature_type_mismatch():
 
 def test_unknown_species_silent():
     assert identity.check(_sheet("species-zzz", "huge", "type-x"), R) == []
+
+
+def test_absent_size_and_type_silent():         # nothing to compare when the fields are absent
+    assert identity.check({"identity": {"species": "species-a"}}, R) == []

@@ -34,7 +34,7 @@ def _derive(detail):
         for m in mods:
             rel = m.get("relative")
             if rel and rel.get("of") in final:
-                val = fixed(m.get("mode")) + int((rel.get("factor", 1) or 1) * final[rel["of"]])
+                val = fixed(m.get("mode")) + round((rel.get("factor", 1) or 1) * final[rel["of"]])
                 if final.get(m.get("mode")) != val:
                     final[m.get("mode")], changed = val, True
         if not changed:

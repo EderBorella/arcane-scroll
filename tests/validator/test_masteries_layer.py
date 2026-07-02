@@ -25,8 +25,22 @@ def test_weapon_without_mastery():              # 'weapon-x' is not a masterable
     assert "weapon_has_no_mastery" in _codes(_sheet([("class-a", 5)], ["weapon-a", "weapon-x", "weapon-b"]))
 
 
-def test_count_too_few():                       # class-a L5 grants 3; only 2 mastered
-    assert "mastery_count" in _codes(_sheet([("class-a", 5)], ["weapon-a", "weapon-b"]))
+def test_count_too_few_is_error():              # class-a L5 grants 3; only 2 mastered — illegal
+    viols = [v for v in masteries.check(_sheet([("class-a", 5)], ["weapon-a", "weapon-b"]), R)
+             if v.code == "mastery_count"]
+    assert viols and all(v.severity == "error" for v in viols)
+
+
+def test_count_too_many_is_advisory():          # class-a L1 grants 2; 3 mastered — extras may be a feat/subclass
+    viols = [v for v in masteries.check(_sheet([("class-a", 1)], ["weapon-a", "weapon-b", "weapon-c"]), R)
+             if v.code == "mastery_count"]
+    assert viols and all(v.severity == "warning" for v in viols)
+
+
+def test_count_between_breakpoints():           # class-a {1:2, 5:3} → level 3 uses the level-1 row (2)
+    assert R.weapon_mastery_count("class-a", 3) == 2
+    assert R.weapon_mastery_count("class-a", 5) == 3
+    assert R.weapon_mastery_count("class-z", 5) is None
 
 
 def test_untracked_class_skips_count():         # class-z grants no mastery in the data → no count error
