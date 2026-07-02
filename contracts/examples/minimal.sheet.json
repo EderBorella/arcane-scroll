@@ -34,8 +34,8 @@
   },
   "passive_scores": { "skill-a": 14 },
   "combat": {
-    "armor_class": 14,
-    "armor_class_detail": { "source": "acsource-a", "base": 11, "dex_bonus": 2, "bonuses": [{ "value": 1, "source": "acbonus-a" }] },
+    "armor_class": 18,
+    "armor_class_detail": { "source": "acsource-a", "base": 14, "dex_bonus": 2, "bonuses": [{ "value": 2, "source": "shield-a" }] },
     "initiative": 2,
     "speed": { "mode-a": 30, "mode-b": 30 },
     "hit_points": { "max": 21, "max_reduction": 0, "current": 21, "temp": 0 },
@@ -74,13 +74,15 @@
   "attunement": { "max": 3, "attuned": 1 },
   "equipped": {
     "slot-a": { "name": "weapon-a", "category": "category-a", "properties": ["prop-a"], "damage_dice": "1d8", "versatile_damage": "1d10", "grip": "grip-a", "damage_type": "dtype-a", "mastery": "mastery-a" },
-    "slot-b": { "name": "armor-a", "category": "category-a", "armor_category": "acat-a", "base_ac": 14, "dex_cap": 2 },
-    "slot-c": { "name": "wondrous-a", "magic": true, "rarity": "rarity-a", "attunement": { "required": true, "attuned": true }, "charges": { "max": 7, "remaining": 5, "recharge": "recharge-a" } }
+    "slot-b": { "name": "armor-a", "category": "category-a", "armor_category": "acat-a", "base_ac": 14, "dex_cap": 2, "stealth_disadvantage": true, "strength_req": 13 },
+    "slot-c": { "name": "wondrous-a", "magic": true, "rarity": "rarity-a", "attunement": { "required": true, "attuned": true }, "charges": { "max": 7, "remaining": 5, "recharge": "recharge-a" } },
+    "slot-d": { "name": "shield-a", "category": "category-a", "ac_bonus": 2, "stealth_disadvantage": false },
+    "slot-e": { "name": "weapon-c", "category": "category-a", "properties": ["prop-b"], "damage_dice": "1d6", "damage_type": "dtype-a", "range": "30/120", "ammunition": { "type": "ammo-a", "count": 20 } }
   },
   "backpack": [
     { "name": "item-a", "quantity": 5 },
     { "name": "ammo-a", "quantity": 20 },
-    { "name": "item-b", "quantity": 1, "weight": 3 }
+    { "name": "item-b", "quantity": 1, "weight": 3, "description": "desc-a" }
   ],
   "treasure": { "gp": 15 },
   "class_resources": {
@@ -95,7 +97,7 @@
     { "name": "feat-b", "source": "class-a 4", "ability_increase": { "ability": "a1", "amount": 2 }, "uses": { "max": 2, "remaining": 2, "recharge": "recharge-a" } }
   ],
   "spellcasting": {
-    "classes": { "class-a": { "ability": "a4", "modifier": 2, "save_dc": 13, "attack_bonus": 5, "cantrips_known": 3, "prepared_limit": 4 } },
+    "classes": { "class-a": { "ability": "a4", "modifier": 1, "save_dc": 11, "attack_bonus": 3, "cantrips_known": 3, "prepared_limit": 4 } },
     "spell_slots": { "1": { "max": 4, "remaining": 3 }, "2": { "max": 2, "remaining": 2 } },
     "spells": [
       { "name": "cantrip-a", "level": 0, "prepared": false, "class": "class-a" },

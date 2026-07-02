@@ -61,7 +61,7 @@
 
     "armor_category": { "type": ["string", "null"], "description": "Armour: category identifier (catalog) — light / medium / heavy." },
     "base_ac": { "type": ["integer", "null"], "description": "Armour: base AC before the Dexterity modifier." },
-    "dex_cap": { "type": ["integer", "null"], "description": "Armour: max Dex bonus to AC — null = uncapped (light), 2 (medium), 0 (heavy)." },
+    "dex_cap": { "type": ["integer", "null"], "description": "Armour: max Dex bonus to AC — null = uncapped (light), 2 (medium). Heavy armour adds no Dexterity at all (not even a negative modifier): use 0, meaning the applied Dex contribution is clamped to the 0..cap range." },
     "stealth_disadvantage": { "type": "boolean", "default": false, "description": "Armour: imposes Disadvantage on Stealth." },
     "strength_req": { "type": ["integer", "null"], "description": "Armour: minimum Strength, or null." },
 

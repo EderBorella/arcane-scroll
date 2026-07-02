@@ -169,6 +169,9 @@ _REJECT_CASES = {
     "hit_dice_without_remaining": (["combat", "hit_dice", "d8", "remaining"], _DELETE),          # live-state pool needs remaining
     "companion_without_name":     (["companions"], [{"kind": "kind-a"}]),     # companion requires name
     "ac_bonus_without_source":    (["combat", "armor_class_detail", "bonuses"], [{"value": 1}]),  # AC bonus must name its source
+    "empty_spell_slots":          (["spellcasting", "spell_slots"], {}),      # a present slot table must record >=1 level
+    "ammunition_without_type":    (["equipped", "slot-e", "ammunition"], {"count": 5}),           # ammunition requires its type
+    "charges_without_max":        (["equipped", "slot-c", "charges"], {"remaining": 1}),          # a charge pool requires max
 }
 
 
@@ -188,6 +191,13 @@ def test_pact_only_spellcasting_conforms():
 def test_noncaster_spellcasting_null_conforms():
     """Guards the oneOf null branch: a wholly non-casting character has spellcasting = null."""
     assert _errors(_mutated(["spellcasting"], None)) == []
+
+
+def test_both_slot_kinds_conform():
+    """A multiclass traditional+pact caster carries both spell_slots and pact_slots at once."""
+    sheet = copy.deepcopy(_EXAMPLE)
+    sheet["spellcasting"]["pact_slots"] = {"1": {"max": 2, "remaining": 2}}
+    assert _errors(sheet) == []
 
 
 def test_schema_version_matches_id():
