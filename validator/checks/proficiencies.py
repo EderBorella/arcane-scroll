@@ -38,27 +38,43 @@ def check(sheet, rules):
     exp_saves = rules.class_saves(first)
     if exp_saves:
         prof = {ab for ab, v in (sheet.get("saving_throws") or {}).items() if v.get("proficient")}
-        if prof != set(exp_saves):
+        missing = [ab for ab in exp_saves if ab not in prof]      # extras are legal (Resilient, etc.)
+        if missing:
             out.append(Violation(LAYER, "saving_throws",
-                                 f"save proficiencies {sorted(prof)} != {first}'s {sorted(exp_saves)}",
-                                 sorted(exp_saves), sorted(prof)))
+                                 f"missing save proficiency {missing} from the first class {first} "
+                                 f"(has {sorted(prof)})", sorted(exp_saves), sorted(prof)))
 
+    # Class skills: the first class grants its full "choose N"; each SUBSEQUENT class grants only its
+    # reduced multiclass skill (0, or 1 from its own list / any). Count + on-list are checked against
+    # the combined budget and the union of the applicable lists (the sheet doesn't attribute a class
+    # skill to a specific class, so this is the tightest sound check).
     cs = rules.class_skills(first)
     if cs:
         class_skills = [k for k, v in (sheet.get("skills") or {}).items()
                         if v.get("source") == "class" and v.get("proficient")]
-        choose = cs.get("choose")
-        if choose is not None and len(class_skills) != choose:
+        expected = cs.get("choose")
+        any_list = cs.get("from") is None                          # None ⇒ choose from any skill
+        allowed = {_norm(o) for o in (cs.get("from") or [])}
+        for c in classes[1:]:
+            mcs = (rules.class_multiclass(c.get("class")) or {}).get("skills")
+            if not mcs:
+                continue
+            if expected is not None and mcs.get("choose") is not None:
+                expected += mcs["choose"]
+            if mcs.get("from") is None:
+                any_list = True
+            else:
+                allowed |= {_norm(o) for o in mcs["from"]}
+        if expected is not None and len(class_skills) != expected:
             out.append(Violation(LAYER, "skill_count",
-                                 f"{len(class_skills)} class skill(s); {first} grants {choose}",
-                                 choose, len(class_skills)))
-        options = cs.get("from")
-        if options:
-            allowed = {_norm(o) for o in options}
+                                 f"{len(class_skills)} class skill(s); the character's classes grant {expected}",
+                                 expected, len(class_skills)))
+        if not any_list and allowed:
             off = sorted(s for s in class_skills if _norm(s) not in allowed)
             if off:
                 out.append(Violation(LAYER, "skill_off_list",
-                                     f"class skills {off} not on {first}'s list", options, off))
+                                     f"class skills {off} not on any of the character's class skill lists",
+                                     sorted(allowed), off))
 
     bg = (sheet.get("identity") or {}).get("background")
     bg_skills = rules.background_skills(bg)
