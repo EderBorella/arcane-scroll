@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://arcane.local/contracts/character-sheet/v1",
+  "$id": "https://arcane.local/contracts/character-sheet/v2",
   "title": "CharacterSheet",
-  "description": "Canonical, versioned contract for a complete character sheet. Contract-first: this document is the source of truth; the generator, validator and decoder are made to conform to it. Structural only — game vocabulary (ability/skill/class/spell/background names) is catalog-driven and never hard-coded here, so this file is content-neutral.",
+  "description": "Canonical, versioned contract for a complete character sheet. Contract-first: this document is the source of truth; the generator, validator and decoder are made to conform to it. Structural only — game vocabulary (ability/skill/class/species/spell/background/resource/condition names) is catalog-driven and never hard-coded here, so this file is content-neutral.",
   "type": "object",
   "required": [
     "schema_version",
@@ -15,16 +15,17 @@
     "combat",
     "proficiencies",
     "languages",
-    "equipment",
+    "inventory",
     "treasure",
     "features",
+    "feats",
     "spellcasting"
   ],
   "additionalProperties": false,
   "properties": {
     "schema_version": {
       "description": "Contract version. Bump on any breaking change to this schema.",
-      "const": 1
+      "const": 2
     },
     "meta": {
       "description": "Non-sheet provenance. Optional; ignored by the validator.",
@@ -37,11 +38,11 @@
     },
     "identity": {
       "type": "object",
-      "required": ["name", "race", "classes", "total_level"],
+      "required": ["name", "species", "classes", "total_level"],
       "additionalProperties": false,
       "properties": {
         "name": { "type": "string" },
-        "race": { "type": "string", "description": "Race or subrace identifier (catalog)." },
+        "species": { "type": "string", "description": "Species (or lineage) identifier (catalog)." },
         "classes": {
           "type": "array",
           "minItems": 1,
@@ -80,7 +81,7 @@
       "additionalProperties": false,
       "properties": {
         "armor_class": { "type": "integer" },
-        "initiative": { "type": "integer" },
+        "initiative": { "type": "integer", "description": "Initiative modifier added to the d20 (Dexterity modifier plus any bonuses); not the '10 + mod' passive score." },
         "speed": { "type": "integer", "minimum": 0 },
         "hit_points": {
           "type": "object",
@@ -110,6 +111,22 @@
         }
       }
     },
+    "heroic_inspiration": {
+      "description": "Whether the character currently holds the rerollable heroic inspiration.",
+      "type": "boolean",
+      "default": false
+    },
+    "conditions": {
+      "description": "Active condition identifiers (catalog).",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "exhaustion": { "type": "integer", "minimum": 0, "maximum": 6, "default": 0 },
+    "senses": {
+      "description": "Special senses, keyed by sense identifier (catalog) → range in feet (0 for a non-ranged sense).",
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
     "attacks": {
       "description": "Optional weapon/attack rows as shown on the sheet. Derived/for-render; not required.",
       "type": "array",
@@ -120,7 +137,10 @@
         "properties": {
           "name": { "type": "string" },
           "attack_bonus": { "type": ["string", "integer", "null"] },
-          "damage": { "type": ["string", "null"] }
+          "damage": { "type": ["string", "null"] },
+          "damage_type": { "type": ["string", "null"], "description": "Damage type identifier (catalog)." },
+          "weapon_mastery": { "type": ["string", "null"], "description": "Weapon-mastery property identifier (catalog), if the wielder has it." },
+          "properties": { "type": "array", "items": { "type": "string" }, "description": "Weapon property identifiers (catalog)." }
         }
       }
     },
@@ -135,17 +155,10 @@
       }
     },
     "languages": { "type": "array", "items": { "type": "string" } },
-    "equipment": {
+    "inventory": {
+      "description": "All carried items — mundane and magic — one line each. See item.schema.json.",
       "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["name", "quantity"],
-        "additionalProperties": false,
-        "properties": {
-          "name": { "type": "string" },
-          "quantity": { "type": "integer", "minimum": 1 }
-        }
-      }
+      "items": { "$ref": "https://arcane.local/contracts/item/v1" }
     },
     "treasure": {
       "description": "Coin purse. All denominations optional; absent = 0.",
@@ -159,9 +172,22 @@
         "cp": { "type": "integer", "minimum": 0 }
       }
     },
+    "class_resources": {
+      "description": "Per-class expendable resources, keyed by class identifier (catalog) → resource identifier (catalog) → its counts. The set of resources each class has is catalog-defined, not enumerated here.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": { "$ref": "#/$defs/resourceEntry" }
+      }
+    },
     "features": {
       "type": "array",
       "items": { "$ref": "#/$defs/feature" }
+    },
+    "feats": {
+      "description": "Feats the character has taken (across all feat categories the character is entitled to).",
+      "type": "array",
+      "items": { "$ref": "#/$defs/feat" }
     },
     "spellcasting": {
       "description": "Null for a wholly non-casting character; otherwise the casting block.",
@@ -228,7 +254,7 @@
         "class": { "type": "string", "description": "Class identifier (catalog)." },
         "level": { "type": "integer", "minimum": 1, "maximum": 20 },
         "subclass": { "type": ["string", "null"], "description": "Subclass identifier, or null until unlocked." },
-        "subclass_detail": { "type": ["string", "null"], "description": "An extra choice that specialises the subclass — e.g. a Circle of the Land druid's chosen land. Absent when not applicable." }
+        "subclass_detail": { "type": ["string", "null"], "description": "An extra choice that specialises the subclass — e.g. a subclass that offers a further sub-choice (a chosen terrain, element, etc.). Absent when not applicable." }
       }
     },
     "abilityEntry": {
@@ -238,8 +264,7 @@
       "additionalProperties": false,
       "properties": {
         "base": { "type": "integer", "minimum": 1 },
-        "background_bonus": { "type": "integer", "description": "The background's ability-score increase for this ability. Preferred source for the granted increase." },
-        "racial_bonus": { "type": "integer", "description": "Deprecated legacy field; use background_bonus for the background-granted increase." },
+        "background_bonus": { "type": "integer", "description": "The background's ability-score increase for this ability." },
         "final": { "type": "integer", "minimum": 1, "maximum": 30 },
         "modifier": { "type": "integer" }
       }
@@ -264,7 +289,7 @@
         "modifier": { "type": "integer" },
         "source": {
           "description": "Where the proficiency comes from, or null if not proficient.",
-          "enum": ["class", "background", "race", null]
+          "enum": ["class", "background", "species", "feat", null]
         }
       }
     },
@@ -274,8 +299,42 @@
       "additionalProperties": false,
       "properties": {
         "name": { "type": "string" },
-        "source": { "type": "string", "description": "Free-text origin, e.g. a class+level, 'Race', or 'Background'." },
+        "source": { "type": "string", "description": "Free-text origin, e.g. a class+level, 'Species', or 'Background'." },
+        "choices": {
+          "description": "Selected option identifiers (catalog) for a feature that grants a choice — e.g. the specific options a choice-granting feature lets the character pick. Absent/empty for a feature with no choice.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "description": { "type": ["string", "null"] }
+      }
+    },
+    "feat": {
+      "type": "object",
+      "required": ["name", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "description": "Feat identifier (catalog)." },
+        "source": { "type": "string", "description": "Where the feat slot came from — e.g. a background-granted feat, an ability-score-improvement slot at a class level, or a high-level boon." },
+        "ability_increase": {
+          "description": "If this feat granted an ability-score increase, the ability and amount.",
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "ability": { "type": "string" },
+            "amount": { "type": "integer" }
+          }
+        }
+      }
+    },
+    "resourceEntry": {
+      "description": "One expendable class resource (e.g. a limited-use ability's charges or a point pool).",
+      "type": "object",
+      "required": ["max"],
+      "additionalProperties": false,
+      "properties": {
+        "max": { "type": "integer", "minimum": 0 },
+        "remaining": { "type": "integer", "minimum": 0 },
+        "recharge": { "type": ["string", "null"], "description": "Recharge identifier (catalog), e.g. a short/long rest." }
       }
     },
     "castingClass": {
@@ -301,7 +360,9 @@
       "properties": {
         "name": { "type": "string" },
         "level": { "type": "integer", "minimum": 0, "maximum": 9, "description": "0 = cantrip." },
-        "prepared": { "type": "boolean" }
+        "prepared": { "type": "boolean" },
+        "class": { "type": ["string", "null"], "description": "The casting class this spell is prepared/known under (catalog); disambiguates multiclass." },
+        "always_prepared": { "type": "boolean", "default": false, "description": "Granted always-prepared by a subclass or class feature; does not count against the prepared budget." }
       }
     }
   }
