@@ -368,6 +368,38 @@ def multiclass_proficiencies(sections, class_prof):
     return out
 
 
+def caster_meta(sections):
+    """Extra caster facts the spellcasting checks need, grounded in the rulebook:
+    - spellbook: classes that prepare from a known pool (a Spellbook) — leveled spells may legally be
+      unprepared for them;
+    - arcanum: the pact caster's Mystic Arcanum ceiling {caster_level: max spell level} — spells cast
+      without a slot above the pact slot level;
+    - always_prepared: per-class class-feature spells that are always prepared and DON'T count against
+      the prepared budget."""
+    classes = {"barbarian", "bard", "cleric", "druid", "fighter", "monk",
+               "paladin", "ranger", "rogue", "sorcerer", "warlock", "wizard"}
+    spellbook, always = [], {}
+    for s in sections:
+        nm = (s.get("section") or "").strip().lower()
+        if nm not in classes:
+            continue
+        text = s.get("text") or ""
+        if "spellbook" in text.lower():
+            spellbook.append(nm)
+        sp = sorted(set(re.findall(r"always have the ([A-Z][\w' ]+?) spell prepared", text)))
+        if sp:
+            always[nm] = sp
+    txt = "\n".join(s.get("text") or "" for s in sections)
+    am = re.search(r"Mystic Arcanum.{0,600}", txt, re.S)
+    block = am.group() if am else ""
+    arcanum = {}
+    if re.search(r"level 6 \w+ spell as this arcanum", block):
+        arcanum["11"] = 6
+    for lv, sl in re.findall(r"(\d+) \(level (\d+) spell\)", block):
+        arcanum[lv] = int(sl)
+    return {"spellbook": sorted(set(spellbook)), "arcanum": arcanum, "always_prepared": always}
+
+
 def main():
     source = os.environ.get("SOURCE_JSON")
     out = os.environ.get("VALIDATOR_DATA_DIR_HOST")
@@ -425,6 +457,12 @@ def main():
     with open(os.path.join(out, "subclass_spells.json"), "w") as f:
         json.dump(subs, f, indent=1)
     print(f"subclass_spells: {len(subs)} subclasses -> {out}/subclass_spells.json")
+
+    meta = caster_meta(book["sections"])
+    with open(os.path.join(out, "caster_meta.json"), "w") as f:
+        json.dump(meta, f, indent=1)
+    print(f"caster_meta: spellbook={meta['spellbook']} arcanum={meta['arcanum']} "
+          f"always_prepared={ {k: len(v) for k, v in meta['always_prepared'].items()} } -> {out}/caster_meta.json")
 
 
 if __name__ == "__main__":
