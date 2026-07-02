@@ -84,6 +84,11 @@ class Rules:
         """The class's skill grant {choose: N, from: [names] | None}, or None."""
         return (self.class_proficiencies.get((class_id or "").lower()) or {}).get("skills")
 
+    def class_multiclass(self, class_id):
+        """The REDUCED proficiencies gained when this class is taken as a secondary class
+        ({skills, armor, weapons, tools}), or None if not loaded."""
+        return (self.class_proficiencies.get((class_id or "").lower()) or {}).get("multiclass")
+
     def class_armor(self, class_id):
         """The class's armour-category tokens (light/medium/heavy/shields), or None if not loaded."""
         return (self.class_proficiencies.get((class_id or "").lower()) or {}).get("armor")
