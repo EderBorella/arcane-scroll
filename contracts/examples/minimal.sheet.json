@@ -35,7 +35,7 @@
   "passive_scores": { "skill-a": 14 },
   "combat": {
     "armor_class": 14,
-    "armor_class_detail": { "source": "acsource-a", "base": 12, "dex_bonus": 2, "shield_bonus": 0, "other_bonus": 0 },
+    "armor_class_detail": { "source": "acsource-a", "base": 11, "dex_bonus": 2, "bonuses": [{ "value": 1, "source": "acbonus-a" }] },
     "initiative": 2,
     "speed": { "mode-a": 30, "mode-b": 30 },
     "hit_points": { "max": 21, "max_reduction": 0, "current": 21, "temp": 0 },

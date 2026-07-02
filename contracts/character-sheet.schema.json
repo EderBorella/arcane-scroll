@@ -90,15 +90,26 @@
       "properties": {
         "armor_class": { "type": "integer", "description": "The current effective AC — the authoritative number used in play." },
         "armor_class_detail": {
-          "description": "How armor_class was derived, so it can be re-computed when armour or an ability changes. Optional; armor_class stays authoritative. source is a catalog identifier for the AC-granting rule (worn armour / an unarmoured-defence feature / a spell).",
+          "description": "How armor_class was derived, so it can be re-computed when armour or an ability changes. Optional; armor_class stays authoritative. armor_class = base + dex_bonus + sum(bonuses[].value).",
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "source": { "type": ["string", "null"], "description": "Catalog identifier for the AC formula in use." },
-            "base": { "type": "integer", "description": "Flat base before ability/shield/other bonuses." },
+            "source": { "type": ["string", "null"], "description": "Catalog identifier for the AC formula in use (worn armour / an unarmoured-defence feature / a spell)." },
+            "base": { "type": "integer", "description": "Flat base before the Dexterity contribution and any bonuses." },
             "dex_bonus": { "type": "integer", "description": "Dexterity contribution actually applied (after any armour cap)." },
-            "shield_bonus": { "type": "integer", "default": 0 },
-            "other_bonus": { "type": "integer", "default": 0, "description": "All remaining bonuses (feats, items, features) folded together." }
+            "bonuses": {
+              "description": "Every additional AC contribution, each tagged with what grants it, so the total sums while provenance is retained. A shield, a Ring of Protection, a Shield of Faith, etc. are each one entry.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["value", "source"],
+                "additionalProperties": false,
+                "properties": {
+                  "value": { "type": "integer", "description": "Signed AC contribution (usually positive)." },
+                  "source": { "type": "string", "description": "What grants it — an item / spell / feature identifier (catalog) or short label." }
+                }
+              }
+            }
           }
         },
         "initiative": { "type": "integer", "description": "Initiative modifier added to the d20 (Dexterity modifier plus any bonuses); not the '10 + mod' passive score." },

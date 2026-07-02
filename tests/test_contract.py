@@ -168,6 +168,7 @@ _REJECT_CASES = {
     "slot_pool_without_remaining":(["spellcasting", "spell_slots", "1", "remaining"], _DELETE),  # live-state pool needs remaining
     "hit_dice_without_remaining": (["combat", "hit_dice", "d8", "remaining"], _DELETE),          # live-state pool needs remaining
     "companion_without_name":     (["companions"], [{"kind": "kind-a"}]),     # companion requires name
+    "ac_bonus_without_source":    (["combat", "armor_class_detail", "bonuses"], [{"value": 1}]),  # AC bonus must name its source
 }
 
 
