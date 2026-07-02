@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://arcane.local/contracts/character-sheet/v4",
+  "$id": "urn:arcane:contract:character-sheet:4",
   "title": "CharacterSheet",
   "description": "Canonical, versioned contract for a complete character sheet. Contract-first: this document is the source of truth; the generator, validator and decoder are made to conform to it. Structural only — game vocabulary (ability/skill/class/species/spell/background/resource/condition names) is catalog-driven and never hard-coded here, so this file is content-neutral.",
   "type": "object",
@@ -295,8 +295,8 @@
   },
   "$defs": {
     "item": {
-      "description": "The item contract, bound by version. This is the ONLY place the item-schema version is named; equipped/backpack both point here. Resolved offline via the schema registry — arcane.local is a namespace identifier, never a network fetch.",
-      "$ref": "https://arcane.local/contracts/item/v2"
+      "description": "The item contract, bound by version. This is the ONLY place the item-schema version is named; equipped/backpack both point here. The target is a URN — a stable identifier resolved offline via the schema registry, never a network fetch.",
+      "$ref": "urn:arcane:contract:item:2"
     },
     "classEntry": {
       "type": "object",

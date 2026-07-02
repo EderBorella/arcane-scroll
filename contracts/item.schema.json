@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://arcane.local/contracts/item/v2",
+  "$id": "urn:arcane:contract:item:2",
   "title": "Item",
   "description": "A self-describing item — a superset of every property an item MIGHT have. Only `name` is required; a torch has no damage dice, a sword has no AC, so most fields are simply absent. The same contract is used for equipped items (by slot on the sheet) and for backpack lines (with a quantity). Content-neutral: item/category/property/type names are catalog-driven, never enumerated here. Magic-item effects are deliberately NOT modelled yet — they will slot in later via a new `effects` field without restructuring.",
   "type": "object",
