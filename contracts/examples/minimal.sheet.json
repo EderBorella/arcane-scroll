@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "identity": {
     "name": "Placeholder",
     "species": "species-a",
@@ -37,7 +37,8 @@
     "armor_class": 18,
     "armor_class_detail": { "source": "acsource-a", "base": 14, "dex_bonus": 2, "bonuses": [{ "value": 2, "source": "shield-a" }] },
     "initiative": 2,
-    "speed": { "mode-a": 30, "mode-b": 30 },
+    "speed": { "mode-a": 35, "mode-b": 30 },
+    "speed_detail": { "base": 30, "base_source": "species-a", "modifiers": [{ "mode": "mode-a", "value": 5, "source": "feat-a" }, { "mode": "mode-b", "value": 30, "source": "feature-a" }] },
     "hit_points": { "max": 21, "max_reduction": 0, "current": 21, "temp": 0 },
     "hit_dice": { "d8": { "max": 3, "remaining": 2 } },
     "death_saves": { "successes": 0, "failures": 0 }
