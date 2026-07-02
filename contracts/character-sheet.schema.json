@@ -120,23 +120,38 @@
           "additionalProperties": { "type": "integer", "minimum": 0 }
         },
         "speed_detail": {
-          "description": "How the speeds map was derived, so it can be re-computed and each grant traced. Optional; the speeds map stays authoritative. For a mode, final = (base if it is the base walking mode else 0) + sum of that mode's modifiers[].value. Mirrors armor_class_detail.",
+          "description": "How the speeds map was derived, so it can be re-computed and each grant traced. Optional; the speeds map stays authoritative. base applies to the mode named by base_mode; final(mode) = (base if mode == base_mode else 0) + the sum of that mode's modifiers, where a modifier contributes its value, or (if relative) factor × final(relative.of). Mirrors armor_class_detail.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "base": { "type": "integer", "minimum": 0, "description": "Base walking speed before modifiers (from the species)." },
             "base_source": { "type": ["string", "null"], "description": "What grants the base walking speed — the species identifier (catalog)." },
+            "base_mode": { "type": ["string", "null"], "description": "The speed-map mode identifier (catalog) that `base` applies to — i.e. which key is the base walking mode. Lets the map be re-derived from this block." },
             "modifiers": {
-              "description": "Every speed grant/adjustment, each tagged with what grants it, so the map sums while provenance is retained. A granted fly/swim/climb/burrow speed is one entry; a bonus to walking speed is another.",
+              "description": "Every speed grant/adjustment, each tagged with what grants it, so the map sums while provenance is retained. A granted fly/swim/climb/burrow speed is one entry; a bonus to walking speed is another. A modifier is either a fixed `value` (feet) or `relative` to another mode (a speed 'equal to' or 'twice' your walking speed).",
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["mode", "value", "source"],
+                "required": ["mode", "source"],
                 "additionalProperties": false,
+                "oneOf": [
+                  { "required": ["value"] },
+                  { "required": ["relative"] }
+                ],
                 "properties": {
                   "mode": { "type": "string", "description": "Movement-mode identifier (catalog) this applies to." },
-                  "value": { "type": "integer", "description": "Signed feet this source contributes to the mode (a granted non-walk speed is its full value)." },
-                  "source": { "type": "string", "description": "What grants it — a species / feature / feat / item identifier (catalog)." }
+                  "source": { "type": "string", "description": "What grants it — a species / feature / feat / item identifier (catalog)." },
+                  "value": { "type": "integer", "description": "Fixed signed feet this source contributes to the mode (a granted non-walk speed is its full value). Use this OR relative, not both." },
+                  "relative": {
+                    "description": "A speed defined relative to another mode (e.g. a Climb Speed equal to — or twice — your walking speed). Contributes factor × final(of).",
+                    "type": "object",
+                    "required": ["of"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "of": { "type": "string", "description": "The mode identifier (catalog) whose final speed this tracks — usually the base walking mode." },
+                      "factor": { "type": "number", "exclusiveMinimum": 0, "default": 1, "description": "Multiplier of the referenced mode's speed — 1 for 'equal to', 2 for 'twice'." }
+                    }
+                  }
                 }
               }
             }
