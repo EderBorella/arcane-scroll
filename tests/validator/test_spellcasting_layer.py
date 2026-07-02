@@ -177,15 +177,56 @@ def test_pool_slots_ignore_remaining():
     assert "spell_slots_mismatch" not in _codes(s, RC)
 
 
+def test_pool_slots_wrong_max_triggers_mismatch():
+    # pool-shaped (not int-compat) with a wrong max must still flag — pins the dict branch of _slot_maxes.
+    s = _legal_mage()
+    s["spellcasting"]["spell_slots"]["1"]["max"] = 2          # class grants 4 at level 1
+    assert "spell_slots_mismatch" in _codes(s, RC)
+
+
+def test_class_sourced_spell_still_counted():
+    # a spell whose source kind is 'class' must NOT be excluded from the budget.
+    s = _legal_mage()
+    s["spellcasting"]["sources"] = {"cls-x": {"kind": "class"}}
+    s["spellcasting"]["spells"][0]["source"] = "cls-x"
+    assert "cantrip_count" not in _codes(s, RC)
+
+
+def test_unattributed_spell_still_counted():
+    # a cantrip with no source is class-treated → an over-budget one still trips cantrip_count.
+    s = _legal_mage()
+    s["spellcasting"]["spells"].append({"name": "Zap", "level": 0, "prepared": True})   # 5th, budget is 4
+    assert "cantrip_count" in _codes(s, RC)
+
+
 def test_slotless_source_cantrip_not_counted():
     # a class mage (4 cantrips) plus a species-granted cantrip: the extra must not inflate the class
     # cantrip budget, and the off-list species cantrip must not be flagged unknown.
     s = _legal_mage()
-    s["spellcasting"]["sources"] = {"species-x": {"kind": "species"}}
+    s["spellcasting"]["sources"] = {"species-x": {"kind": "species", "cantrips_known": 1}}
     s["spellcasting"]["spells"].append({"name": "Species-Cantrip", "level": 0, "prepared": True,
                                         "source": "species-x"})
     codes = _codes(s, RC)
     assert "cantrip_count" not in codes and "unknown_spell" not in codes
+    assert "source_cantrips_exceeded" not in codes             # 1 tagged ≤ declared 1
+
+
+def test_source_over_attribution_flagged():
+    # over-attribution loophole: 3 cantrips tagged to a species source that declares it grants 1.
+    s = _legal_mage()
+    s["spellcasting"]["sources"] = {"species-x": {"kind": "species", "cantrips_known": 1}}
+    for _ in range(3):
+        s["spellcasting"]["spells"].append({"name": "Off-A", "level": 0, "prepared": True, "source": "species-x"})
+    assert "source_cantrips_exceeded" in _codes(s, RC)
+
+
+def test_source_undeclared_limit_not_bounded():
+    # a source that declares no limit can't be bounded → no source_* violation (no false positive).
+    s = _legal_mage()
+    s["spellcasting"]["sources"] = {"species-x": {"kind": "species"}}
+    s["spellcasting"]["spells"].append({"name": "Off-A", "level": 0, "prepared": True, "source": "species-x"})
+    codes = _codes(s, RC)
+    assert "source_cantrips_exceeded" not in codes and "source_spells_exceeded" not in codes
 
 
 def test_offlist_subclass_grant_is_known_and_normalised():
