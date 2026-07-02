@@ -88,7 +88,19 @@
       "required": ["armor_class", "initiative", "speed", "hit_points", "hit_dice", "death_saves"],
       "additionalProperties": false,
       "properties": {
-        "armor_class": { "type": "integer" },
+        "armor_class": { "type": "integer", "description": "The current effective AC — the authoritative number used in play." },
+        "armor_class_detail": {
+          "description": "How armor_class was derived, so it can be re-computed when armour or an ability changes. Optional; armor_class stays authoritative. source is a catalog identifier for the AC-granting rule (worn armour / an unarmoured-defence feature / a spell).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source": { "type": ["string", "null"], "description": "Catalog identifier for the AC formula in use." },
+            "base": { "type": "integer", "description": "Flat base before ability/shield/other bonuses." },
+            "dex_bonus": { "type": "integer", "description": "Dexterity contribution actually applied (after any armour cap)." },
+            "shield_bonus": { "type": "integer", "default": 0 },
+            "other_bonus": { "type": "integer", "default": 0, "description": "All remaining bonuses (feats, items, features) folded together." }
+          }
+        },
         "initiative": { "type": "integer", "description": "Initiative modifier added to the d20 (Dexterity modifier plus any bonuses); not the '10 + mod' passive score." },
         "speed": {
           "description": "Movement speeds keyed by mode identifier (catalog) → speed in feet. At least the base walking mode is present; special modes (fly/swim/climb/burrow) appear when granted.",
@@ -101,17 +113,18 @@
           "required": ["max"],
           "additionalProperties": false,
           "properties": {
-            "max": { "type": "integer", "minimum": 1 },
+            "max": { "type": "integer", "minimum": 1, "description": "Full Hit Point maximum, before any temporary reduction." },
+            "max_reduction": { "type": "integer", "minimum": 0, "default": 0, "description": "Temporary reduction to the maximum (effective max = max − max_reduction); restored to 0 on a long rest." },
             "current": { "type": "integer" },
             "temp": { "type": "integer", "minimum": 0 }
           }
         },
         "hit_dice": {
-          "description": "Pool of hit dice by die size. Keys look like 'd8', 'd10'; values are the count at that size.",
+          "description": "Hit dice by die size. Keys look like 'd8', 'd10'; each value is a {max, remaining} pool — remaining drops as dice are spent on short rests.",
           "type": "object",
           "minProperties": 1,
           "propertyNames": { "pattern": "^d\\d+$" },
-          "additionalProperties": { "type": "integer", "minimum": 0 }
+          "additionalProperties": { "$ref": "#/$defs/pool" }
         },
         "death_saves": {
           "type": "object",
@@ -135,6 +148,31 @@
       "items": { "type": "string" }
     },
     "exhaustion": { "type": "integer", "minimum": 0, "maximum": 6, "default": 0 },
+    "active_concentration": {
+      "description": "The spell the character is currently concentrating on (catalog identifier), or null. At most one at a time.",
+      "type": ["string", "null"],
+      "default": null
+    },
+    "active_effects": {
+      "description": "Ongoing timed effects that are neither formal conditions nor class resources — buffs, active spell effects on self, temporary bonuses. Live play state; empty at a fresh build.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "description": "Effect identifier (catalog) or short label." },
+          "source": { "type": ["string", "null"], "description": "What produced it — a spell/feature/item identifier (catalog)." },
+          "duration": { "type": ["string", "null"], "description": "Remaining duration, e.g. a rounds/minutes/until-rest identifier." },
+          "notes": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "companions": {
+      "description": "Secondary creatures the character controls — familiars, summoned creatures, animal companions, mounts, or a wild-shape/polymorph form. Empty for most characters.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/companion" }
+    },
     "senses": {
       "description": "Special senses, keyed by sense identifier (catalog) → range in feet (0 for a non-ranged sense).",
       "type": "object",
@@ -154,19 +192,7 @@
     "attacks": {
       "description": "Optional weapon/attack rows as shown on the sheet. Derived/for-render; not required.",
       "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["name"],
-        "additionalProperties": false,
-        "properties": {
-          "name": { "type": "string" },
-          "attack_bonus": { "type": ["string", "integer", "null"] },
-          "damage": { "type": ["string", "null"] },
-          "damage_type": { "type": ["string", "null"], "description": "Damage type identifier (catalog)." },
-          "weapon_mastery": { "type": ["string", "null"], "description": "Weapon-mastery property identifier (catalog), if the wielder has it." },
-          "properties": { "type": "array", "items": { "type": "string" }, "description": "Weapon property identifiers (catalog)." }
-        }
-      }
+      "items": { "$ref": "#/$defs/attack" }
     },
     "proficiencies": {
       "type": "object",
@@ -318,6 +344,7 @@
         "base": { "type": "integer", "minimum": 1, "maximum": 20, "description": "Pre-increase assignment (never above 20 at any level; later boosts land in final, capped at 30)." },
         "background_bonus": { "type": "integer", "description": "The background's ability-score increase for this ability." },
         "final": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "reduction": { "type": "integer", "minimum": 0, "default": 0, "description": "Temporary reduction to final (effective score = final − reduction); restored to 0 on a long rest. modifier reflects the effective score." },
         "modifier": { "type": "integer" }
       }
     },
@@ -357,6 +384,7 @@
           "type": "array",
           "items": { "type": "string" }
         },
+        "uses": { "$ref": "#/$defs/resourceEntry" },
         "description": { "type": ["string", "null"] }
       }
     },
@@ -375,18 +403,36 @@
             "ability": { "type": "string" },
             "amount": { "type": "integer" }
           }
-        }
+        },
+        "uses": { "$ref": "#/$defs/resourceEntry" }
+      }
+    },
+    "pool": {
+      "description": "A depletable count with a maximum and how much is currently left (e.g. spell slots at a level, hit dice of a size).",
+      "type": "object",
+      "required": ["max", "remaining"],
+      "additionalProperties": false,
+      "properties": {
+        "max": { "type": "integer", "minimum": 0 },
+        "remaining": { "type": "integer", "minimum": 0 }
       }
     },
     "resourceEntry": {
-      "description": "One expendable class resource (e.g. a limited-use ability's charges or a point pool).",
+      "description": "One expendable resource (a limited-use ability's charges or a point pool) — usable for class resources and for a feat/feature's own uses.",
       "type": "object",
       "required": ["max"],
       "additionalProperties": false,
       "properties": {
         "max": { "type": "integer", "minimum": 0 },
         "remaining": { "type": "integer", "minimum": 0 },
-        "recharge": { "type": ["string", "null"], "description": "Recharge identifier (catalog), e.g. a short/long rest." }
+        "recharge": {
+          "description": "Recharge trigger identifier(s) (catalog) — a single trigger, or a list when more than one applies (e.g. a short OR long rest).",
+          "oneOf": [
+            { "type": ["string", "null"] },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "recharge_amount": { "type": ["integer", "string", "null"], "description": "How much is regained on recharge — an integer, or a catalog token like an 'all' identifier. Absent = full." }
       }
     },
     "castingClass": {
@@ -403,10 +449,59 @@
       }
     },
     "slotTable": {
-      "description": "Slots by spell level. Keys are the spell level as a string ('1'..'9'); values are the slot count.",
+      "description": "Slots by spell level. Keys are the spell level as a string ('1'..'9'); each value is a {max, remaining} pool — remaining drops as slots are spent and resets on the appropriate rest.",
       "type": "object",
       "propertyNames": { "pattern": "^[1-9]$" },
-      "additionalProperties": { "type": "integer", "minimum": 0 }
+      "additionalProperties": { "$ref": "#/$defs/pool" }
+    },
+    "attack": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "attack_bonus": { "type": ["string", "integer", "null"] },
+        "damage": { "type": ["string", "null"] },
+        "damage_type": { "type": ["string", "null"], "description": "Damage type identifier (catalog)." },
+        "weapon_mastery": { "type": ["string", "null"], "description": "Weapon-mastery property identifier (catalog), if the wielder has it." },
+        "properties": { "type": "array", "items": { "type": "string" }, "description": "Weapon property identifiers (catalog)." }
+      }
+    },
+    "companion": {
+      "description": "A lightweight stat block for a secondary creature — enough to run it in play. The consumer resolves any named ability/trait against the catalog, as with the main character.",
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "kind": { "type": ["string", "null"], "description": "What sort of companion (catalog) — familiar / summon / animal companion / mount / shape." },
+        "size": { "type": ["string", "null"], "description": "Size identifier (catalog)." },
+        "creature_type": { "type": ["string", "null"], "description": "Creature-type identifier (catalog)." },
+        "armor_class": { "type": ["integer", "null"] },
+        "hit_points": {
+          "type": "object",
+          "required": ["max"],
+          "additionalProperties": false,
+          "properties": {
+            "max": { "type": "integer", "minimum": 0 },
+            "current": { "type": "integer" },
+            "temp": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "speed": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "senses": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "attacks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/attack" }
+        },
+        "notes": { "type": ["string", "null"] }
+      }
     },
     "spell": {
       "type": "object",

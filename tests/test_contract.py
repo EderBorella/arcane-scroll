@@ -165,6 +165,9 @@ _REJECT_CASES = {
     "wrong_schema_version":       (["schema_version"], 999),                  # const-pinned
     "proficiency_bonus_below_2":  (["proficiency_bonus"], 1),                 # 2..6
     "unknown_item_field":         (["equipped", "slot-a", "bogus"], 1),       # item additionalProperties: false
+    "slot_pool_without_remaining":(["spellcasting", "spell_slots", "1", "remaining"], _DELETE),  # live-state pool needs remaining
+    "hit_dice_without_remaining": (["combat", "hit_dice", "d8", "remaining"], _DELETE),          # live-state pool needs remaining
+    "companion_without_name":     (["companions"], [{"kind": "kind-a"}]),     # companion requires name
 }
 
 
@@ -177,7 +180,7 @@ def test_pact_only_spellcasting_conforms():
     """Guards the anyOf(spell_slots | pact_slots): a pact caster has pact_slots and no leveled slots."""
     sheet = copy.deepcopy(_EXAMPLE)
     del sheet["spellcasting"]["spell_slots"]
-    sheet["spellcasting"]["pact_slots"] = {"1": 2}
+    sheet["spellcasting"]["pact_slots"] = {"1": {"max": 2, "remaining": 2}}
     assert _errors(sheet) == []
 
 

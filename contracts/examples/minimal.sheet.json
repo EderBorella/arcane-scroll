@@ -12,7 +12,7 @@
     "xp": 0
   },
   "abilities": {
-    "a1": { "base": 13, "background_bonus": 2, "final": 15, "modifier": 2 },
+    "a1": { "base": 13, "background_bonus": 2, "final": 15, "reduction": 0, "modifier": 2 },
     "a2": { "base": 13, "background_bonus": 1, "final": 14, "modifier": 2 },
     "a3": { "base": 13, "final": 13, "modifier": 1 },
     "a4": { "base": 13, "final": 13, "modifier": 1 },
@@ -35,15 +35,34 @@
   "passive_scores": { "skill-a": 14 },
   "combat": {
     "armor_class": 14,
+    "armor_class_detail": { "source": "acsource-a", "base": 12, "dex_bonus": 2, "shield_bonus": 0, "other_bonus": 0 },
     "initiative": 2,
     "speed": { "mode-a": 30, "mode-b": 30 },
-    "hit_points": { "max": 21, "current": 21, "temp": 0 },
-    "hit_dice": { "d8": 3 },
+    "hit_points": { "max": 21, "max_reduction": 0, "current": 21, "temp": 0 },
+    "hit_dice": { "d8": { "max": 3, "remaining": 2 } },
     "death_saves": { "successes": 0, "failures": 0 }
   },
   "heroic_inspiration": false,
   "conditions": [],
   "exhaustion": 0,
+  "active_concentration": "spell-a",
+  "active_effects": [
+    { "name": "effect-a", "source": "spell-a", "duration": "duration-a" }
+  ],
+  "companions": [
+    {
+      "name": "companion-a",
+      "kind": "kind-a",
+      "size": "size-a",
+      "creature_type": "type-a",
+      "armor_class": 13,
+      "hit_points": { "max": 11, "current": 11 },
+      "speed": { "mode-a": 40 },
+      "attacks": [
+        { "name": "weapon-b", "attack_bonus": 4, "damage": "1d6+2", "damage_type": "dtype-a" }
+      ]
+    }
+  ],
   "senses": { "sense-a": 60 },
   "defenses": { "resistances": ["dtype-a"], "condition_immunities": ["condition-a"] },
   "attacks": [
@@ -54,17 +73,18 @@
   "weapon_masteries": ["weapon-a"],
   "attunement": { "max": 3, "attuned": 1 },
   "equipped": {
-    "slot-a": { "name": "weapon-a", "category": "category-a", "properties": ["prop-a"], "damage_dice": "1d8", "damage_type": "dtype-a", "mastery": "mastery-a" },
+    "slot-a": { "name": "weapon-a", "category": "category-a", "properties": ["prop-a"], "damage_dice": "1d8", "versatile_damage": "1d10", "grip": "grip-a", "damage_type": "dtype-a", "mastery": "mastery-a" },
     "slot-b": { "name": "armor-a", "category": "category-a", "armor_category": "acat-a", "base_ac": 14, "dex_cap": 2 },
-    "slot-c": { "name": "wondrous-a", "magic": true, "rarity": "rarity-a", "attunement": { "required": true, "attuned": true } }
+    "slot-c": { "name": "wondrous-a", "magic": true, "rarity": "rarity-a", "attunement": { "required": true, "attuned": true }, "charges": { "max": 7, "remaining": 5, "recharge": "recharge-a" } }
   },
   "backpack": [
     { "name": "item-a", "quantity": 5 },
+    { "name": "ammo-a", "quantity": 20 },
     { "name": "item-b", "quantity": 1, "weight": 3 }
   ],
   "treasure": { "gp": 15 },
   "class_resources": {
-    "class-a": { "resource-a": { "max": 3, "remaining": 3, "recharge": "recharge-a" } }
+    "class-a": { "resource-a": { "max": 3, "remaining": 3, "recharge": ["recharge-a", "recharge-b"], "recharge_amount": "all-a" } }
   },
   "features": [
     { "name": "feature-a", "source": "class-a 1" },
@@ -72,11 +92,11 @@
   ],
   "feats": [
     { "name": "feat-a", "source": "Background" },
-    { "name": "feat-b", "source": "class-a 4", "ability_increase": { "ability": "a1", "amount": 2 } }
+    { "name": "feat-b", "source": "class-a 4", "ability_increase": { "ability": "a1", "amount": 2 }, "uses": { "max": 2, "remaining": 2, "recharge": "recharge-a" } }
   ],
   "spellcasting": {
     "classes": { "class-a": { "ability": "a4", "modifier": 2, "save_dc": 13, "attack_bonus": 5, "cantrips_known": 3, "prepared_limit": 4 } },
-    "spell_slots": { "1": 4, "2": 2 },
+    "spell_slots": { "1": { "max": 4, "remaining": 3 }, "2": { "max": 2, "remaining": 2 } },
     "spells": [
       { "name": "cantrip-a", "level": 0, "prepared": false, "class": "class-a" },
       { "name": "spell-a", "level": 1, "prepared": true, "class": "class-a", "concentration": true },
