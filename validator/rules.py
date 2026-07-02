@@ -71,3 +71,25 @@ class Rules:
     def class_skills(self, class_id):
         """The class's skill grant {choose: N, from: [names] | None}, or None."""
         return (self.class_proficiencies.get((class_id or "").lower()) or {}).get("skills")
+
+    def class_armor(self, class_id):
+        """The class's armour-category tokens (light/medium/heavy/shields), or None if not loaded."""
+        return (self.class_proficiencies.get((class_id or "").lower()) or {}).get("armor")
+
+    def class_weapons(self, class_id):
+        """The class's weapon-category tokens (simple/martial), or None if not loaded."""
+        return (self.class_proficiencies.get((class_id or "").lower()) or {}).get("weapons")
+
+    def class_tools(self, class_id):
+        """The class's tool grant {fixed: [names]} or {choose: N}, or None."""
+        return (self.class_proficiencies.get((class_id or "").lower()) or {}).get("tools")
+
+    def expertise_granted(self, class_id, level):
+        """How many expertise picks a class has granted by `level`. Each 'Expertise' feature grant is
+        two skills; returns None if the class isn't in the progression data (check then skips)."""
+        levels = self.class_progression.get((class_id or "").lower())
+        if not levels:
+            return None
+        grants = sum(1 for lv in levels if int(lv) <= level
+                     and any(str(f).strip().lower() == "expertise" for f in levels[lv].get("features", [])))
+        return grants * 2
