@@ -8,7 +8,7 @@ R = Rules(spell_lists={"caster-a": {"Spell-A": 1, "Cantrip-A": 0}, "caster-b": {
 
 
 def _sheet(spells):
-    return {"spellcasting": {"classes": {}, "spell_slots": {}, "spells": spells}}
+    return {"spellcasting": {"sources": {}, "spell_slots": {}, "spells": spells}}
 
 
 def _codes(sheet, rules=R):
@@ -57,10 +57,15 @@ RC = Rules(
                  "always_prepared": {"knight": ["Smite-A"]}})
 
 
-def _csheet(classes, spells, spell_slots=None, pact_slots=None):
-    sc = {"classes": {}, "spell_slots": spell_slots or {}, "spells": spells}
+def _pool(t):
+    """Wrap a flat {level: count} table into the contract's {level: {max, remaining}} pool shape."""
+    return {k: {"max": v, "remaining": v} for k, v in (t or {}).items()}
+
+
+def _csheet(classes, spells, spell_slots=None, pact_slots=None, sources=None):
+    sc = {"sources": sources or {}, "spell_slots": _pool(spell_slots), "spells": spells}
     if pact_slots is not None:
-        sc["pact_slots"] = pact_slots
+        sc["pact_slots"] = _pool(pact_slots)
     return {"identity": {"classes": classes}, "spellcasting": sc}
 
 
@@ -162,6 +167,25 @@ def test_class_feature_always_prepared_not_counted():
     spells = [{"name": "Bolt", "level": 1, "prepared": True}] * 6 + [{"name": "Smite-A", "level": 1, "prepared": True}]
     s = _csheet([{"class": "knight", "level": 5, "subclass": None}], spells, spell_slots={"1": 2})
     assert "prepared_count" not in _codes(s, RC)
+
+
+def test_pool_slots_ignore_remaining():
+    # spent slots (remaining < max) must NOT trip the rules check — only max is rule-checkable.
+    s = _legal_mage()
+    for pool in s["spellcasting"]["spell_slots"].values():
+        pool["remaining"] = 0
+    assert "spell_slots_mismatch" not in _codes(s, RC)
+
+
+def test_slotless_source_cantrip_not_counted():
+    # a class mage (4 cantrips) plus a species-granted cantrip: the extra must not inflate the class
+    # cantrip budget, and the off-list species cantrip must not be flagged unknown.
+    s = _legal_mage()
+    s["spellcasting"]["sources"] = {"species-x": {"kind": "species"}}
+    s["spellcasting"]["spells"].append({"name": "Species-Cantrip", "level": 0, "prepared": True,
+                                        "source": "species-x"})
+    codes = _codes(s, RC)
+    assert "cantrip_count" not in codes and "unknown_spell" not in codes
 
 
 def test_offlist_subclass_grant_is_known_and_normalised():
