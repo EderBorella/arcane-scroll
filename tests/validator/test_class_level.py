@@ -9,7 +9,7 @@ RULES = Rules(class_progression={"alpha": {
     "1": {"proficiency_bonus": 2, "features": ["Spellcasting"]},
     "3": {"proficiency_bonus": 2, "features": ["Alpha Subclass"]},
     "5": {"proficiency_bonus": 3, "features": []},
-}})
+}}, class_proficiencies={"alpha": {"primary": ["str"]}, "beta": {"primary": ["wis"]}})
 
 
 def _sheet(level, subclass, pb):
@@ -52,3 +52,28 @@ def test_a_crashing_check_does_not_stop_the_run():
     assert "check_crashed" in codes          # the crash was captured…
     assert "subclass_too_early" in codes     # …and the real check still ran
     assert r["complete"] is False            # and the report flags that validation was partial
+
+
+def _mc_sheet(scores, a_level=3, b_level=3):
+    """Multiclass Alpha/Beta with given ability final scores; Alpha has its subclass, Beta needs none."""
+    return {"proficiency_bonus": 2,
+            "identity": {"total_level": a_level + b_level,
+                         "classes": [{"class": "Alpha", "level": a_level, "subclass": "Sub"},
+                                     {"class": "Beta", "level": b_level, "subclass": None}]},
+            "abilities": {a: {"final": s} for a, s in scores.items()}}
+
+
+def test_total_level_mismatch():                                 # G1
+    s = _mc_sheet({"str": 15, "wis": 15})
+    s["identity"]["total_level"] = 99                            # != 3 + 3
+    assert "total_level_mismatch" in {v.code for v in class_level.check(s, RULES)}
+
+
+def test_multiclass_prerequisite_flagged():                      # G2
+    s = _mc_sheet({"str": 15, "wis": 10})                        # Beta needs Wis 13+, has 10
+    assert "multiclass_prerequisite" in {v.code for v in class_level.check(s, RULES)}
+
+
+def test_multiclass_prerequisite_ok():                           # G2
+    s = _mc_sheet({"str": 15, "wis": 13})
+    assert "multiclass_prerequisite" not in {v.code for v in class_level.check(s, RULES)}

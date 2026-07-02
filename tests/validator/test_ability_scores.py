@@ -41,6 +41,26 @@ def test_missing_background_asi():
     assert "asi_missing" in _codes(_sheet("Scholar", {}))
 
 
-def test_cap_at_20():
+def test_background_increase_cannot_exceed_20():
     over = {"int": {"base": 20, "racial_bonus": 2, "final": 22, "modifier": 6}}
-    assert "ability_above_20" in _codes(_sheet("Scholar", {"wis": 1}, overrides=over))
+    assert "background_increase_above_20" in _codes(_sheet("Scholar", {"wis": 1}, overrides=over))
+
+
+def test_epic_boon_final_up_to_30_ok():
+    # base 18 + background +2 = 20 (legal), then Epic Boons push final to 30 (legal, ≤ 30).
+    over = {"int": {"base": 18, "background_bonus": 2, "final": 30, "modifier": 10}}
+    codes = _codes(_sheet("Scholar", {"wis": 1}, overrides=over))
+    assert "ability_above_30" not in codes and "background_increase_above_20" not in codes
+
+
+def test_final_above_30_flagged():
+    over = {"int": {"base": 18, "background_bonus": 2, "final": 31, "modifier": 10}}
+    assert "ability_above_30" in _codes(_sheet("Scholar", {"wis": 1}, overrides=over))
+
+
+def test_background_bonus_field_is_used():
+    # The granted increase is read from background_bonus (not the legacy racial_bonus).
+    inc = {"int": 2, "wis": 1}
+    ab = {a: {"base": 10, "background_bonus": inc.get(a, 0), "final": 10 + inc.get(a, 0), "modifier": 0}
+          for a in ("str", "dex", "con", "int", "wis", "cha")}
+    assert ability_scores.check({"abilities": ab, "identity": {"background": "Scholar"}}, R) == []

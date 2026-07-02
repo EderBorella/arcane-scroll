@@ -28,23 +28,29 @@ def check(sheet, rules):
 
         hp = (combat.get("hit_points") or {}).get("max")
         if hp is not None and con is not None and total:
-            die0 = dies[0][1]
+            die0 = dies[0][1]      # first (level-1) class die, by the classes[0]=level-1 convention
             max_hp = sum(die * (c.get("level") or 0) for c, die in dies) + con * total
-            min_hp = die0 + (total - 1) + con * total     # L1 die maxed; other levels roll ≥ 1
+            # L1 = max die + Con; every later level gains at least 1 (the rulebook's per-level
+            # "minimum of 1" floor), so a negative Con can't drag the minimum below 1/level.
+            min_hp = (die0 + con) + (total - 1) * max(1, 1 + con)
             if not (min_hp <= hp <= max_hp):
                 out.append(Violation(LAYER, "hp_out_of_range",
                                      f"max HP {hp} outside the legal range [{min_hp}, {max_hp}] for the hit dice + Con",
                                      [min_hp, max_hp], hp))
 
+    # Initiative and passive Perception are baselines PLUS any applicable bonuses (Alert adds the
+    # proficiency bonus; Advantage adds +5 to a passive score; features add more), so only a value
+    # BELOW the baseline is illegal — extras are legal.
     init = combat.get("initiative")
     dexmod = (abilities.get("dex") or {}).get("modifier")
-    if init is not None and dexmod is not None and init != dexmod:
-        out.append(Violation(LAYER, "initiative", f"initiative {init} != Dex modifier {dexmod}", dexmod, init))
+    if init is not None and dexmod is not None and init < dexmod:
+        out.append(Violation(LAYER, "initiative", f"initiative {init} is below the Dex modifier {dexmod}",
+                             dexmod, init))
 
     pp = sheet.get("passive_perception")
     perc = next((v.get("modifier") for k, v in (sheet.get("skills") or {}).items()
                  if k.strip().lower() == "perception"), None)
-    if pp is not None and perc is not None and pp != 10 + perc:
+    if pp is not None and perc is not None and pp < 10 + perc:
         out.append(Violation(LAYER, "passive_perception",
-                             f"passive Perception {pp} != 10 + Perception modifier {perc}", 10 + perc, pp))
+                             f"passive Perception {pp} is below 10 + Perception modifier {perc}", 10 + perc, pp))
     return out

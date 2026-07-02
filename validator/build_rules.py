@@ -121,21 +121,23 @@ def backgrounds(sections):
 
 
 def spell_lists(tables):
-    """Per class → {spell_name: level} from the '<Class> Spells' tables (cantrips = level 0). The union
-    across classes is the set of valid spell names."""
+    """Per class → {spell_name: level} from the '<Class> Spells' tables (cantrips = level 0). Also
+    catches '<Class> Cantrips (continued)' tables (level 0). The union across classes is the set of
+    valid spell names. Only classes with at least one spell row get an entry (no empty keys)."""
     out = {}
     for t in tables:
-        m = re.match(r"(?:Cantrips \(Level 0 (.+?) Spells\)|Level (\d+) (.+?) Spells)", (t.get("title") or "").strip())
+        title = (t.get("title") or "").strip()
+        m = re.match(r"(?:Cantrips \(Level 0 (.+?) Spells\)|(.+?) Cantrips(?: \(continued\))?$|Level (\d+) (.+?) Spells)", title)
         if not m:
             continue
-        cls = (m.group(1) or m.group(3)).strip().lower()
-        lvl = 0 if m.group(1) else int(m.group(2))
+        cantrip_cls = m.group(1) or m.group(2)
+        cls = (cantrip_cls or m.group(4)).strip().lower()
+        lvl = 0 if cantrip_cls else int(m.group(3))
         cols = t.get("columns", [])
         iS = next((i for i, c in enumerate(cols) if c.strip().lower() == "spell"), 0)
-        by_name = out.setdefault(cls, {})
         for r in t.get("rows", []):
             if iS < len(r) and r[iS].strip():
-                by_name[r[iS].strip()] = lvl
+                out.setdefault(cls, {})[r[iS].strip()] = lvl
     return out
 
 
@@ -193,7 +195,12 @@ def class_proficiencies(tables):
             if len(r) < 2:
                 continue
             k = r[0].strip().lower()
-            if "saving throw" in k:
+            if "primary ability" in k:
+                prim = [_ABILITY_IDS[a.strip().lower()] for a in re.split(r"\bor\b|,|\band\b", r[1])
+                        if a.strip().lower() in _ABILITY_IDS]
+                if prim:
+                    entry["primary"] = prim       # >1 ⇒ any-of (e.g. "Strength or Dexterity")
+            elif "saving throw" in k:
                 saves = [_ABILITY_IDS[a.strip().lower()] for a in re.split(r"\band\b|,", r[1])
                          if a.strip().lower() in _ABILITY_IDS]
                 if saves:
@@ -210,7 +217,12 @@ def class_proficiencies(tables):
             elif "armor training" in k or k.startswith("armor prof"):
                 entry["armor"] = _category_tokens(r[1], _ARMOR_TOKENS)
             elif "weapon prof" in k:
-                entry["weapons"] = _category_tokens(r[1], _WEAPON_TOKENS)
+                toks = _category_tokens(r[1], _WEAPON_TOKENS)
+                # A conditional martial grant ("Martial weapons that have the Finesse or Light
+                # property") is NOT full martial proficiency; assert only the unconditional categories.
+                if "martial" in toks and re.search(r"martial weapons that have|property", r[1], re.I):
+                    toks = [t for t in toks if t != "martial"]
+                entry["weapons"] = toks
             elif "tool prof" in k:
                 tools = _tool_grants(r[1])
                 if tools:
@@ -218,6 +230,179 @@ def class_proficiencies(tables):
         if entry:
             out[m.group(1).strip().lower()] = entry
     return out
+
+
+def _caster_classes(prog):
+    """Class ids that cast — they carry a prepared-spell or cantrip count in the progression."""
+    return {c for c, levels in prog.items()
+            if any(("prepared_spells" in e or "cantrips_known" in e) for e in levels.values())}
+
+
+def _slot_cols(cols):
+    """Column index → spell level, for the slot columns (header is, or ends in, a digit 1-9)."""
+    out = {}
+    for i, c in enumerate(cols):
+        s = c.strip()
+        if s.lower().endswith("level"):     # the row's own character-level column
+            continue
+        m = re.search(r"([1-9])$", s)
+        if m:
+            out[i] = int(m.group(1))
+    return out
+
+
+def _slot_table(t):
+    """A '<Class> Features' / '<X> Spellcasting' table → {char_level: {spell_level: n}} (nonzero only)."""
+    cols = t.get("columns", [])
+    sc = _slot_cols(cols)
+    if not sc:
+        return None
+    iL = next((i for i, c in enumerate(cols) if c.strip().lower().endswith("level")), 0)
+    table = {}
+    for r in t.get("rows", []):
+        lvl = _int(r[iL]) if iL < len(r) else None
+        if lvl is None:
+            continue
+        row = {}
+        for idx, splvl in sc.items():
+            if idx < len(r) and _int(r[idx]):
+                row[str(splvl)] = _int(r[idx])
+        table[str(lvl)] = row
+    return table
+
+
+def spell_slots(tables, prog):
+    """Slot data: each caster class's own table, the multiclass table, pact magic, third-caster
+    subclass tables, and each class's caster type (full/half/pact). Non-casters are omitted."""
+    casters = _caster_classes(prog)
+    classes, types, multiclass, pact, third = {}, {}, {}, {}, {}
+    for t in tables:
+        title = (t.get("title") or "").strip()
+        if title == "Multiclass Spellcaster: Spell Slots per Spell Level":
+            multiclass = _slot_table(t) or {}
+            continue
+        m = re.fullmatch(r"(.+?) Features", title)
+        if m:
+            cls = m.group(1).strip().lower()
+            if cls not in casters:
+                continue
+            cols = t.get("columns", [])
+            if any(c.strip().lower() == "slot level" for c in cols):   # pact-magic shape
+                types[cls] = "pact"
+                iL = _col(cols, "Level"); iN = _col(cols, "Spell Slots"); iSL = _col(cols, "Slot Level")
+                for r in t.get("rows", []):
+                    lv, n, sl = (_int(r[iL]) if iL is not None else None,
+                                 _int(r[iN]) if iN is not None and iN < len(r) else None,
+                                 _int(r[iSL]) if iSL is not None and iSL < len(r) else None)
+                    if lv and n and sl:
+                        pact[str(lv)] = {"slots": n, "level": sl}
+                continue
+            tbl = _slot_table(t)
+            if tbl and any(tbl.values()):
+                classes[cls] = tbl
+                top = max((int(k) for row in tbl.values() for k in row), default=0)
+                types[cls] = "full" if top >= 6 else "half"
+        elif title.endswith(" Spellcasting"):
+            tbl = _slot_table(t)
+            if tbl and any(tbl.values()):
+                third[re.sub(r" Spellcasting$", "", title).strip().lower()] = tbl
+    return {"classes": classes, "multiclass": multiclass, "pact": pact, "third": third}, types
+
+
+def subclass_spells(tables):
+    """Per subclass → {class_level: [always-prepared spell names]} from the '<Subclass> Spells' tables
+    (keyed off a '<Class> Level' column). These grants are additive — they don't count toward the
+    class's prepared-spell budget."""
+    base_classes = {"bard", "cleric", "druid", "paladin", "ranger", "sorcerer", "warlock", "wizard"}
+    out = {}
+    for t in tables:
+        ti = (t.get("title") or "").strip()
+        if not ti.endswith(" Spells"):
+            continue
+        name = ti[:-len(" Spells")].strip()
+        if re.match(r"(Cantrips|Level \d+)", name) or name.lower() in base_classes:
+            continue
+        cols = t.get("columns", [])
+        if len(cols) < 2 or not cols[0].strip().lower().endswith("level"):
+            continue
+        by_level = {}
+        for r in t.get("rows", []):
+            lvl = _int(r[0]) if r else None
+            if lvl is None or len(r) < 2:
+                continue
+            names = [x.strip() for x in r[1].split(",") if x.strip()]
+            if names:
+                by_level[str(lvl)] = names
+        if by_level:
+            out[name.lower()] = by_level
+    return out
+
+
+def multiclass_proficiencies(sections, class_prof):
+    """Per class → the REDUCED proficiencies granted when the class is taken as a SECONDARY class,
+    parsed from its 'As a Multiclass Character' grant list:
+    {skills: {choose, from} | None, armor: [tokens], weapons: [tokens], tools: {fixed|choose} | None}.
+    A class whose multiclass entry grants only a Hit Point Die (monk/sorcerer/wizard) gets all-empty
+    grants. This is distinct from the FIRST (initial) class's full grant in class_proficiencies."""
+    out = {}
+    for s in sections:
+        t = re.sub(r"\s+", " ", s.get("text") or "")
+        # Grant list runs from "Core <Class> Traits table:" to the next "Gain the …" bullet. Anchor on
+        # the "Gain the" text, not the bullet glyph (·/•/- vary and are unicode-fragile). The heading is
+        # upper- or title-case across classes, and the "table:" colon form is the multiclass grant (the
+        # level-1 block says "Gain all the traits … table." with no colon), so re.I is safe here.
+        m = re.search(r"As a Multiclass Character.*?Core (\w+) Traits table:\s*(.*?)\s*Gain the", t, re.I)
+        if not m:
+            continue
+        cls = m.group(1).strip().lower()
+        grant = m.group(2)
+        entry = {"skills": None, "armor": _category_tokens(grant, _ARMOR_TOKENS),
+                 "weapons": _category_tokens(grant, _WEAPON_TOKENS), "tools": None}
+        if re.search(r"proficiency in one skill", grant, re.I):
+            from_own = re.search(r"from the .+? skill list", grant, re.I)
+            own_from = ((class_prof.get(cls) or {}).get("skills") or {}).get("from")
+            entry["skills"] = {"choose": 1, "from": own_from if from_own else None}
+        if re.search(r"thieves['’]? tools", grant, re.I):
+            entry["tools"] = {"fixed": ["Thieves' Tools"]}
+        elif re.search(r"musical instrument", grant, re.I):
+            entry["tools"] = {"choose": 1}
+        out[cls] = entry
+    # classes whose multiclass grant is Hit-Point-Die-only don't match the colon form → empty grant
+    for cls in class_prof:
+        out.setdefault(cls, {"skills": None, "armor": [], "weapons": [], "tools": None})
+    return out
+
+
+def caster_meta(sections):
+    """Extra caster facts the spellcasting checks need, grounded in the rulebook:
+    - spellbook: classes that prepare from a known pool (a Spellbook) — leveled spells may legally be
+      unprepared for them;
+    - arcanum: the pact caster's Mystic Arcanum ceiling {caster_level: max spell level} — spells cast
+      without a slot above the pact slot level;
+    - always_prepared: per-class class-feature spells that are always prepared and DON'T count against
+      the prepared budget."""
+    classes = {"barbarian", "bard", "cleric", "druid", "fighter", "monk",
+               "paladin", "ranger", "rogue", "sorcerer", "warlock", "wizard"}
+    spellbook, always = [], {}
+    for s in sections:
+        nm = (s.get("section") or "").strip().lower()
+        if nm not in classes:
+            continue
+        text = s.get("text") or ""
+        if "spellbook" in text.lower():
+            spellbook.append(nm)
+        sp = sorted(set(re.findall(r"always have the ([A-Z][\w' ]+?) spell prepared", text)))
+        if sp:
+            always[nm] = sp
+    txt = "\n".join(s.get("text") or "" for s in sections)
+    am = re.search(r"Mystic Arcanum.{0,600}", txt, re.S)
+    block = am.group() if am else ""
+    arcanum = {}
+    if re.search(r"level 6 \w+ spell as this arcanum", block):
+        arcanum["11"] = 6
+    for lv, sl in re.findall(r"(\d+) \(level (\d+) spell\)", block):
+        arcanum[lv] = int(sl)
+    return {"spellbook": sorted(set(spellbook)), "arcanum": arcanum, "always_prepared": always}
 
 
 def main():
@@ -255,9 +440,34 @@ def main():
     print(f"hit_dice: {len(hd)} classes -> {out}/hit_dice.json")
 
     prof = class_proficiencies(tables)
+    mc = multiclass_proficiencies(book["sections"], prof)
+    for cls, grant in mc.items():
+        if cls in prof:
+            prof[cls]["multiclass"] = grant
     with open(os.path.join(out, "class_proficiencies.json"), "w") as f:
         json.dump(prof, f, indent=1)
-    print(f"class_proficiencies: {len(prof)} classes -> {out}/class_proficiencies.json")
+    print(f"class_proficiencies: {len(prof)} classes (+multiclass grants) -> {out}/class_proficiencies.json")
+
+    slots, caster_types = spell_slots(tables, prog)
+    with open(os.path.join(out, "spell_slots.json"), "w") as f:
+        json.dump(slots, f, indent=1)
+    print(f"spell_slots: {len(slots['classes'])} class tables, {len(slots['multiclass'])} multiclass rows, "
+          f"{len(slots['pact'])} pact rows, {len(slots['third'])} third-caster tables -> {out}/spell_slots.json")
+
+    with open(os.path.join(out, "caster_types.json"), "w") as f:
+        json.dump(caster_types, f, indent=1)
+    print(f"caster_types: {caster_types} -> {out}/caster_types.json")
+
+    subs = subclass_spells(tables)
+    with open(os.path.join(out, "subclass_spells.json"), "w") as f:
+        json.dump(subs, f, indent=1)
+    print(f"subclass_spells: {len(subs)} subclasses -> {out}/subclass_spells.json")
+
+    meta = caster_meta(book["sections"])
+    with open(os.path.join(out, "caster_meta.json"), "w") as f:
+        json.dump(meta, f, indent=1)
+    print(f"caster_meta: spellbook={meta['spellbook']} arcanum={meta['arcanum']} "
+          f"always_prepared={ {k: len(v) for k, v in meta['always_prepared'].items()} } -> {out}/caster_meta.json")
 
 
 if __name__ == "__main__":

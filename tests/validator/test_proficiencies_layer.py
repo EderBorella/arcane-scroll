@@ -7,7 +7,12 @@ from validator.rules import Rules
 R = Rules(class_proficiencies={"alpha": {"saving_throws": ["str", "con"],
                                          "skills": {"choose": 2, "from": ["Athletics", "Stealth", "Arcana"]},
                                          "armor": ["light", "medium"], "weapons": ["simple", "martial"],
-                                         "tools": {"fixed": ["Kit-A"]}}},
+                                         "tools": {"fixed": ["Kit-A"]}},
+                               # 'beta' grants a reduced multiclass skill (1, from its own list)
+                               "beta": {"saving_throws": ["dex", "wis"],
+                                        "skills": {"choose": 2, "from": ["Nature", "Arcana"]},
+                                        "multiclass": {"skills": {"choose": 1, "from": ["Nature", "Arcana"]},
+                                                       "armor": [], "weapons": [], "tools": None}}},
           class_progression={"alpha": {"1": {"features": ["Expertise"]},
                                        "3": {"features": ["Expertise"]}}},
           backgrounds={"scholar": {"skills": ["Insight", "Religion"]}})
@@ -34,8 +39,41 @@ def test_legal():
     assert proficiencies.check(s, R) == []
 
 
-def test_wrong_saves():
-    assert "saving_throws" in _codes(_sheet(["str", "dex"], [("Athletics", "class"), ("Stealth", "class")]))
+def test_missing_save_flagged():
+    assert "saving_throws" in _codes(_sheet(["str"], [("Athletics", "class"), ("Stealth", "class")]))  # con missing
+
+
+def test_extra_save_is_legal():
+    # str+con (class) plus dex (e.g. Resilient feat) — an extra save must NOT be flagged.
+    assert "saving_throws" not in _codes(
+        _sheet(["str", "con", "dex"], [("Athletics", "class"), ("Stealth", "class")]))
+
+
+def _mc_sheet(class_skills):
+    """Multiclass Alpha 5 / Beta 1: Alpha grants 2 skills, Beta's multiclass grant adds 1 (own list)."""
+    return {"identity": {"classes": [{"class": "Alpha", "level": 5}, {"class": "Beta", "level": 1}],
+                         "background": None},
+            "saving_throws": {ab: {"proficient": ab in ("str", "con"), "modifier": 0}
+                              for ab in ("str", "dex", "con", "int", "wis", "cha")},
+            "skills": {name: {"proficient": True, "source": "class", "expertise": False} for name in class_skills},
+            "proficiencies": {"armor": ["Light Armor", "Medium Armor"],
+                              "weapons": ["Simple Weapons", "Martial Weapons"], "tools": ["Kit-A"]}}
+
+
+def test_multiclass_skill_count_ok():
+    # 3 class skills = Alpha's 2 + Beta's multiclass 1; all on the combined list → no violation.
+    assert proficiencies.check(_mc_sheet(["Athletics", "Stealth", "Nature"]), R) == []
+
+
+def test_multiclass_skill_count_short():
+    codes = {v.code for v in proficiencies.check(_mc_sheet(["Athletics", "Stealth"]), R)}  # only 2, needs 3
+    assert "skill_count" in codes
+
+
+def test_multiclass_skill_off_union():
+    # Deception is on neither Alpha's nor Beta's list → off-list even with the union.
+    codes = {v.code for v in proficiencies.check(_mc_sheet(["Athletics", "Stealth", "Deception"]), R)}
+    assert "skill_off_list" in codes
 
 
 def test_skill_count():

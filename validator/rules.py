@@ -6,12 +6,23 @@ import os
 
 class Rules:
     def __init__(self, class_progression=None, backgrounds=None, spell_lists=None, hit_dice=None,
-                 class_proficiencies=None):
+                 class_proficiencies=None, spell_slots=None, caster_types=None, subclass_spells=None,
+                 caster_meta=None):
         self.class_progression = class_progression or {}
         self.backgrounds = backgrounds or {}
         self.spell_lists = spell_lists or {}
         self.hit_dice = hit_dice or {}
         self.class_proficiencies = class_proficiencies or {}
+        self.spell_slots = spell_slots or {}
+        self.caster_types = caster_types or {}
+        self.subclass_spells = subclass_spells or {}
+        self.caster_meta = caster_meta or {}
+        self._spell_level = None      # lazy name → level index
+        self._sub_by_norm = None      # lazy alnum-normalised subclass → grants
+
+    @staticmethod
+    def _alnum(s):
+        return "".join(ch for ch in str(s or "").lower() if ch.isalnum())
 
     @classmethod
     def load(cls, data_dir):
@@ -27,7 +38,11 @@ class Rules:
                    backgrounds=rd("backgrounds.json", required=False),
                    spell_lists=rd("spell_lists.json", required=False),
                    hit_dice=rd("hit_dice.json", required=False),
-                   class_proficiencies=rd("class_proficiencies.json", required=False))
+                   class_proficiencies=rd("class_proficiencies.json", required=False),
+                   spell_slots=rd("spell_slots.json", required=False),
+                   caster_types=rd("caster_types.json", required=False),
+                   subclass_spells=rd("subclass_spells.json", required=False),
+                   caster_meta=rd("caster_meta.json", required=False))
 
     def proficiency_bonus(self, level):
         """Proficiency bonus at a character level (read from any class's table — identical across classes)."""
@@ -72,6 +87,15 @@ class Rules:
         """The class's skill grant {choose: N, from: [names] | None}, or None."""
         return (self.class_proficiencies.get((class_id or "").lower()) or {}).get("skills")
 
+    def class_primary(self, class_id):
+        """The class's primary ability ids (>1 ⇒ any-of, e.g. Strength OR Dexterity), or None."""
+        return (self.class_proficiencies.get((class_id or "").lower()) or {}).get("primary")
+
+    def class_multiclass(self, class_id):
+        """The REDUCED proficiencies gained when this class is taken as a secondary class
+        ({skills, armor, weapons, tools}), or None if not loaded."""
+        return (self.class_proficiencies.get((class_id or "").lower()) or {}).get("multiclass")
+
     def class_armor(self, class_id):
         """The class's armour-category tokens (light/medium/heavy/shields), or None if not loaded."""
         return (self.class_proficiencies.get((class_id or "").lower()) or {}).get("armor")
@@ -93,3 +117,106 @@ class Rules:
         grants = sum(1 for lv in levels if int(lv) <= level
                      and any(str(f).strip().lower() == "expertise" for f in levels[lv].get("features", [])))
         return grants * 2
+
+    # --- spellcasting -------------------------------------------------------
+    def caster_type(self, class_id):
+        """'full' | 'half' | 'pact' for a casting class, else None (non-caster)."""
+        return self.caster_types.get((class_id or "").lower())
+
+    def spell_level(self, name):
+        """The spell's level (0 = cantrip) from any class list, or None if unknown."""
+        if self._spell_level is None:
+            self._spell_level = {n: lv for by in self.spell_lists.values() for n, lv in by.items()}
+        return self._spell_level.get(name)
+
+    def cantrips_known(self, class_id, level):
+        """Cantrips a class knows at a level (or None if not tracked)."""
+        e = (self.class_progression.get((class_id or "").lower()) or {}).get(str(level))
+        return e.get("cantrips_known") if e else None
+
+    def prepared_count(self, class_id, level):
+        """Leveled spells a class prepares at a level (or None if not tracked)."""
+        e = (self.class_progression.get((class_id or "").lower()) or {}).get(str(level))
+        return e.get("prepared_spells") if e else None
+
+    def subclass_grants(self, subclass, level):
+        """Always-prepared spell names a subclass grants by `level` (empty set if none/unknown)."""
+        if not self.subclass_spells:
+            return set()
+        if self._sub_by_norm is None:
+            self._sub_by_norm = {self._alnum(k): v for k, v in self.subclass_spells.items()}
+        by = self._sub_by_norm.get(self._alnum(subclass))
+        if not by:
+            return set()
+        return {n for lv, names in by.items() if int(lv) <= level for n in names}
+
+    def expected_slots(self, classes):
+        """Expected leveled spell slots {spell_level: n} for the character's caster classes (pact
+        excluded — see expected_pact). Single caster → its own table; multiple → the multiclass table
+        at the combined caster level. Per the multiclass rule: full casters add their full level, half
+        casters (paladin/ranger) add half their level ROUNDED UP, and a third-caster subclass adds a
+        third of its class level rounded down. Returns {} when no leveled caster, or None if the needed
+        row isn't in the data."""
+        ss = self.spell_slots
+        if not ss:
+            return None
+        own, combined = [], 0
+        for c in classes:
+            cid = (c.get("class") or "").lower()
+            lvl = c.get("level") or 0
+            t = self.caster_type(cid)
+            sub = self._alnum(c.get("subclass"))
+            if t == "full":
+                combined += lvl
+                own.append(("class", cid, lvl))
+            elif t == "half":
+                combined += (lvl + 1) // 2      # round UP per the multiclass rule, not floor
+                own.append(("class", cid, lvl))
+            elif sub and sub in {self._alnum(k): 1 for k in ss.get("third", {})}:
+                combined += lvl // 3            # third-caster rounds down
+                own.append(("third", sub, lvl))
+        if not own:
+            return {}
+        if len(own) == 1:
+            kind, key, lvl = own[0]
+            table = ss.get("classes", {}) if kind == "class" else ss.get("third", {})
+            if kind == "third":
+                table = {self._alnum(k): v for k, v in ss.get("third", {}).items()}
+            return (table.get(key) or {}).get(str(lvl))
+        return ss.get("multiclass", {}).get(str(combined))
+
+    def expected_pact(self, classes):
+        """Expected pact-magic slots {spell_level: n} from a pact caster's level, or None if the
+        character has no pact class."""
+        pact = self.spell_slots.get("pact", {}) if self.spell_slots else {}
+        for c in classes:
+            if self.caster_type((c.get("class") or "").lower()) == "pact":
+                row = pact.get(str(c.get("level") or 0))
+                return {str(row["level"]): row["slots"]} if row else {}
+        return None
+
+    def has_spellbook(self, classes):
+        """True if any of the character's classes prepares from a Spellbook (a known pool) — leveled
+        spells may then legally be unprepared."""
+        book = set(self.caster_meta.get("spellbook") or [])
+        return any((c.get("class") or "").lower() in book for c in classes)
+
+    def arcanum_max_level(self, classes):
+        """Highest spell level a pact caster can cast via Mystic Arcanum (0 if none) — these are cast
+        without a normal/pact slot, so they legitimately exceed the pact slot level."""
+        arc = self.caster_meta.get("arcanum") or {}
+        best = 0
+        for c in classes:
+            if self.caster_type((c.get("class") or "").lower()) == "pact":
+                lvl = c.get("level") or 0
+                best = max([best] + [sl for at, sl in arc.items() if int(at) <= lvl])
+        return best
+
+    def always_prepared(self, classes):
+        """Set of class-feature always-prepared spell names for the character's classes — these are
+        additive and don't count against the prepared budget."""
+        ap = self.caster_meta.get("always_prepared") or {}
+        out = set()
+        for c in classes:
+            out |= set(ap.get((c.get("class") or "").lower()) or [])
+        return out
