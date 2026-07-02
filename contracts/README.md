@@ -47,7 +47,7 @@ arcane-desk (frontend)     ── renders   ─┘
 
 ## Versioning
 
-`schema_version` is a single integer, currently **4**. Bump it on any breaking change; keep old
+`schema_version` is a single integer, currently **5**. Bump it on any breaking change; keep old
 versions alongside if a consumer needs to migrate gradually.
 
 ## Generating types

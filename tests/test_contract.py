@@ -171,6 +171,9 @@ _REJECT_CASES = {
     "hit_dice_without_remaining": (["combat", "hit_dice", "d8", "remaining"], _DELETE),          # live-state pool needs remaining
     "companion_without_name":     (["companions"], [{"kind": "kind-a"}]),     # companion requires name
     "ac_bonus_without_source":    (["combat", "armor_class_detail", "bonuses"], [{"value": 1}]),  # AC bonus must name its source
+    "speed_modifier_without_source": (["combat", "speed_detail", "modifiers"], [{"mode": "mode-a", "value": 5}]),  # modifier must name its source
+    "speed_modifier_neither_value_nor_relative": (["combat", "speed_detail", "modifiers"], [{"mode": "mode-a", "source": "feat-a"}]),  # need exactly one of value|relative
+    "speed_relative_without_of": (["combat", "speed_detail", "modifiers"], [{"mode": "mode-c", "source": "feature-b", "relative": {"factor": 1}}]),  # relative requires `of`
     "empty_spell_slots":          (["spellcasting", "spell_slots"], {}),      # a present slot table must record >=1 level
     "ammunition_without_type":    (["equipped", "slot-e", "ammunition"], {"count": 5}),           # ammunition requires its type
     "charges_without_max":        (["equipped", "slot-c", "charges"], {"remaining": 1}),          # a charge pool requires max
