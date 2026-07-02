@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://arcane.local/contracts/character-sheet/v3",
+  "$id": "urn:arcane:contract:character-sheet:4",
   "title": "CharacterSheet",
   "description": "Canonical, versioned contract for a complete character sheet. Contract-first: this document is the source of truth; the generator, validator and decoder are made to conform to it. Structural only — game vocabulary (ability/skill/class/species/spell/background/resource/condition names) is catalog-driven and never hard-coded here, so this file is content-neutral.",
   "type": "object",
@@ -15,7 +15,8 @@
     "combat",
     "proficiencies",
     "languages",
-    "inventory",
+    "equipped",
+    "backpack",
     "treasure",
     "features",
     "feats",
@@ -25,7 +26,7 @@
   "properties": {
     "schema_version": {
       "description": "Contract version. Bump on any breaking change to this schema.",
-      "const": 3
+      "const": 4
     },
     "meta": {
       "description": "Non-sheet provenance. Optional; ignored by the validator.",
@@ -38,7 +39,7 @@
     },
     "identity": {
       "type": "object",
-      "required": ["name", "species", "size", "creature_type", "classes", "total_level"],
+      "required": ["name", "species", "size", "creature_type", "classes", "total_level", "background"],
       "additionalProperties": false,
       "properties": {
         "name": { "type": "string" },
@@ -51,7 +52,7 @@
           "items": { "$ref": "#/$defs/classEntry" }
         },
         "total_level": { "type": "integer", "minimum": 1, "maximum": 20 },
-        "background": { "type": ["string", "null"] },
+        "background": { "type": "string", "description": "Background identifier (catalog); required — it grants the ability-score increases and the origin feat." },
         "alignment": { "type": ["string", "null"] },
         "xp": { "type": "integer", "minimum": 0, "default": 0 },
         "player": { "type": ["string", "null"] }
@@ -87,7 +88,30 @@
       "required": ["armor_class", "initiative", "speed", "hit_points", "hit_dice", "death_saves"],
       "additionalProperties": false,
       "properties": {
-        "armor_class": { "type": "integer" },
+        "armor_class": { "type": "integer", "description": "The current effective AC — the authoritative number used in play." },
+        "armor_class_detail": {
+          "description": "How armor_class was derived, so it can be re-computed when armour or an ability changes. Optional; armor_class stays authoritative. armor_class = base + dex_bonus + sum(bonuses[].value).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source": { "type": ["string", "null"], "description": "Catalog identifier for the AC formula in use (worn armour / an unarmoured-defence feature / a spell)." },
+            "base": { "type": "integer", "description": "Flat base before the Dexterity contribution and any bonuses." },
+            "dex_bonus": { "type": "integer", "description": "Dexterity contribution actually applied (after any armour cap)." },
+            "bonuses": {
+              "description": "Every additional AC contribution, each tagged with what grants it, so the total sums while provenance is retained. A shield, a Ring of Protection, a Shield of Faith, etc. are each one entry.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["value", "source"],
+                "additionalProperties": false,
+                "properties": {
+                  "value": { "type": "integer", "description": "Signed AC contribution (usually positive)." },
+                  "source": { "type": "string", "description": "What grants it — an item / spell / feature identifier (catalog) or short label." }
+                }
+              }
+            }
+          }
+        },
         "initiative": { "type": "integer", "description": "Initiative modifier added to the d20 (Dexterity modifier plus any bonuses); not the '10 + mod' passive score." },
         "speed": {
           "description": "Movement speeds keyed by mode identifier (catalog) → speed in feet. At least the base walking mode is present; special modes (fly/swim/climb/burrow) appear when granted.",
@@ -100,17 +124,18 @@
           "required": ["max"],
           "additionalProperties": false,
           "properties": {
-            "max": { "type": "integer", "minimum": 1 },
+            "max": { "type": "integer", "minimum": 1, "description": "Full Hit Point maximum, before any temporary reduction." },
+            "max_reduction": { "type": "integer", "minimum": 0, "default": 0, "description": "Temporary reduction to the maximum (effective max = max − max_reduction); restored to 0 on a long rest." },
             "current": { "type": "integer" },
             "temp": { "type": "integer", "minimum": 0 }
           }
         },
         "hit_dice": {
-          "description": "Pool of hit dice by die size. Keys look like 'd8', 'd10'; values are the count at that size.",
+          "description": "Hit dice by die size. Keys look like 'd8', 'd10'; each value is a {max, remaining} pool — remaining drops as dice are spent on short rests.",
           "type": "object",
           "minProperties": 1,
           "propertyNames": { "pattern": "^d\\d+$" },
-          "additionalProperties": { "type": "integer", "minimum": 0 }
+          "additionalProperties": { "$ref": "#/$defs/pool" }
         },
         "death_saves": {
           "type": "object",
@@ -134,27 +159,51 @@
       "items": { "type": "string" }
     },
     "exhaustion": { "type": "integer", "minimum": 0, "maximum": 6, "default": 0 },
-    "senses": {
-      "description": "Special senses, keyed by sense identifier (catalog) → range in feet (0 for a non-ranged sense).",
-      "type": "object",
-      "additionalProperties": { "type": "integer", "minimum": 0 }
+    "active_concentration": {
+      "description": "The spell the character is currently concentrating on (catalog identifier), or null. At most one at a time.",
+      "type": ["string", "null"],
+      "default": null
     },
-    "attacks": {
-      "description": "Optional weapon/attack rows as shown on the sheet. Derived/for-render; not required.",
+    "active_effects": {
+      "description": "Ongoing timed effects that are neither formal conditions nor class resources — buffs, active spell effects on self, temporary bonuses. Live play state; empty at a fresh build.",
       "type": "array",
       "items": {
         "type": "object",
         "required": ["name"],
         "additionalProperties": false,
         "properties": {
-          "name": { "type": "string" },
-          "attack_bonus": { "type": ["string", "integer", "null"] },
-          "damage": { "type": ["string", "null"] },
-          "damage_type": { "type": ["string", "null"], "description": "Damage type identifier (catalog)." },
-          "weapon_mastery": { "type": ["string", "null"], "description": "Weapon-mastery property identifier (catalog), if the wielder has it." },
-          "properties": { "type": "array", "items": { "type": "string" }, "description": "Weapon property identifiers (catalog)." }
+          "name": { "type": "string", "description": "Effect identifier (catalog) or short label." },
+          "source": { "type": ["string", "null"], "description": "What produced it — a spell/feature/item identifier (catalog)." },
+          "duration": { "type": ["string", "null"], "description": "Remaining duration, e.g. a rounds/minutes/until-rest identifier." },
+          "notes": { "type": ["string", "null"] }
         }
       }
+    },
+    "companions": {
+      "description": "Secondary creatures the character controls — familiars, summoned creatures, animal companions, mounts, or a wild-shape/polymorph form. Empty for most characters.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/companion" }
+    },
+    "senses": {
+      "description": "Special senses, keyed by sense identifier (catalog) → range in feet (0 for a non-ranged sense).",
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "defenses": {
+      "description": "Damage and condition defences granted by species, features, feats or items. All lists optional; absent = none. Entries are catalog identifiers (damage type / condition names).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resistances": { "type": "array", "items": { "type": "string" }, "description": "Damage-type identifiers (catalog) the character takes half damage from." },
+        "immunities": { "type": "array", "items": { "type": "string" }, "description": "Damage-type identifiers (catalog) the character takes no damage from." },
+        "vulnerabilities": { "type": "array", "items": { "type": "string" }, "description": "Damage-type identifiers (catalog) the character takes double damage from." },
+        "condition_immunities": { "type": "array", "items": { "type": "string" }, "description": "Condition identifiers (catalog) the character cannot suffer." }
+      }
+    },
+    "attacks": {
+      "description": "Optional weapon/attack rows as shown on the sheet. Derived/for-render; not required.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/attack" }
     },
     "proficiencies": {
       "type": "object",
@@ -181,10 +230,15 @@
         "attuned": { "type": "integer", "minimum": 0 }
       }
     },
-    "inventory": {
-      "description": "All carried items — mundane and magic — one line each. See item.schema.json.",
+    "equipped": {
+      "description": "Items currently worn/wielded, keyed by slot identifier (catalog) → the item in that slot. Each is a single instance. See item.schema.json.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/item" }
+    },
+    "backpack": {
+      "description": "Carried-but-not-equipped items — mundane and magic — one line each (with a quantity). See item.schema.json.",
       "type": "array",
-      "items": { "$ref": "https://arcane.local/contracts/item/v1" }
+      "items": { "$ref": "#/$defs/item" }
     },
     "treasure": {
       "description": "Coin purse. All denominations optional; absent = 0.",
@@ -211,8 +265,9 @@
       "items": { "$ref": "#/$defs/feature" }
     },
     "feats": {
-      "description": "Feats the character has taken (across all feat categories the character is entitled to).",
+      "description": "Feats the character has taken. At least one — every character gets an origin feat from its background.",
       "type": "array",
+      "minItems": 1,
       "items": { "$ref": "#/$defs/feat" }
     },
     "spellcasting": {
@@ -221,7 +276,11 @@
         { "type": "null" },
         {
           "type": "object",
-          "required": ["classes", "spell_slots", "spells"],
+          "required": ["classes", "spells"],
+          "anyOf": [
+            { "required": ["spell_slots"] },
+            { "required": ["pact_slots"] }
+          ],
           "additionalProperties": false,
           "properties": {
             "classes": {
@@ -272,6 +331,10 @@
     }
   },
   "$defs": {
+    "item": {
+      "description": "The item contract, bound by version. This is the ONLY place the item-schema version is named; equipped/backpack both point here. The target is a URN — a stable identifier resolved offline via the schema registry, never a network fetch.",
+      "$ref": "urn:arcane:contract:item:2"
+    },
     "classEntry": {
       "type": "object",
       "required": ["class", "level"],
@@ -289,9 +352,10 @@
       "required": ["final", "modifier"],
       "additionalProperties": false,
       "properties": {
-        "base": { "type": "integer", "minimum": 1 },
+        "base": { "type": "integer", "minimum": 1, "maximum": 20, "description": "Pre-increase assignment (never above 20 at any level; later boosts land in final, capped at 30)." },
         "background_bonus": { "type": "integer", "description": "The background's ability-score increase for this ability." },
         "final": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "reduction": { "type": "integer", "minimum": 0, "default": 0, "description": "Temporary reduction to final (effective score = final − reduction); restored to 0 on a long rest. modifier reflects the effective score." },
         "modifier": { "type": "integer" }
       }
     },
@@ -331,6 +395,7 @@
           "type": "array",
           "items": { "type": "string" }
         },
+        "uses": { "$ref": "#/$defs/resourceEntry" },
         "description": { "type": ["string", "null"] }
       }
     },
@@ -342,25 +407,44 @@
         "name": { "type": "string", "description": "Feat identifier (catalog)." },
         "source": { "type": "string", "description": "Where the feat slot came from — e.g. a background-granted feat, an ability-score-improvement slot at a class level, or a high-level boon." },
         "ability_increase": {
-          "description": "If this feat granted an ability-score increase, the ability and amount.",
+          "description": "If this feat granted an ability-score increase, the ability and amount. Null/absent when it did not.",
           "type": ["object", "null"],
+          "required": ["ability", "amount"],
           "additionalProperties": false,
           "properties": {
             "ability": { "type": "string" },
             "amount": { "type": "integer" }
           }
-        }
+        },
+        "uses": { "$ref": "#/$defs/resourceEntry" }
+      }
+    },
+    "pool": {
+      "description": "A depletable count with a maximum and how much is currently left (e.g. spell slots at a level, hit dice of a size).",
+      "type": "object",
+      "required": ["max", "remaining"],
+      "additionalProperties": false,
+      "properties": {
+        "max": { "type": "integer", "minimum": 0 },
+        "remaining": { "type": "integer", "minimum": 0 }
       }
     },
     "resourceEntry": {
-      "description": "One expendable class resource (e.g. a limited-use ability's charges or a point pool).",
+      "description": "One expendable resource (a limited-use ability's charges or a point pool) — usable for class resources and for a feat/feature's own uses.",
       "type": "object",
       "required": ["max"],
       "additionalProperties": false,
       "properties": {
         "max": { "type": "integer", "minimum": 0 },
         "remaining": { "type": "integer", "minimum": 0 },
-        "recharge": { "type": ["string", "null"], "description": "Recharge identifier (catalog), e.g. a short/long rest." }
+        "recharge": {
+          "description": "Recharge trigger identifier(s) (catalog) — a single trigger, or a list when more than one applies (e.g. a short OR long rest).",
+          "oneOf": [
+            { "type": ["string", "null"] },
+            { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+          ]
+        },
+        "recharge_amount": { "type": ["integer", "string", "null"], "description": "How much is regained on recharge — an integer, or a catalog token like an 'all' identifier. Absent = full." }
       }
     },
     "castingClass": {
@@ -377,10 +461,60 @@
       }
     },
     "slotTable": {
-      "description": "Slots by spell level. Keys are the spell level as a string ('1'..'9'); values are the slot count.",
+      "description": "Slots by spell level. Keys are the spell level as a string ('1'..'9'); each value is a {max, remaining} pool — remaining drops as slots are spent and resets on the appropriate rest. Must record at least one level (an empty table would defeat the spellcasting anyOf).",
       "type": "object",
+      "minProperties": 1,
       "propertyNames": { "pattern": "^[1-9]$" },
-      "additionalProperties": { "type": "integer", "minimum": 0 }
+      "additionalProperties": { "$ref": "#/$defs/pool" }
+    },
+    "attack": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "attack_bonus": { "type": ["string", "integer", "null"] },
+        "damage": { "type": ["string", "null"] },
+        "damage_type": { "type": ["string", "null"], "description": "Damage type identifier (catalog)." },
+        "weapon_mastery": { "type": ["string", "null"], "description": "Weapon-mastery property identifier (catalog), if the wielder has it." },
+        "properties": { "type": "array", "items": { "type": "string" }, "description": "Weapon property identifiers (catalog)." }
+      }
+    },
+    "companion": {
+      "description": "A lightweight stat block for a secondary creature — enough to run it in play. The consumer resolves any named ability/trait against the catalog, as with the main character.",
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "kind": { "type": ["string", "null"], "description": "What sort of companion (catalog) — familiar / summon / animal companion / mount / shape." },
+        "size": { "type": ["string", "null"], "description": "Size identifier (catalog)." },
+        "creature_type": { "type": ["string", "null"], "description": "Creature-type identifier (catalog)." },
+        "armor_class": { "type": ["integer", "null"] },
+        "hit_points": {
+          "type": "object",
+          "required": ["max"],
+          "additionalProperties": false,
+          "properties": {
+            "max": { "type": "integer", "minimum": 0 },
+            "current": { "type": "integer" },
+            "temp": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "speed": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "senses": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "attacks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/attack" }
+        },
+        "notes": { "type": ["string", "null"] }
+      }
     },
     "spell": {
       "type": "object",
