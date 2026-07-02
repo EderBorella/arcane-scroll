@@ -3,12 +3,13 @@ report. A check that raises does NOT stop the run — it's recorded as an `inter
 remaining checks still run, so every error surfaces at once (that's the whole point)."""
 from collections import Counter
 
-from validator.checks import (ability_scores, class_level, feats, features, proficiencies,
-                              spellcasting, vitals)
+from validator.checks import (ability_scores, class_level, feats, features, identity, masteries,
+                              movement, proficiencies, spellcasting, vitals)
 from validator.report import ERROR, INTERNAL, WARNING, Violation
 
 DEFAULT_CHECKS = [class_level.check, ability_scores.check, proficiencies.check,
-                  spellcasting.check, vitals.check, feats.check, features.check]
+                  spellcasting.check, vitals.check, feats.check, features.check,
+                  identity.check, movement.check, masteries.check]
 
 
 def validate(sheet, rules, checks=None):

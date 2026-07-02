@@ -491,6 +491,113 @@ def caster_meta(sections):
     return {"spellbook": sorted(set(spellbook)), "arcanum": arcanum, "always_prepared": always}
 
 
+_SIZE_TOKENS = ("Tiny", "Small", "Medium", "Large", "Huge", "Gargantuan")
+
+
+def species(sections):
+    """Per species -> {creature_type, sizes: [...], speed: int, special_speeds?: {mode: feet}}.
+    Read from each species block's trait lines (Creature Type / Size / Speed) in the reference source;
+    a block counts as a species when it carries all three. `sizes` lists every size the species allows
+    (more than one when the species offers a choice)."""
+    out = {}
+    for s in sections:
+        text = s.get("text") or ""
+        ct = re.search(r"Creature Type\s*:\s*([^\n]+)", text)
+        sz = re.search(r"Size\s*:\s*([^\n]+)", text)
+        sp = re.search(r"Speed\s*:\s*([^\n]+)", text)
+        name = (s.get("section") or "").strip().lower()
+        if not (ct and sz and sp and name):
+            continue
+        sizes = [tok.lower() for tok in _SIZE_TOKENS if re.search(rf"\b{tok}\b", sz.group(1))]
+        entry = {"creature_type": ct.group(1).strip().rstrip(".").lower(),
+                 "sizes": sizes, "speed": _int(re.split(r"\bfeet\b", sp.group(1))[0])}
+        special = {}
+        for mode in ("fly", "swim", "climb", "burrow"):
+            m = re.search(rf"\b{mode}\s+Speed\b[^.\n]*?(\d+)\s*feet", text, re.I)
+            if m:
+                special[mode] = int(m.group(1))
+        if special:
+            entry["special_speeds"] = special
+        out[name] = entry
+    return out
+
+
+def weapon_masteries(tables):
+    """Weapon name -> its mastery property, from the weapons table's Mastery column. Category header
+    rows (which carry no mastery) are skipped. Lets the validator check a listed mastered weapon
+    actually has a mastery property to master."""
+    out = {}
+    for t in tables:
+        cols = t.get("columns") or []
+        ni, mi = _col(cols, "Name"), _col(cols, "Mastery")
+        if ni is None or mi is None:
+            continue
+        for r in t.get("rows", []):
+            if len(r) <= max(ni, mi):
+                continue
+            name, mastery = (r[ni] or "").strip(), (r[mi] or "").strip()
+            if name and mastery:
+                out[name.lower()] = mastery.lower()
+    return out
+
+
+_WORD_NUM = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
+
+
+def weapon_mastery_counts(sections, tables):
+    """Per class -> {level: number of weapons it can master}. Scaling classes read the numeric
+    'Weapon Mastery' column of their Features table; classes that grant a flat count in prose
+    ('mastery properties of two kinds of weapons') read that, at the level the feature is granted.
+    Covers every class (and any class-level section) that grants the feature, not just the ones with
+    a dedicated column."""
+    out = {}
+    # scaling counts from the 'Weapon Mastery' column
+    for t in tables:
+        m = re.fullmatch(r"(.+?) Features", (t.get("title") or "").strip())
+        if not m:
+            continue
+        cols = t.get("columns", [])
+        iL, iWM = _col(cols, "Level"), _col(cols, "Weapon Mastery")
+        if iL is None or iWM is None:
+            continue
+        by = {}
+        for r in t.get("rows", []):
+            lvl = _int(r[iL]) if iL < len(r) else None
+            if lvl is not None and iWM < len(r) and _int(r[iWM]) is not None:
+                by[str(lvl)] = _int(r[iWM])
+        if by:
+            out[m.group(1).strip().lower()] = by
+    # flat counts stated in a top-level class section's prose (no column)
+    for s in sections:
+        path = s.get("path") or []
+        if not (len(path) == 2 and "class" in path[0].lower()):
+            continue
+        pm = re.search(r"mastery properties of (\w+) kinds? of weapons", s.get("text") or "", re.I)
+        if not pm:
+            continue
+        n = _WORD_NUM.get(pm.group(1).lower()) or _int(pm.group(1))
+        cls = (s.get("section") or "").strip().lower()
+        if not (n and cls) or cls in out:      # a column-based count wins
+            continue
+        lv = None
+        lm = re.search(r"Level (\d+):\s*Weapon Mastery", s.get("text") or "")
+        if lm:
+            lv = int(lm.group(1))
+        else:
+            for t in (s.get("tables") or []):
+                iL, iF = _col(t.get("columns", []), "Level"), _col(t.get("columns", []), "Class Features")
+                if iL is None or iF is None:
+                    continue
+                for r in t.get("rows", []):
+                    if iF < len(r) and "weapon mastery" in (r[iF] or "").lower():
+                        lv = _int(r[iL])
+                        break
+                if lv:
+                    break
+        out[cls] = {str(lv or 1): n}
+    return out
+
+
 def main():
     source = os.environ.get("SOURCE_JSON")
     out = os.environ.get("VALIDATOR_DATA_DIR_HOST")
@@ -566,6 +673,21 @@ def main():
         json.dump(meta, f, indent=1)
     print(f"caster_meta: spellbook={meta['spellbook']} arcanum={meta['arcanum']} "
           f"always_prepared={ {k: len(v) for k, v in meta['always_prepared'].items()} } -> {out}/caster_meta.json")
+
+    spc = species(book["sections"])
+    with open(os.path.join(out, "species.json"), "w") as f:
+        json.dump(spc, f, indent=1)
+    print(f"species: {len(spc)} -> {out}/species.json")
+
+    wm = weapon_masteries(tables)
+    with open(os.path.join(out, "weapon_masteries.json"), "w") as f:
+        json.dump(wm, f, indent=1)
+    print(f"weapon_masteries: {len(wm)} weapons -> {out}/weapon_masteries.json")
+
+    wmc = weapon_mastery_counts(book["sections"], tables)
+    with open(os.path.join(out, "weapon_mastery_counts.json"), "w") as f:
+        json.dump(wmc, f, indent=1)
+    print(f"weapon_mastery_counts: {list(wmc)} -> {out}/weapon_mastery_counts.json")
 
 
 if __name__ == "__main__":

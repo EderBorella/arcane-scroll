@@ -7,7 +7,8 @@ import os
 class Rules:
     def __init__(self, class_progression=None, backgrounds=None, spell_lists=None, hit_dice=None,
                  class_proficiencies=None, spell_slots=None, caster_types=None, subclass_spells=None,
-                 caster_meta=None, feats=None, feature_choice_counts=None):
+                 caster_meta=None, feats=None, feature_choice_counts=None, species=None,
+                 weapon_masteries=None, weapon_mastery_counts=None):
         self.class_progression = class_progression or {}
         self.backgrounds = backgrounds or {}
         self.spell_lists = spell_lists or {}
@@ -19,6 +20,9 @@ class Rules:
         self.caster_meta = caster_meta or {}
         self.feats = feats or {}
         self.feature_choice_counts = feature_choice_counts or {}
+        self.species = species or {}
+        self.weapon_masteries = weapon_masteries or {}
+        self.weapon_mastery_counts = weapon_mastery_counts or {}
         self._spell_level = None      # lazy name → level index
         self._sub_by_norm = None      # lazy alnum-normalised subclass → grants
 
@@ -46,7 +50,10 @@ class Rules:
                    subclass_spells=rd("subclass_spells.json", required=False),
                    caster_meta=rd("caster_meta.json", required=False),
                    feats=rd("feats.json", required=False),
-                   feature_choice_counts=rd("feature_choice_counts.json", required=False))
+                   feature_choice_counts=rd("feature_choice_counts.json", required=False),
+                   species=rd("species.json", required=False),
+                   weapon_masteries=rd("weapon_masteries.json", required=False),
+                   weapon_mastery_counts=rd("weapon_mastery_counts.json", required=False))
 
     def proficiency_bonus(self, level):
         """Proficiency bonus at a character level (read from any class's table — identical across classes)."""
@@ -271,3 +278,41 @@ class Rules:
                              if "ability score improvement" in str(f).lower()
                              or str(f).strip().lower() == "epic boon")
         return n
+
+    # --- species (identity + movement) --------------------------------------
+    def _species(self, name):
+        return self.species.get((name or "").lower())
+
+    def species_base_speed(self, name):
+        """The species' base walking speed (int), or None if the species isn't known."""
+        e = self._species(name)
+        return e.get("speed") if e else None
+
+    def species_sizes(self, name):
+        """The sizes a species allows (list of ids), or None if the species isn't known."""
+        e = self._species(name)
+        return e.get("sizes") if e else None
+
+    def species_creature_type(self, name):
+        """The species' creature type (id), or None if the species isn't known."""
+        e = self._species(name)
+        return e.get("creature_type") if e else None
+
+    def is_known_species(self, name):
+        return self._species(name) is not None
+
+    # --- weapon mastery ------------------------------------------------------
+    def weapon_has_mastery(self, name):
+        """True if the weapon has a mastery property to master; False if it isn't in the data or has no
+        mastery; None only when no weapon-mastery data is loaded (so the check stays silent)."""
+        key = (name or "").lower()
+        return key in self.weapon_masteries if self.weapon_masteries else None
+
+    def weapon_mastery_count(self, class_id, level):
+        """How many weapons a class can master at `level` (the highest tracked row ≤ level), or None if
+        the class doesn't grant Weapon Mastery in the data."""
+        by = self.weapon_mastery_counts.get((class_id or "").lower())
+        if not by:
+            return None
+        rows = [int(lv) for lv in by if int(lv) <= (level or 0)]
+        return by[str(max(rows))] if rows else None
