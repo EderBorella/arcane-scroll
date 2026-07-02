@@ -491,6 +491,56 @@ def caster_meta(sections):
     return {"spellbook": sorted(set(spellbook)), "arcanum": arcanum, "always_prepared": always}
 
 
+_SIZE_TOKENS = ("Tiny", "Small", "Medium", "Large", "Huge", "Gargantuan")
+
+
+def species(sections):
+    """Per species -> {creature_type, sizes: [...], speed: int, special_speeds?: {mode: feet}}.
+    Read from each species block's trait lines (Creature Type / Size / Speed) in the reference source;
+    a block counts as a species when it carries all three. `sizes` lists every size the species allows
+    (more than one when the species offers a choice)."""
+    out = {}
+    for s in sections:
+        text = s.get("text") or ""
+        ct = re.search(r"Creature Type\s*:\s*([^\n]+)", text)
+        sz = re.search(r"Size\s*:\s*([^\n]+)", text)
+        sp = re.search(r"Speed\s*:\s*([^\n]+)", text)
+        name = (s.get("section") or "").strip().lower()
+        if not (ct and sz and sp and name):
+            continue
+        sizes = [tok.lower() for tok in _SIZE_TOKENS if re.search(rf"\b{tok}\b", sz.group(1))]
+        entry = {"creature_type": ct.group(1).strip().rstrip(".").lower(),
+                 "sizes": sizes, "speed": _int(re.split(r"\bfeet\b", sp.group(1))[0])}
+        special = {}
+        for mode in ("fly", "swim", "climb", "burrow"):
+            m = re.search(rf"\b{mode}\s+Speed\b[^.\n]*?(\d+)\s*feet", text, re.I)
+            if m:
+                special[mode] = int(m.group(1))
+        if special:
+            entry["special_speeds"] = special
+        out[name] = entry
+    return out
+
+
+def weapon_masteries(tables):
+    """Weapon name -> its mastery property, from the weapons table's Mastery column. Category header
+    rows (which carry no mastery) are skipped. Lets the validator check a listed mastered weapon
+    actually has a mastery property to master."""
+    out = {}
+    for t in tables:
+        cols = t.get("columns") or []
+        ni, mi = _col(cols, "Name"), _col(cols, "Mastery")
+        if ni is None or mi is None:
+            continue
+        for r in t.get("rows", []):
+            if len(r) <= max(ni, mi):
+                continue
+            name, mastery = (r[ni] or "").strip(), (r[mi] or "").strip()
+            if name and mastery:
+                out[name.lower()] = mastery.lower()
+    return out
+
+
 def main():
     source = os.environ.get("SOURCE_JSON")
     out = os.environ.get("VALIDATOR_DATA_DIR_HOST")
@@ -566,6 +616,16 @@ def main():
         json.dump(meta, f, indent=1)
     print(f"caster_meta: spellbook={meta['spellbook']} arcanum={meta['arcanum']} "
           f"always_prepared={ {k: len(v) for k, v in meta['always_prepared'].items()} } -> {out}/caster_meta.json")
+
+    spc = species(book["sections"])
+    with open(os.path.join(out, "species.json"), "w") as f:
+        json.dump(spc, f, indent=1)
+    print(f"species: {len(spc)} -> {out}/species.json")
+
+    wm = weapon_masteries(tables)
+    with open(os.path.join(out, "weapon_masteries.json"), "w") as f:
+        json.dump(wm, f, indent=1)
+    print(f"weapon_masteries: {len(wm)} weapons -> {out}/weapon_masteries.json")
 
 
 if __name__ == "__main__":
