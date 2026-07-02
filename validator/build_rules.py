@@ -154,9 +154,35 @@ def class_hit_dice(tables):
     return out
 
 
+_ARMOR_TOKENS = ("light", "medium", "heavy", "shield")
+_WEAPON_TOKENS = ("simple", "martial")
+
+
+def _category_tokens(text, vocab):
+    """The closed-vocabulary category tokens present in a proficiency phrase (e.g. 'Simple and Martial
+    weapons' → ['simple', 'martial']). 'shield' normalises to 'shields'. Empty for 'None'."""
+    low = (text or "").lower()
+    if low.strip() in ("none", "", "—"):
+        return []
+    return [("shields" if tok == "shield" else tok) for tok in vocab if tok in low]
+
+
+def _tool_grants(text):
+    """A class's tool grant: {fixed: [names]} for concrete grants, or {choose: N} for a player choice
+    ('Choose 3 Musical Instruments'). Fixed grants can be checked for presence; choices cannot."""
+    s = (text or "").strip()
+    if not s or s.lower() == "none":
+        return None
+    cm = re.match(r"choose (?:any )?(\w+)", s, re.I)
+    if cm:
+        return {"choose": {"one": 1, "two": 2, "three": 3}.get(cm.group(1).lower(), _int(cm.group(1)))}
+    return {"fixed": [x.strip() for x in re.split(r",|\band\b", s) if x.strip()]}
+
+
 def class_proficiencies(tables):
-    """Per class → {saving_throws: [ability ids], skills: {choose: N, from: [names] | None}} from the
-    'Core <Class> Traits' saving-throw + skill rows ('from' is None when the class picks any skills)."""
+    """Per class → {saving_throws, skills{choose,from}, armor[], weapons[], tools{fixed|choose}} from the
+    'Core <Class> Traits' rows. Armour/weapon are closed-vocabulary category tokens; 'from'/tools are
+    None/absent when the class grants nothing checkable."""
     out = {}
     for t in tables:
         m = re.fullmatch(r"Core (.+?) Traits", (t.get("title") or "").strip())
@@ -181,6 +207,14 @@ def class_proficiencies(tables):
                     after = s.split(":", 1)[1] if ":" in s else ""
                     frm = [x.strip() for x in re.split(r",|\bor\b", after) if x.strip()]
                 entry["skills"] = {"choose": int(cm.group(1)) if cm else None, "from": frm}
+            elif "armor training" in k or k.startswith("armor prof"):
+                entry["armor"] = _category_tokens(r[1], _ARMOR_TOKENS)
+            elif "weapon prof" in k:
+                entry["weapons"] = _category_tokens(r[1], _WEAPON_TOKENS)
+            elif "tool prof" in k:
+                tools = _tool_grants(r[1])
+                if tools:
+                    entry["tools"] = tools
         if entry:
             out[m.group(1).strip().lower()] = entry
     return out
