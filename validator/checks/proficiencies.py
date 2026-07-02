@@ -120,6 +120,25 @@ def check(sheet, rules):
             out.append(Violation(LAYER, "expertise_without_proficiency",
                                  f"skill '{name}' has expertise but is not proficient", True, False))
 
+    # Skill-source legality: proficiency and source must agree, and where the origin is groundable the
+    # source must actually grant the skill. (Class-sourced skills are already checked on-list above;
+    # species/feat/feature/item grants aren't in the data, so those sources are left unverified.)
+    bg_granted = {_norm(s) for s in (bg_skills or [])}
+    for name, v in skills.items():
+        src, is_prof = v.get("source"), v.get("proficient")
+        if is_prof and src is None:
+            out.append(Violation(LAYER, "skill_source_missing",
+                                 f"skill '{name}' is proficient but declares no source", None, None,
+                                 severity=WARNING))
+        elif not is_prof and src is not None:
+            out.append(Violation(LAYER, "skill_source_without_proficiency",
+                                 f"skill '{name}' declares source '{src}' but is not proficient", None, src,
+                                 severity=WARNING))
+        if src == "background" and bg_skills is not None and _norm(name) not in bg_granted:
+            out.append(Violation(LAYER, "skill_source_mismatch",
+                                 f"skill '{name}' claims the background grants it, but background "
+                                 f"'{bg}' grants {bg_skills}", bg_skills, name))
+
     n_expertise = sum(1 for v in skills.values() if v.get("expertise"))
     granted, known = 0, True
     for c in classes:

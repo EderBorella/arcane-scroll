@@ -134,3 +134,30 @@ def test_expertise_over_grant_warns():
               ("Insight", "background"), ("Religion", "background")]
     s = _sheet(["str", "con"], skills, expertise=tuple(n for n, _ in skills))   # 5 > 4 granted
     assert "expertise_over_grant" in _codes(s)
+
+
+# --- S16: skill-source legality -------------------------------------------------------------------
+
+def test_skill_source_mismatch_background():
+    # 'Arcana' claims the background grants it, but the background grants Insight/Religion.
+    s = _sheet(["str", "con"], [("Insight", "background"), ("Arcana", "background")], background="Scholar")
+    assert "skill_source_mismatch" in _codes(s)
+
+
+def test_skill_source_missing_when_proficient():
+    s = _sheet(["str", "con"], [("Athletics", None)], background="Scholar")   # proficient but source None
+    assert "skill_source_missing" in _codes(s)
+
+
+def test_skill_source_without_proficiency():
+    s = _sheet(["str", "con"], [("Athletics", "class"), ("Stealth", "class")], background="Scholar")
+    s["skills"]["skill-x"] = {"proficient": False, "source": "feat", "expertise": False}
+    assert "skill_source_without_proficiency" in _codes(s)
+
+
+def test_feat_sourced_skill_not_flagged():
+    # a feat-sourced skill is a legal origin we can't verify → must not be reported as a mismatch.
+    s = _sheet(["str", "con"], [("Athletics", "class"), ("Stealth", "class"),
+                                ("Insight", "background"), ("Religion", "background"),
+                                ("Arcana", "feat")], background="Scholar")
+    assert "skill_source_mismatch" not in _codes(s)
