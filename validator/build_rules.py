@@ -373,6 +373,60 @@ def multiclass_proficiencies(sections, class_prof):
     return out
 
 
+_CLASS_IDS = {"barbarian", "bard", "cleric", "druid", "fighter", "monk",
+              "paladin", "ranger", "rogue", "sorcerer", "warlock", "wizard"}
+_ABILITY_WORDS = "Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma"
+
+
+def _feat_prereq(text):
+    """Parse a feat's 'Prerequisite:' line into the checkable parts: {level, class, abilities}. Ability
+    groups are any-of (e.g. 'Strength or Dexterity 13+' → [['str','dex']]). Non-score prerequisites
+    (armour training, a spellcasting feature, an invocation) are left out — they aren't enforced yet."""
+    m = re.search(r"Prerequisite:\s*([^)\n]+)", text)
+    if not m:
+        return None
+    s = m.group(1)
+    pre = {}
+    cm = re.search(r"Level (\d+)\+\s+(\w+)", s)
+    if cm and cm.group(2).lower() in _CLASS_IDS:
+        pre["class"], pre["level"] = cm.group(2).lower(), int(cm.group(1))
+    else:
+        lm = re.search(r"Level (\d+)\+", s)
+        if lm:
+            pre["level"] = int(lm.group(1))
+    for am in re.finditer(rf"((?:{_ABILITY_WORDS})(?:\s+or\s+(?:{_ABILITY_WORDS}))*)\s+13\+", s):
+        group = [_ABILITY_IDS[w.lower()] for w in re.findall(_ABILITY_WORDS, am.group(1))]
+        pre.setdefault("abilities", []).append(group)
+    return pre or None
+
+
+def feats(sections, tables):
+    """Per feat → {category, repeatable, prereq?}. Category comes from the 'Feat List' tables; each
+    feat has its own section (section name == feat name) carrying its Prerequisite / Repeatable text."""
+    cats = {}
+    for t in tables:
+        if (t.get("title") or "").startswith(("Feat List", "Feats (continued")):
+            for r in t.get("rows", []):
+                if len(r) >= 2 and r[0].strip():
+                    cats[r[0].strip().rstrip("*")] = r[1].strip()   # '*' in the list marks repeatable
+    starred = {r[0].strip().rstrip("*") for t in tables
+               if (t.get("title") or "").startswith(("Feat List", "Feats (continued"))
+               for r in t.get("rows", []) if len(r) >= 2 and r[0].strip().endswith("*")}
+    out = {}
+    for s in sections:
+        nm = (s.get("section") or "").strip()
+        if nm not in cats:
+            continue
+        text = s.get("text") or ""
+        entry = {"category": cats[nm],
+                 "repeatable": nm in starred or bool(re.search(r"\bRepeatable\b", text))}
+        pre = _feat_prereq(text)
+        if pre:
+            entry["prereq"] = pre
+        out[nm.lower()] = entry
+    return out
+
+
 def caster_meta(sections):
     """Extra caster facts the spellcasting checks need, grounded in the rulebook:
     - spellbook: classes that prepare from a known pool (a Spellbook) — leveled spells may legally be
@@ -462,6 +516,13 @@ def main():
     with open(os.path.join(out, "subclass_spells.json"), "w") as f:
         json.dump(subs, f, indent=1)
     print(f"subclass_spells: {len(subs)} subclasses -> {out}/subclass_spells.json")
+
+    ft = feats(book["sections"], tables)
+    with open(os.path.join(out, "feats.json"), "w") as f:
+        json.dump(ft, f, indent=1)
+    n_pre = sum(1 for v in ft.values() if v.get("prereq"))
+    n_rep = sum(1 for v in ft.values() if v["repeatable"])
+    print(f"feats: {len(ft)} ({n_pre} with prereqs, {n_rep} repeatable) -> {out}/feats.json")
 
     meta = caster_meta(book["sections"])
     with open(os.path.join(out, "caster_meta.json"), "w") as f:

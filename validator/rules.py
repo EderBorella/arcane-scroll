@@ -7,7 +7,7 @@ import os
 class Rules:
     def __init__(self, class_progression=None, backgrounds=None, spell_lists=None, hit_dice=None,
                  class_proficiencies=None, spell_slots=None, caster_types=None, subclass_spells=None,
-                 caster_meta=None):
+                 caster_meta=None, feats=None):
         self.class_progression = class_progression or {}
         self.backgrounds = backgrounds or {}
         self.spell_lists = spell_lists or {}
@@ -17,6 +17,7 @@ class Rules:
         self.caster_types = caster_types or {}
         self.subclass_spells = subclass_spells or {}
         self.caster_meta = caster_meta or {}
+        self.feats = feats or {}
         self._spell_level = None      # lazy name → level index
         self._sub_by_norm = None      # lazy alnum-normalised subclass → grants
 
@@ -42,7 +43,8 @@ class Rules:
                    spell_slots=rd("spell_slots.json", required=False),
                    caster_types=rd("caster_types.json", required=False),
                    subclass_spells=rd("subclass_spells.json", required=False),
-                   caster_meta=rd("caster_meta.json", required=False))
+                   caster_meta=rd("caster_meta.json", required=False),
+                   feats=rd("feats.json", required=False))
 
     def proficiency_bonus(self, level):
         """Proficiency bonus at a character level (read from any class's table — identical across classes)."""
@@ -220,3 +222,23 @@ class Rules:
         for c in classes:
             out |= set(ap.get((c.get("class") or "").lower()) or [])
         return out
+
+    # --- feats ---------------------------------------------------------------
+    def feat(self, name):
+        """A feat's {category, repeatable, prereq?} or None if unknown."""
+        return self.feats.get((name or "").lower())
+
+    def feat_slots(self, classes, has_background):
+        """How many feat opportunities the character has: one Origin feat if it has a background, plus
+        every Ability-Score-Improvement / Epic-Boon feature its classes have reached (read from the
+        class progression). Feats taken must not exceed this (an ASI slot may instead be a raw ASI)."""
+        n = 1 if has_background else 0
+        for c in classes:
+            lvl = c.get("level") or 0
+            levels = self.class_progression.get((c.get("class") or "").lower()) or {}
+            for lv, entry in levels.items():
+                if int(lv) <= lvl:
+                    n += sum(1 for f in entry.get("features", [])
+                             if "ability score improvement" in str(f).lower()
+                             or str(f).strip().lower() == "epic boon")
+        return n
