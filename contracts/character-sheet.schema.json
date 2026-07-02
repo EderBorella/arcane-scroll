@@ -459,7 +459,7 @@
       }
     },
     "slotTable": {
-      "description": "Slots by spell level. Keys are the spell level as a string ('1'..'9'); each value is a {max, remaining} pool — remaining drops as slots are spent and resets on the appropriate rest. Must record at least one level (an empty table would defeat the spellcasting anyOf).",
+      "description": "Slots by spell level. Keys are the spell level as a string ('1'..'9'); each value is a {max, remaining} pool — remaining drops as slots are spent and resets on the appropriate rest. Slot tables are optional overall (a slotless caster omits them), but when present a table must record at least one level — an empty table carries no information.",
       "type": "object",
       "minProperties": 1,
       "propertyNames": { "pattern": "^[1-9]$" },
@@ -528,6 +528,7 @@
         "concentration": { "type": "boolean", "default": false },
         "requires_material": { "type": "boolean", "default": false, "description": "Has a material component." },
         "recovery": { "type": ["string", "null"], "description": "How the spell is cast/recovered (catalog): at will (cantrips), via a spell slot, or a slotless per-rest grant (e.g. cast once per long rest without a slot, as an origin feat grants). Absent = cast using slots." },
+        "uses": { "$ref": "#/$defs/resourceEntry", "description": "For a slotless per-rest spell, its own expendable use pool — max casts (1 for a once-per-rest grant, the proficiency bonus for some species grants) and remaining. Absent for at-will and slot-cast spells." },
         "casting_time": { "type": ["string", "null"], "description": "Casting-time identifier (catalog)." },
         "range": { "type": ["string", "null"] }
       }

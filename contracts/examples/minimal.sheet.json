@@ -108,7 +108,7 @@
       { "name": "cantrip-b", "level": 0, "prepared": true, "source": "species-a", "recovery": "recovery-a" },
       { "name": "spell-a", "level": 1, "prepared": true, "source": "class-a", "concentration": true },
       { "name": "spell-b", "level": 1, "prepared": true, "source": "class-a", "always_prepared": true, "ritual": true },
-      { "name": "spell-c", "level": 1, "prepared": true, "source": "feat-a", "always_prepared": true, "recovery": "recovery-b" }
+      { "name": "spell-c", "level": 1, "prepared": true, "source": "feat-a", "always_prepared": true, "recovery": "recovery-b", "uses": { "max": 1, "remaining": 1, "recharge": "recharge-b" } }
     ]
   }
 }

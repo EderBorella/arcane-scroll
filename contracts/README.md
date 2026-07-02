@@ -36,11 +36,11 @@ arcane-desk (frontend)     ── renders   ─┘
 |---|---|
 | `identity` | header (name, class & level, background, race, alignment, XP) |
 | `abilities`, `proficiency_bonus` | ability scores + proficiency bonus |
-| `saving_throws`, `skills`, `passive_perception` | saves, skills, passive perception |
-| `combat` | AC, initiative, speed, HP, hit dice, death saves |
+| `saving_throws`, `skills`, `passive_scores` | saves, skills, passive scores (incl. perception) |
+| `combat`, `defenses` | AC, initiative, speed, HP, hit dice, death saves; resistances/immunities |
 | `attacks` | attacks & spellcasting (weapon rows) |
 | `proficiencies`, `languages` | other proficiencies & languages |
-| `equipment`, `treasure` | equipment + coin |
+| `equipped`, `backpack`, `treasure` | worn/wielded items, carried items, coin |
 | `features` | features & traits |
 | `spellcasting` | the spellcasting page |
 | `flavour` | page-2 details + personality + backstory (out of scope for legality) |

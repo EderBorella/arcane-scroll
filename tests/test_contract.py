@@ -174,6 +174,7 @@ _REJECT_CASES = {
     "empty_spell_slots":          (["spellcasting", "spell_slots"], {}),      # a present slot table must record >=1 level
     "ammunition_without_type":    (["equipped", "slot-e", "ammunition"], {"count": 5}),           # ammunition requires its type
     "charges_without_max":        (["equipped", "slot-c", "charges"], {"remaining": 1}),          # a charge pool requires max
+    "spell_uses_without_max":     (["spellcasting", "spells", 4, "uses"], {"remaining": 1}),      # a slotless spell's use pool requires max
 }
 
 
@@ -183,7 +184,8 @@ def test_contract_rejects_regression(name):
 
 
 def test_pact_only_spellcasting_conforms():
-    """Guards the anyOf(spell_slots | pact_slots): a pact caster has pact_slots and no leveled slots."""
+    """A pact caster carries pact_slots and no leveled spell_slots — slots are optional, but a
+    present pact_slots table must be non-empty (slotTable minProperties)."""
     sheet = copy.deepcopy(_EXAMPLE)
     del sheet["spellcasting"]["spell_slots"]
     sheet["spellcasting"]["pact_slots"] = {"1": {"max": 2, "remaining": 2}}
