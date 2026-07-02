@@ -60,7 +60,8 @@ def class_progression(tables):
             if iP is not None and iP < len(r) and _int(r[iP]) is not None:
                 e["prepared_spells"] = _int(r[iP])
             if iF is not None and iF < len(r):
-                e["features"] = [f.strip() for f in re.split(r"[,;]", r[iF]) if f.strip()]
+                e["features"] = [f.strip() for f in re.split(r"[,;]", r[iF])
+                                 if f.strip() and f.strip() != "—"]     # '—' = no new feature that level
             levels[str(lvl)] = e
         if levels:
             out[m.group(1).strip().lower()] = levels
@@ -427,6 +428,37 @@ def feats(sections, tables):
     return out
 
 
+_CHOICE_COUNT_COLUMNS = {"eldritch invocations", "weapon mastery"}
+
+
+def feature_choice_counts(tables):
+    """Per class → {feature column → {level: count}} for features whose value is the NUMBER of choices
+    the character makes (invocations known, weapons with a mastery). Resource columns (rages, points,
+    uses) are excluded — they aren't 'pick N from a list'. Prose/subclass choice-counts (metamagic,
+    maneuvers) are not mined here."""
+    out = {}
+    for t in tables:
+        m = re.fullmatch(r"(.+?) Features", (t.get("title") or "").strip())
+        if not m:
+            continue
+        cols = t.get("columns", [])
+        iL = _col(cols, "Level")
+        picks = {i: c.strip() for i, c in enumerate(cols) if c.strip().lower() in _CHOICE_COUNT_COLUMNS}
+        if iL is None or not picks:
+            continue
+        cls = {}
+        for r in t.get("rows", []):
+            lvl = _int(r[iL]) if iL < len(r) else None
+            if lvl is None:
+                continue
+            for i, header in picks.items():
+                if i < len(r) and _int(r[i]) is not None:
+                    cls.setdefault(header, {})[str(lvl)] = _int(r[i])
+        if cls:
+            out[m.group(1).strip().lower()] = cls
+    return out
+
+
 def caster_meta(sections):
     """Extra caster facts the spellcasting checks need, grounded in the rulebook:
     - spellbook: classes that prepare from a known pool (a Spellbook) — leveled spells may legally be
@@ -523,6 +555,11 @@ def main():
     n_pre = sum(1 for v in ft.values() if v.get("prereq"))
     n_rep = sum(1 for v in ft.values() if v["repeatable"])
     print(f"feats: {len(ft)} ({n_pre} with prereqs, {n_rep} repeatable) -> {out}/feats.json")
+
+    fcc = feature_choice_counts(tables)
+    with open(os.path.join(out, "feature_choice_counts.json"), "w") as f:
+        json.dump(fcc, f, indent=1)
+    print(f"feature_choice_counts: { {k: list(v) for k, v in fcc.items()} } -> {out}/feature_choice_counts.json")
 
     meta = caster_meta(book["sections"])
     with open(os.path.join(out, "caster_meta.json"), "w") as f:

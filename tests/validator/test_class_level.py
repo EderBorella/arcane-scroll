@@ -6,7 +6,7 @@ from validator.validate import validate
 
 # class 'alpha': subclass unlocks at level 3, PB steps at 5
 RULES = Rules(class_progression={"alpha": {
-    "1": {"proficiency_bonus": 2, "features": ["Spellcasting"]},
+    "1": {"proficiency_bonus": 2, "features": []},
     "3": {"proficiency_bonus": 2, "features": ["Alpha Subclass"]},
     "5": {"proficiency_bonus": 3, "features": []},
 }}, class_proficiencies={"alpha": {"primary": ["str"]}, "beta": {"primary": ["wis"]}})
