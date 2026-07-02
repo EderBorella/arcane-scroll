@@ -1,9 +1,11 @@
-"""The contract (`contracts/character-sheet.schema.json` v2) and its example are self-consistent.
+"""The contract (`contracts/character-sheet.schema.json`) and its example are self-consistent, plus
+a regression suite that pins the contract's promises so a future version can't silently loosen them.
 
-NOTE: the generator (`app/`) has NOT been migrated to v2 and does NOT conform — that non-conformance
-is the *intended, measured* gap of an independent validator, fixed later and NEVER by editing the
-generator (see CLAUDE.md). The generator→contract conformance tests below are therefore `xfail` until
-that separate generator task runs; do not "fix" them by changing `app/`."""
+NOTE: the generator (`app/`) has NOT been migrated to the current contract and does NOT conform — that
+non-conformance is the *intended, measured* gap of an independent validator, fixed later and NEVER by
+editing the generator (see CLAUDE.md). The generator→contract conformance tests below are therefore
+`xfail` until that separate generator task runs; do not "fix" them by changing `app/`."""
+import copy
 import json
 import pathlib
 
@@ -24,7 +26,7 @@ _REGISTRY = Registry().with_resources([
 ])
 _VALIDATOR = Draft202012Validator(_SCHEMA, registry=_REGISTRY)
 
-_GEN_GAP = "generator not migrated to contract v2; its non-conformance is the intended, measured gap"
+_GEN_GAP = "generator not migrated to the current contract; its non-conformance is the intended, measured gap"
 
 
 def _errors(obj) -> list:
@@ -123,3 +125,72 @@ def test_third_caster_subclass_sheet_conforms(catalog):
     contract = to_contract_sheet(choices, derive(catalog, choices))
     assert contract["spellcasting"]["classes"]        # was {} before the fix → schema failure
     assert _errors(contract) == []
+
+
+# --- Regression guards ------------------------------------------------------------------------
+# Each case starts from the known-good example, mutates ONE thing, and asserts the contract now
+# rejects it. This pins the promises the contract makes; a future version that silently drops a
+# constraint makes the matching case pass validation, which fails the test and forces a conscious
+# decision. If a later version *intentionally* changes a rule, update the case in the same commit.
+
+_EXAMPLE = json.loads((_CONTRACTS / "examples" / "minimal.sheet.json").read_text())
+_DELETE = object()
+
+
+def _mutated(path, value):
+    """A deep copy of the example with `path` set to `value` (or deleted when value is _DELETE)."""
+    sheet = copy.deepcopy(_EXAMPLE)
+    *parents, last = path
+    node = sheet
+    for key in parents:
+        node = node[key]
+    if value is _DELETE:
+        del node[last]
+    else:
+        node[last] = value
+    return sheet
+
+
+# name -> (path into the sheet, new value | _DELETE) — the mutation the contract MUST reject.
+_REJECT_CASES = {
+    "base_above_20":              (["abilities", "a1", "base"], 21),          # base is pre-increase, capped at 20
+    "final_above_30":             (["abilities", "a1", "final"], 31),         # final caps at 30 even with boons
+    "missing_background":         (["identity", "background"], _DELETE),      # background is mandatory
+    "empty_feats":                (["feats"], []),                            # at least the origin feat
+    "spellcasting_without_slots": (["spellcasting", "spell_slots"], _DELETE), # needs spell_slots OR pact_slots
+    "unknown_top_level_field":    (["bogus"], 1),                             # additionalProperties: false
+    "legacy_inventory_field":     (["inventory"], []),                        # replaced by equipped + backpack
+    "exhaustion_out_of_range":    (["exhaustion"], 7),                        # 0..6
+    "too_many_death_saves":       (["combat", "death_saves", "successes"], 4),# 0..3
+    "wrong_schema_version":       (["schema_version"], 999),                  # const-pinned
+    "proficiency_bonus_below_2":  (["proficiency_bonus"], 1),                 # 2..6
+    "unknown_item_field":         (["equipped", "slot-a", "bogus"], 1),       # item additionalProperties: false
+}
+
+
+@pytest.mark.parametrize("name", sorted(_REJECT_CASES))
+def test_contract_rejects_regression(name):
+    assert _errors(_mutated(*_REJECT_CASES[name])) != [], f"{name}: should be rejected but conformed"
+
+
+def test_pact_only_spellcasting_conforms():
+    """Guards the anyOf(spell_slots | pact_slots): a pact caster has pact_slots and no leveled slots."""
+    sheet = copy.deepcopy(_EXAMPLE)
+    del sheet["spellcasting"]["spell_slots"]
+    sheet["spellcasting"]["pact_slots"] = {"1": 2}
+    assert _errors(sheet) == []
+
+
+def test_noncaster_spellcasting_null_conforms():
+    """Guards the oneOf null branch: a wholly non-casting character has spellcasting = null."""
+    assert _errors(_mutated(["spellcasting"], None)) == []
+
+
+def test_schema_version_matches_id():
+    """A version bump must move the $id tail and the schema_version const together."""
+    assert _SCHEMA["$id"].rsplit(":", 1)[-1] == str(_SCHEMA["properties"]["schema_version"]["const"])
+
+
+def test_item_ref_matches_item_id():
+    """The sheet's single item alias must point at the item schema's own $id."""
+    assert _SCHEMA["$defs"]["item"]["$ref"] == _ITEM["$id"]
