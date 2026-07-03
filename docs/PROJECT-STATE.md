@@ -3,10 +3,11 @@
 > **Master state doc (public, high-level).** One source of truth for what we're building, what
 > works, what's decided, and what's next.
 >
-> Last updated: **2026-07-01**. **Recent:** stood up an **independent validation micro-service**
-> (F02) beside the generator — a *post-hoc* gate distinct from the by-construction grammar (§1,
-> Changelog). Earlier major shift: dropped the fine-tune in favour of a **base model + per-request
-> dynamic grammar** approach (§1, §4); generation (sheet + all choices + flavour) is validated and
+> Last updated: **2026-07-03**. **Recent:** the **independent validation micro-service** (F02) has
+> matured — a **contract-first** shared `CharacterSheet` schema (now **v5**) plus **ten** grounded
+> validator layers, each built to the correct rules *independently of the generator* (§1, Changelog).
+> Earlier major shift: dropped the fine-tune in favour of a **base model + per-request dynamic
+> grammar** approach (§1, §4); generation (sheet + all choices + flavour) is validated and
 > essentially complete.
 
 ---
@@ -76,19 +77,21 @@ What's left is derivation-side + the service:**
 | Starting equipment choices | ✅ done |
 | Flavour bundle (physical/traits/backstory) | ✅ done (one structured call) |
 | Strict validator + reference data (by-construction, generator-side) | ✅ working |
-| **Validation micro-service (independent post-hoc gate)** | ✅ five layered checks + resilient report; served over HTTP |
+| **Validation micro-service (independent post-hoc gate)** | ✅ **contract v5** + **10 grounded layers** (class/level, ability, proficiencies, spellcasting, vitals, feats, features, identity, movement, masteries) + resilient report; served over HTTP |
 | **Generation (all model choices)** | ✅ **complete & valid by construction** |
 | **Service stack (Docker: model + app)** | ✅ scaffolded — skeleton serving |
 | **Shared resource catalog (load-time)** | ✅ loaded in memory at startup |
 | **Character sheet generator** | ✅ base contract + feature/feat/equipment choices |
 | **Backstory generator** | ✅ physical + personality + backstory |
 | **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live — `/v1/characters` now returns choices **+ derived sheet** |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ 200 generator + 31 validator |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ 208 generator + 116 validator |
 | **Derivation engine (compute side)** | ✅ render-ready sheet + armour-based AC + inventory assembly + **starting treasure**; two-pass next (T42/T46) |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
+
+- **Contract-first shared schema + grounded validator layers (F02, ongoing).** Made the sheet a **contract-first** shared JSON Schema (`contracts/character-sheet.schema.json`, versioned by a `schema_version` const + a URN `$id`) and grew it **v1 → v5** through repeated **independent multi-agent audits** against the reference: **v2** completed the contract; **v3** added round-1 gaps; **v4** added *defenses*, an *equipment redesign* (`equipped` + `backpack` over a self-describing item contract), a batch of **live-play** fields (spell/hit-dice **pools** `{max, remaining}`, `armor_class_detail`, `companions`, per-feature/feat/item **uses & charges**, `active_concentration`/`active_effects`, temporary HP/ability reductions), and generalised spellcasting to **sources** (class/feat/species/item; slots optional for slotless casters); **v5** added **`speed_detail`**. AC and speed carry **provenance** (base + sourced modifiers) so both re-derive and trace to source; the sheet is a **live play document** and **identifiers suffice** (no rules prose embedded). On the validator: added **feats** (S07), **features** (S10), **movement / identity (size + creature-type) / weapon-mastery** (S12–S15), **skill-source** (S16) and **declared spell-budget** (S17) layers, and reconciled spellcasting to the pool + sources shape (F02-VAL) — **10 layers** total. Throughout, the guiding rule: the validator is built to the correct rules **independently**; the generator's non-conformance is the *intended, measured* gap (fixed later, never by bending the validator/contract), and generator-conformance tests stay `xfail`. Each change landed spec-first with synthetic, content-neutral fixtures (**116** validator tests) and a per-PR **independent multi-agent review**.
 
 - **Independent validation micro-service (F02)** — a second, *post-hoc* validator that lives beside the generator in its own package (`validator/`) with its own FastAPI app, entrypoint, and read-only rules-data mount — distinct from the generator's *by-construction* grammar. `POST /validate` takes a finished sheet and returns one organised report `{legal, complete, violations[], summary}` — violations sorted by `(layer, code)`, each tagged ERROR/WARNING. A **resilient orchestrator** runs *every* check and aggregates *all* findings in one pass; a check that raises becomes an `internal` finding and never aborts the run. Five layers so far: **class/level** (proficiency bonus, subclass-unlock timing), **ability scores** (cap, background-granted increases + their placement pattern), **proficiencies** (saves from the first class, skill count/on-list, background skills), **spellcasting** (unified prepared model, real-spell membership), **vitals** (HP range, hit-dice pool, initiative, passive perception). Rules are **functional facts** loaded from a data dir, built offline by `build_rules.py` from a source extraction (facts only, never prose) — the repo stays content-neutral and the ruleset is *data*, not code. Built spec-first/TDD with synthetic, content-neutral fixtures (31 tests). Containerised as its own compose service. **Why it exists:** an independent gate that catches drift between what the generator was originally built to and the ruleset we now target — something the by-construction grammar cannot check itself.
 - **Smart ASI allocation (T48)** — `ability_scores` no longer dumps a flat +2 on one ability. It counts the available ASI points (2 per ASI slot; a slot spent on a real feat yields none) and places them to maximise modifiers (a point only buys a modifier when it takes an odd score to even): the primary ability is raised toward 20 through odd steps but never left stranded on a no-modifier odd, then remaining points even out the highest-priority odd abilities. The ability a model *names* on an ASI pick is now ignored (placement is optimal; the original split-ASI grammar change is unnecessary). Live: primaries land even/at-20 (Str 16→18, etc.), no wasted odd→odd jumps. +3 tests (175); a lone leftover ASI point is spent in full on the highest-priority ability (ASIs come in pairs).
@@ -380,7 +383,7 @@ seconds. Stable at q4 (0 parse failures / 0 loops across 149).
 
 **Done:**
 - ✅ **Service stack scaffolded** (Docker: model + app, self-contained; app skeleton serving) — see Changelog.
-- ✅ **Validation micro-service (F02)** — independent post-hoc gate: five layered checks + a resilient, aggregate-everything report, served over HTTP as its own compose service. See Changelog. *(Next on it: features-by-level + choice-counts, expertise, deeper spellcasting, and a structural/schema-conformance layer.)*
+- ✅ **Validation micro-service (F02)** — independent post-hoc gate: **contract-first** shared schema (**v5**) + **10 grounded layers** + a resilient, aggregate-everything report, served over HTTP as its own compose service. See Changelog. *(Remaining validator layers in backlog: **S18** spell-metadata, **S19** attunement, **S20** passive-scores; then the **S11** conformance-corpus capstone. Deferred/carded: **F02-SRC** (verify non-class spell grants), **F02-GEN** (migrate the generator to the contract), **F02-HYGIENE** (neutralise test vocabulary — blocked on the generator).)*
 
 **Now (highest leverage):**
 1. **Generator** (base contract) is in — catalog-driven grammar/prompt → model → repaired choices.
