@@ -7,10 +7,15 @@ from validator.rules import Rules
 R = Rules(hit_dice={"alpha": 10, "beta": 6})
 
 
+def _pool(hd):
+    """Wrap a flat {dX: count} into the v5 live-pool shape {dX: {max, remaining}}."""
+    return {k: {"max": v, "remaining": v} for k, v in hd.items()}
+
+
 def _sheet(classes, hp, hit_dice, con=2, init=2, dexmod=2, pp=None, perc=None):
     total = sum(l for _, l in classes)
     sheet = {"identity": {"total_level": total, "classes": [{"class": c, "level": l} for c, l in classes]},
-             "combat": {"hit_dice": hit_dice, "hit_points": {"max": hp}, "initiative": init},
+             "combat": {"hit_dice": _pool(hit_dice), "hit_points": {"max": hp}, "initiative": init},
              "abilities": {"con": {"modifier": con}, "dex": {"modifier": dexmod}}}
     if pp is not None:
         sheet["passive_perception"] = pp
@@ -36,6 +41,13 @@ def test_hp_out_of_range():
 
 def test_multiclass_pool():
     s = _sheet([("alpha", 3), ("beta", 2)], hp=40, hit_dice={"d10": 3, "d6": 2})
+    assert "hit_dice_pool" not in _codes(s)
+
+
+def test_pool_remaining_ignored():      # spent hit dice (remaining < max) is live state, not a mismatch
+    s = _sheet([("alpha", 5)], hp=44, hit_dice={"d10": 5})
+    for pool in s["combat"]["hit_dice"].values():
+        pool["remaining"] = 0
     assert "hit_dice_pool" not in _codes(s)
 
 

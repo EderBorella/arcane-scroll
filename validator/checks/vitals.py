@@ -21,7 +21,10 @@ def check(sheet, rules):
         expected = {}
         for c, die in dies:
             expected[f"d{die}"] = expected.get(f"d{die}", 0) + (c.get("level") or 0)
-        actual = combat.get("hit_dice") or {}
+        # hit_dice is a live pool per die size ({dX: {max, remaining}}); the rule-checkable count is
+        # `max` (remaining is live state). Tolerate a bare int too, so old-shape data still compares.
+        raw = combat.get("hit_dice") or {}
+        actual = {k: (v.get("max") if isinstance(v, dict) else v) for k, v in raw.items()}
         if actual != expected:
             out.append(Violation(LAYER, "hit_dice_pool",
                                  f"hit-dice pool {actual} != expected {expected}", expected, actual))
