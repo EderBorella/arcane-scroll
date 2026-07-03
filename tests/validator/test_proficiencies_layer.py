@@ -156,8 +156,17 @@ def test_skill_source_without_proficiency():
 
 
 def test_feat_sourced_skill_not_flagged():
-    # a feat-sourced skill is a legal origin we can't verify → must not be reported as a mismatch.
-    s = _sheet(["str", "con"], [("Athletics", "class"), ("Stealth", "class"),
-                                ("Insight", "background"), ("Religion", "background"),
-                                ("Arcana", "feat")], background="Scholar")
-    assert "skill_source_mismatch" not in _codes(s)
+    # differential: with the check live (a background-sourced non-granted skill DOES mismatch), a
+    # feat-sourced skill must NOT — proving the exemption, not a vacuous pass.
+    s = _sheet(["str", "con"], [("Insight", "background"), ("Religion", "background"),
+                                ("Arcana", "feat"), ("Intimidation", "background")], background="Scholar")
+    flagged = [v.actual for v in proficiencies.check(s, R) if v.code == "skill_source_mismatch"]
+    assert "Intimidation" in flagged and "Arcana" not in flagged
+
+
+def test_non_proficient_background_source_not_double_reported():
+    # proficient=False + source=background must yield only the advisory, never a mismatch ERROR too.
+    s = _sheet(["str", "con"], [("Athletics", "class"), ("Stealth", "class")], background="Scholar")
+    s["skills"]["Intimidation"] = {"proficient": False, "source": "background", "expertise": False}
+    codes = _codes(s)
+    assert "skill_source_without_proficiency" in codes and "skill_source_mismatch" not in codes

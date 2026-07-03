@@ -134,7 +134,7 @@ def check(sheet, rules):
             out.append(Violation(LAYER, "skill_source_without_proficiency",
                                  f"skill '{name}' declares source '{src}' but is not proficient", None, src,
                                  severity=WARNING))
-        if src == "background" and bg_skills is not None and _norm(name) not in bg_granted:
+        elif src == "background" and bg_skills and _norm(name) not in bg_granted:
             out.append(Violation(LAYER, "skill_source_mismatch",
                                  f"skill '{name}' claims the background grants it, but background "
                                  f"'{bg}' grants {bg_skills}", bg_skills, name))
