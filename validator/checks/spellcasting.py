@@ -143,6 +143,30 @@ def check(sheet, rules):
                                      f"source '{src_id}' has {n} leveled spell(s) tagged but grants {cap_p}",
                                      cap_p, n))
 
+    # S17: a class source's DECLARED budgets (cantrips_known / prepared_limit) must equal what the
+    # rules grant for that class at its level. Only class sources whose class the character has and
+    # whose rule value is known are grounded (a prepared-caster budget the data doesn't table → skip).
+    # The actual spell counts are already checked against the rules above, so a correct declared budget
+    # also agrees with the actual counts.
+    class_level = {(c.get("class") or "").lower(): c.get("level") or 0 for c in classes}
+    for src_id, src in sources.items():
+        if src.get("kind") != "class":
+            continue
+        cls_key = src_id.lower()
+        lvl = class_level.get(cls_key)
+        if lvl is None:
+            continue
+        exp_c, dec_c = rules.cantrips_known(cls_key, lvl), src.get("cantrips_known")
+        if exp_c is not None and dec_c is not None and dec_c != exp_c:
+            out.append(Violation(LAYER, "cantrips_known_mismatch",
+                                 f"source '{src_id}' declares cantrips_known {dec_c}; the class grants "
+                                 f"{exp_c} at level {lvl}", exp_c, dec_c))
+        exp_p, dec_p = rules.prepared_count(cls_key, lvl), src.get("prepared_limit")
+        if exp_p is not None and dec_p is not None and dec_p != exp_p:
+            out.append(Violation(LAYER, "prepared_limit_mismatch",
+                                 f"source '{src_id}' declares prepared_limit {dec_p}; the class grants "
+                                 f"{exp_p} at level {lvl}", exp_p, dec_p))
+
     # No spell above the highest available slot level (pact casters may exceed it via Mystic Arcanum).
     max_level = max([int(k) for k, v in (expected or {}).items() if v]
                     + [int(k) for k, v in (exp_pact or {}).items() if v]

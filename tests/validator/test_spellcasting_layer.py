@@ -229,6 +229,40 @@ def test_source_undeclared_limit_not_bounded():
     assert "source_cantrips_exceeded" not in codes and "source_spells_exceeded" not in codes
 
 
+# --- S17: declared per-source budgets vs the rules ------------------------------------------------
+
+_M5 = [{"class": "mage", "level": 5, "subclass": None}]
+_M5_SPELLS = ([{"name": "Zap", "level": 0, "prepared": True}] * 4
+              + [{"name": "Bolt", "level": 1, "prepared": True}] * 6)      # rules: 4 cantrips, 6 prepared
+
+
+def test_declared_cantrips_known_wrong():
+    s = _csheet(_M5, _M5_SPELLS, spell_slots={"1": 4, "2": 3, "3": 2},
+                sources={"mage": {"kind": "class", "cantrips_known": 3, "prepared_limit": 6}})   # 3 ≠ 4
+    assert "cantrips_known_mismatch" in _codes(s, RC)
+
+
+def test_declared_prepared_limit_wrong():
+    s = _csheet(_M5, _M5_SPELLS, spell_slots={"1": 4, "2": 3, "3": 2},
+                sources={"mage": {"kind": "class", "cantrips_known": 4, "prepared_limit": 5}})   # 5 ≠ 6
+    assert "prepared_limit_mismatch" in _codes(s, RC)
+
+
+def test_declared_budgets_correct_ok():
+    s = _csheet(_M5, _M5_SPELLS, spell_slots={"1": 4, "2": 3, "3": 2},
+                sources={"mage": {"kind": "class", "cantrips_known": 4, "prepared_limit": 6}})
+    codes = _codes(s, RC)
+    assert "cantrips_known_mismatch" not in codes and "prepared_limit_mismatch" not in codes
+
+
+def test_declared_budget_ungrounded_skipped():
+    # 'knight' has no tabled cantrips_known in the rules → a declared value can't be grounded → skip.
+    s = _csheet([{"class": "knight", "level": 5, "subclass": None}],
+                [{"name": "Bolt", "level": 1, "prepared": True}] * 6,
+                spell_slots={"1": 2}, sources={"knight": {"kind": "class", "cantrips_known": 99}})
+    assert "cantrips_known_mismatch" not in _codes(s, RC)
+
+
 def test_offlist_subclass_grant_is_known_and_normalised():
     # 'order-y' grants 'Offlist-Z' (not on any base list); it's folded into the known set, and the
     # present/prepared check is normalised (sheet uses lowercase).
