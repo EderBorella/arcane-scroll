@@ -152,15 +152,16 @@ def check(sheet, rules):
     for src_id, src in sources.items():
         if src.get("kind") != "class":
             continue
-        lvl = class_level.get(src_id.lower())
+        cls_key = src_id.lower()
+        lvl = class_level.get(cls_key)
         if lvl is None:
             continue
-        exp_c, dec_c = rules.cantrips_known(src_id, lvl), src.get("cantrips_known")
+        exp_c, dec_c = rules.cantrips_known(cls_key, lvl), src.get("cantrips_known")
         if exp_c is not None and dec_c is not None and dec_c != exp_c:
             out.append(Violation(LAYER, "cantrips_known_mismatch",
                                  f"source '{src_id}' declares cantrips_known {dec_c}; the class grants "
                                  f"{exp_c} at level {lvl}", exp_c, dec_c))
-        exp_p, dec_p = rules.prepared_count(src_id, lvl), src.get("prepared_limit")
+        exp_p, dec_p = rules.prepared_count(cls_key, lvl), src.get("prepared_limit")
         if exp_p is not None and dec_p is not None and dec_p != exp_p:
             out.append(Violation(LAYER, "prepared_limit_mismatch",
                                  f"source '{src_id}' declares prepared_limit {dec_p}; the class grants "
