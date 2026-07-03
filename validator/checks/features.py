@@ -29,10 +29,19 @@ def check(sheet, rules):
                                      f"{cid} feature '{feat}' (granted by level {lv}) is not on the sheet",
                                      feat, None))
 
-    # 2) choice-count features carry the right number of picks (missing ones are handled above)
+    # 2) choice-count features carry the right number of picks (missing ones are handled above).
+    # A header granted by MORE THAN ONE of the character's classes (e.g. multiclass Weapon Mastery)
+    # can't be attributed to a single class on the flat features list, so skip it here — the dedicated
+    # layer (masteries) owns that count with the highest-single-class rule.
+    header_classes = {}
+    for c in classes:
+        for header in (rules.feature_choice_counts.get((c.get("class") or "").lower()) or {}):
+            header_classes.setdefault(_norm(header), set()).add((c.get("class") or "").lower())
     for c in classes:
         cid, lv = c.get("class"), c.get("level") or 0
         for header in (rules.feature_choice_counts.get((cid or "").lower()) or {}):
+            if len(header_classes.get(_norm(header), ())) > 1:
+                continue
             expected = rules.feature_choice_expected(cid, header, lv)
             sf = by_norm.get(_norm(header))
             if expected is None or sf is None:

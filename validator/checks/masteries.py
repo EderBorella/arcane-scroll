@@ -22,20 +22,19 @@ def check(sheet, rules):
                for c in classes]
     tracked = [(cid, n) for cid, n in tracked if n is not None]
 
-    if len(classes) == 1 and len(tracked) == 1:
-        cid, exp = tracked[0]
-        if len(mastered) < exp:                       # fewer than the class grants — no legal source reduces it
+    if tracked:
+        # Ruling: multiclass Weapon Mastery does NOT stack — the character masters the HIGHEST single
+        # class's count (max among the mastery-granting classes), not the sum. Fewer than that has no
+        # legal source (ERROR); more can come from a feat/subclass (advisory WARNING).
+        exp = max(n for _, n in tracked)
+        if len(mastered) < exp:
             out.append(Violation(LAYER, "mastery_count",
-                                 f"{len(mastered)} mastered weapon(s); class '{cid}' grants {exp}",
+                                 f"{len(mastered)} mastered weapon(s); expected {exp} "
+                                 f"(highest among the character's mastery-granting classes)",
                                  exp, len(mastered)))
-        elif len(mastered) > exp:                     # extras can be legal (a feat / subclass grant) → advisory
+        elif len(mastered) > exp:
             out.append(Violation(LAYER, "mastery_count",
-                                 f"{len(mastered)} mastered weapon(s) exceeds the {exp} class '{cid}' grants "
-                                 f"(extra masteries may come from a feat or subclass)",
+                                 f"{len(mastered)} mastered weapon(s) exceeds {exp} (highest single class); "
+                                 f"extra masteries may come from a feat or subclass",
                                  exp, len(mastered), severity=WARNING))
-    elif tracked and len(mastered) > sum(n for _, n in tracked):
-        total = sum(n for _, n in tracked)
-        out.append(Violation(LAYER, "mastery_count",
-                             f"{len(mastered)} mastered weapon(s) exceeds the {total} granted across "
-                             f"tracked classes", total, len(mastered), severity=WARNING))
     return out
