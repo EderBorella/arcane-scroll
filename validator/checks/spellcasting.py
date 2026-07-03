@@ -107,7 +107,8 @@ def check(sheet, rules):
     sev = WARNING if len(caster_cls) > 1 else ERROR
 
     exp_cantrips = _sum_or_none(rules.cantrips_known, caster_cls)
-    n_cantrips = sum(1 for s in spells if (s.get("level") or 0) == 0 and not _non_class(s))
+    n_cantrips = sum(1 for s in spells if (s.get("level") or 0) == 0 and not _non_class(s)
+                     and _norm(s.get("name")) not in excluded)   # subclass/always-granted cantrips are additive
     if exp_cantrips is not None and n_cantrips != exp_cantrips:
         out.append(Violation(LAYER, "cantrip_count", f"{n_cantrips} cantrip(s); expected {exp_cantrips}",
                              exp_cantrips, n_cantrips, severity=sev))

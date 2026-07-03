@@ -42,7 +42,7 @@ def test_membership_skipped_without_data():
 # --- slots / counts / level / subclass grants -----------------------------------------------------
 
 RC = Rules(
-    spell_lists={"mage": {"Bolt": 1, "Zap": 0, "Big": 3, "Huge": 5, "Arc": 6}},
+    spell_lists={"mage": {"Bolt": 1, "Zap": 0, "Flare": 0, "Big": 3, "Huge": 5, "Arc": 6}},
     caster_types={"mage": "full", "knight": "half", "hexer": "pact", "scribe": "full"},
     class_progression={"mage": {"5": {"cantrips_known": 4, "prepared_spells": 6}},
                        "knight": {"5": {"prepared_spells": 6}},
@@ -52,7 +52,7 @@ RC = Rules(
                  "multiclass": {"3": {"1": 4, "2": 2}, "4": {"1": 4, "2": 3},
                                 "7": {"1": 4, "2": 3, "3": 3, "4": 1}},
                  "pact": {"5": {"slots": 2, "level": 3}, "17": {"slots": 4, "level": 5}}, "third": {}},
-    subclass_spells={"order-x": {"3": ["Big"]}, "order-y": {"3": ["Offlist-Z"]}},
+    subclass_spells={"order-x": {"3": ["Big"]}, "order-y": {"3": ["Offlist-Z"]}, "order-c": {"3": ["Flare"]}},
     caster_meta={"spellbook": ["scribe"], "arcanum": {"11": 6, "13": 7, "15": 8, "17": 9},
                  "always_prepared": {"knight": ["Smite-A"]}})
 
@@ -253,6 +253,17 @@ def test_declared_budgets_correct_ok():
                 sources={"mage": {"kind": "class", "cantrips_known": 4, "prepared_limit": 6}})
     codes = _codes(s, RC)
     assert "cantrips_known_mismatch" not in codes and "prepared_limit_mismatch" not in codes
+
+
+def test_subclass_granted_cantrip_not_counted():
+    # a subclass-granted always-prepared cantrip ('Flare' via order-c) is additive — it must NOT count
+    # against the class cantrip budget (symmetric to subclass leveled grants).
+    spells = ([{"name": "Zap", "level": 0, "prepared": True}] * 4                 # 4 regular cantrips = budget
+              + [{"name": "Bolt", "level": 1, "prepared": True}] * 6
+              + [{"name": "Flare", "level": 0, "prepared": True, "always_prepared": True}])  # +1 subclass cantrip
+    s = _csheet([{"class": "mage", "level": 5, "subclass": "Order-C"}], spells,
+                spell_slots={"1": 4, "2": 3, "3": 2})
+    assert "cantrip_count" not in _codes(s, RC)
 
 
 def test_declared_budget_ungrounded_skipped():

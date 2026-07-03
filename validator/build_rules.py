@@ -310,32 +310,35 @@ def spell_slots(tables, prog):
     return {"classes": classes, "multiclass": multiclass, "pact": pact, "third": third}, types
 
 
-def subclass_spells(tables):
-    """Per subclass → {class_level: [always-prepared spell names]} from the '<Subclass> Spells' tables
-    (keyed off a '<Class> Level' column). These grants are additive — they don't count toward the
-    class's prepared-spell budget."""
-    base_classes = {"bard", "cleric", "druid", "paladin", "ranger", "sorcerer", "warlock", "wizard"}
+def subclass_spells(sections):
+    """Per subclass → {class_level: [always-prepared spell names]} from the '<...> Spells' table inside
+    each subclass's own section, keyed by the SUBCLASS NAME (the section title), NOT the table title.
+    The table title is sometimes thematic (a Fiend Patron's grants live in a 'Fiend Spells' table), so
+    keying by the section keeps the subclass name the sheet uses matchable. These grants are additive —
+    they don't count toward the class's prepared-spell budget."""
     out = {}
-    for t in tables:
-        ti = (t.get("title") or "").strip()
-        if not ti.endswith(" Spells"):
-            continue
-        name = ti[:-len(" Spells")].strip()
-        if re.match(r"(Cantrips|Level \d+)", name) or name.lower() in base_classes:
-            continue
-        cols = t.get("columns", [])
-        if len(cols) < 2 or not cols[0].strip().lower().endswith("level"):
-            continue
-        by_level = {}
-        for r in t.get("rows", []):
-            lvl = _int(r[0]) if r else None
-            if lvl is None or len(r) < 2:
+    for s in sections:
+        path = s.get("path") or []
+        if not (len(path) == 3 and "character classes" in path[0].lower()):
+            continue                                    # only true subclass sections (class > subclass)
+        subclass = path[2].strip()
+        for t in (s.get("tables") or []):
+            ti = (t.get("title") or "").strip()
+            cols = t.get("columns", [])
+            if not ti.endswith(" Spells") or re.match(r"(Cantrips|Level \d+)", ti):
+                continue                                # skip the class spell-list tables ('Level N ...')
+            if len(cols) < 2 or not cols[0].strip().lower().endswith("level"):
                 continue
-            names = [x.strip() for x in r[1].split(",") if x.strip()]
-            if names:
-                by_level[str(lvl)] = names
-        if by_level:
-            out[name.lower()] = by_level
+            by_level = {}
+            for r in t.get("rows", []):
+                lvl = _int(r[0]) if r else None
+                if lvl is None or len(r) < 2:
+                    continue
+                names = [x.strip() for x in r[1].split(",") if x.strip()]
+                if names:
+                    by_level[str(lvl)] = names
+            if by_level:
+                out[subclass.lower()] = by_level
     return out
 
 
@@ -651,7 +654,7 @@ def main():
         json.dump(caster_types, f, indent=1)
     print(f"caster_types: {caster_types} -> {out}/caster_types.json")
 
-    subs = subclass_spells(tables)
+    subs = subclass_spells(book["sections"])
     with open(os.path.join(out, "subclass_spells.json"), "w") as f:
         json.dump(subs, f, indent=1)
     print(f"subclass_spells: {len(subs)} subclasses -> {out}/subclass_spells.json")
