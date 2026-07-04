@@ -1,5 +1,5 @@
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "identity": {
     "name": "Placeholder",
     "species": "species-a",
@@ -105,11 +105,12 @@
     },
     "spell_slots": { "1": { "max": 4, "remaining": 3 }, "2": { "max": 2, "remaining": 2 } },
     "spells": [
-      { "name": "cantrip-a", "level": 0, "prepared": false, "source": "class-a", "recovery": "recovery-a" },
-      { "name": "cantrip-b", "level": 0, "prepared": true, "source": "species-a", "recovery": "recovery-a" },
-      { "name": "spell-a", "level": 1, "prepared": true, "source": "class-a", "concentration": true },
-      { "name": "spell-b", "level": 1, "prepared": true, "source": "class-a", "always_prepared": true, "ritual": true },
-      { "name": "spell-c", "level": 1, "prepared": true, "source": "feat-a", "always_prepared": true, "recovery": "recovery-b", "uses": { "max": 1, "remaining": 1, "recharge": "recharge-b" } }
+      { "name": "cantrip-a", "level": 0, "bucket": "cantrip", "source": "class-a", "recovery": "at_will" },
+      { "name": "cantrip-b", "level": 0, "bucket": "cantrip", "source": "species-a", "recovery": "at_will" },
+      { "name": "spell-a", "level": 1, "bucket": "prepared", "source": "class-a", "concentration": true },
+      { "name": "spell-b", "level": 1, "bucket": "always", "source": "class-a", "ritual": true, "recovery": "ritual_only" },
+      { "name": "spell-c", "level": 1, "bucket": "always", "source": "feat-a", "recovery": "slotless_per_rest", "uses": { "max": 1, "remaining": 1, "recharge": "recharge-b" }, "secondary_cast": { "resource": "spell_slot" } },
+      { "name": "spell-d", "level": 2, "bucket": "known", "source": "class-a" }
     ]
   }
 }

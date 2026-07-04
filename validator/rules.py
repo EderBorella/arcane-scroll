@@ -8,7 +8,8 @@ class Rules:
     def __init__(self, class_progression=None, backgrounds=None, spell_lists=None, hit_dice=None,
                  class_proficiencies=None, spell_slots=None, caster_types=None, subclass_spells=None,
                  caster_meta=None, feats=None, feature_choice_counts=None, species=None,
-                 weapon_masteries=None, weapon_mastery_counts=None):
+                 weapon_masteries=None, weapon_mastery_counts=None,
+                 spells=None, sources=None, grants=None):
         self.class_progression = class_progression or {}
         self.backgrounds = backgrounds or {}
         self.spell_lists = spell_lists or {}
@@ -23,8 +24,12 @@ class Rules:
         self.species = species or {}
         self.weapon_masteries = weapon_masteries or {}
         self.weapon_mastery_counts = weapon_mastery_counts or {}
+        self.spells = spells or []              # v6 spell catalog (spells.json)
+        self.sources = sources or {}            # v6 source catalog (sources.json["sources"])
+        self.grants = grants or {}              # v6 per-source grant specs (grants/*.json, merged by source id)
         self._spell_level = None      # lazy name → level index
         self._sub_by_norm = None      # lazy alnum-normalised subclass → grants
+        self._spell_by_norm = None    # lazy alnum-normalised spell name/id → catalog record
 
     @staticmethod
     def _alnum(s):
@@ -53,7 +58,12 @@ class Rules:
                    feature_choice_counts=rd("feature_choice_counts.json", required=False),
                    species=rd("species.json", required=False),
                    weapon_masteries=rd("weapon_masteries.json", required=False),
-                   weapon_mastery_counts=rd("weapon_mastery_counts.json", required=False))
+                   weapon_mastery_counts=rd("weapon_mastery_counts.json", required=False),
+                   spells=rd("spells.json", required=False) or [],
+                   sources=(rd("sources.json", required=False) or {}).get("sources", {}),
+                   grants={**(rd("grants/feats.json", required=False) or {}),
+                           **(rd("grants/species.json", required=False) or {}),
+                           **(rd("grants/subclasses.json", required=False) or {})})
 
     def proficiency_bonus(self, level):
         """Proficiency bonus at a character level (read from any class's table — identical across classes)."""
@@ -231,6 +241,75 @@ class Rules:
         for c in classes:
             out |= set(ap.get((c.get("class") or "").lower()) or [])
         return out
+
+    # --- v6 spell catalog + source grants -----------------------------------
+    def _spell_index(self):
+        """Lazy alnum-normalised index of the spell catalog, keyed by both name and id."""
+        if self._spell_by_norm is None:
+            idx = {}
+            for s in (self.spells or []):
+                if s.get("name"):
+                    idx[self._alnum(s["name"])] = s
+                if s.get("id"):
+                    idx.setdefault(self._alnum(s["id"]), s)
+            self._spell_by_norm = idx
+        return self._spell_by_norm
+
+    def spell_meta(self, name):
+        """The catalog record for a spell (matched by name or id), or None if not catalogued."""
+        return self._spell_index().get(self._alnum(name))
+
+    def is_catalog_spell(self, name):
+        """True if the spell is in the catalog; None if no catalog is loaded (so the check stays silent)."""
+        return (self._alnum(name) in self._spell_index()) if self.spells else None
+
+    def spell_on_class_list(self, name, class_id):
+        """True if the spell is on the class's spell list; None if the spell isn't catalogued."""
+        m = self.spell_meta(name)
+        if not m:
+            return None
+        return self._alnum(class_id) in {self._alnum(c) for c in (m.get("classes") or [])}
+
+    def spell_catalog_school(self, name):
+        m = self.spell_meta(name)
+        return m.get("school") if m else None
+
+    def spell_catalog_ritual(self, name):
+        m = self.spell_meta(name)
+        return bool(m.get("ritual")) if m else None
+
+    def spell_catalog_level(self, name):
+        m = self.spell_meta(name)
+        return m.get("level") if m else None
+
+    def source_type(self, source_id):
+        """Catalog type of a source (class|subclass|feat|species|lineage|item), or None."""
+        s = self.sources or {}
+        e = s.get(source_id) or s.get((source_id or "").lower())
+        return e.get("type") if e else None
+
+    def source_grants(self, source_id):
+        """The grant spec for a source (from grants/*.json), or None if the source grants nothing / is unknown."""
+        g = self.grants or {}
+        return g.get(source_id) or g.get((source_id or "").lower())
+
+    def resolve_source(self, source_id):
+        """Resolve a spell's source to (grant_record, variant). A plain source returns its own grant
+        record + None. A repeatable-feat INSTANCE id (e.g. 'feat-x_variant-a') resolves to the base
+        feat's grant record + the chosen variant ('variant-a') — the variant narrows a choose{from: list} to
+        that specific list. Returns (None, None) if unknown / ungranted."""
+        g = self.grants or {}
+        nid = (source_id or "").lower()
+        direct = g.get(source_id) or g.get(nid)
+        if direct:
+            return direct, None
+        for sep in ("_", "-"):
+            if sep in nid:
+                base, _, variant = nid.rpartition(sep)
+                rec = g.get(base) or g.get(base.replace("_", "-")) or g.get(base.replace("-", "_"))
+                if rec:
+                    return rec, variant
+        return None, None
 
     # --- features ------------------------------------------------------------
     def class_features(self, class_id, level):
