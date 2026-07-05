@@ -1,16 +1,10 @@
-"""Layer: spellcasting (v6). Each spell is attributed to a SOURCE (spell.source → a key in
-spellcasting.sources) and held in a BUCKET (cantrip|prepared|always|known). Counting is per source and
-therefore exact — multiclass included, no advisory downgrade: a class source's cantrip/prepared spells
-count against that class's budget, while `always`/`known` are additive (subclass/feat/species grants and
-spellbook entries). Every (name, source) is unique; a spell may repeat only under a different source.
-Every spell is a catalog member. Spell/pact slots match the caster classes; no spell exceeds the top
-available slot level (a pact caster's above-slot slotless casts excepted). Declared per-source budgets (S17) must match the rules.
-Collects all findings; never raises.
-
-INCREMENT 2 (not yet implemented here): bucket↔recovery coupling, `always`-grant-spec validation
-(fixed list vs choose{from school|tag|list}), per-pick class-list constraint-checking, secondary_cast,
-known-as-not-currently-castable."""
-from validator.report import Violation, ERROR
+"""Layer: spellcasting. Leveled spells use the unified *prepared* model; every spell is real (on some
+class list); spell slots (and pact slots) match what the caster classes grant; cantrip and prepared
+counts match the class/level budget (subclass always-prepared grants are additive, not counted); no
+spell exceeds the highest available slot level; and every subclass-granted spell is present + prepared.
+Single-caster count checks are errors; multiclass counts are advisory (per-class attribution is
+ambiguous on the sheet). Collects all findings; never raises."""
+from validator.report import Violation, WARNING, ERROR
 
 LAYER = "spellcasting"
 
@@ -25,9 +19,21 @@ def _slots_eq(a, b):
 
 
 def _slot_maxes(table):
-    """The rule-checkable counts from a live slot table: {level: max} from {level: {max, remaining}}
-    pools. `remaining` is live state, not rule-checkable. Tolerates a bare int value too."""
+    """The rule-checkable counts from a live slot table: {level: max} from the contract's
+    {level: {max, remaining}} pools. `remaining` is live state, not rule-checkable, so it's ignored.
+    Tolerates a bare int value too, so old-shape data still compares."""
     return {k: (v.get("max") if isinstance(v, dict) else v) for k, v in (table or {}).items()}
+
+
+def _sum_or_none(rules_fn, caster_cls):
+    """Sum a per-class budget across caster classes; None if any class's value is unknown."""
+    total, seen = 0, False
+    for c in caster_cls:
+        v = rules_fn(c.get("class"), c.get("level") or 0)
+        if v is None:
+            return None
+        total, seen = total + v, True
+    return total if seen else None
 
 
 def check(sheet, rules):
@@ -39,165 +45,52 @@ def check(sheet, rules):
     spells = cb.get("spells") or []
     sources = cb.get("sources") or {}
 
-    # (name, source) uniqueness — a spell may repeat only under a DIFFERENT source (its own ability/DC).
-    seen = set()
-    for s in spells:
-        key = (_norm(s.get("name")), _norm(s.get("source")))
-        if key in seen:
-            out.append(Violation(LAYER, "duplicate_spell",
-                                 f"'{s.get('name')}' from source '{s.get('source')}' is listed more than once",
-                                 None, s.get("name")))
-        seen.add(key)
+    def _non_class(s):
+        """True if the spell comes from a declared non-class source (a feat / species / item — any
+        source kind other than 'class'). Such a grant is fixed: it sits outside the class spell-list
+        membership check and the cantrip/prepared budgets. A class source, or an unattributed spell (no
+        source, or a source not declared in `sources`), is NOT excluded and keeps full checks.
+        NOTE: this trusts the sheet's own source attribution — whether a feat/species really grants a
+        given spell, and how many, is not independently verified here (that grounding is deferred)."""
+        kind = sources.get(s.get("source"), {}).get("kind")
+        return kind is not None and kind != "class"
 
-    # Source resolution — every spell's source must be declared in spellcasting.sources.
-    for s in spells:
-        src = s.get("source")
-        if src is not None and src not in sources:
-            out.append(Violation(LAYER, "unknown_source",
-                                 f"spell '{s.get('name')}' names source '{src}' not declared in "
-                                 f"spellcasting.sources", None, src))
-
-    # Catalog membership — every spell must be a real catalogued spell (skipped when no catalog loaded).
-    for s in spells:
-        if rules.is_catalog_spell(s.get("name")) is False:
-            out.append(Violation(LAYER, "unknown_spell", f"'{s.get('name')}' is not in the spell catalog",
-                                 None, s.get("name")))
-
-    # Per-pick class-list constraint: a CHOSEN spell (cantrip/prepared/known) attributed to a CLASS source
-    # must be on that class's spell list. `always` grants are exempt — they are validated against the
-    # granting source's grant spec. Skipped when the spell isn't catalogued (already → unknown_spell) or no
-    # catalog is loaded (spell_on_class_list → None).
-    class_ids = {_norm(c.get("class")) for c in classes}
-    for s in spells:
-        if s.get("bucket") not in ("cantrip", "prepared", "known"):
-            continue
-        src = s.get("source")
-        if _norm(src) not in class_ids:
-            continue
-        if rules.spell_on_class_list(s.get("name"), src) is False:
-            out.append(Violation(LAYER, "spell_not_on_class_list",
-                                 f"'{s.get('name')}' ({s.get('bucket')}) is not on the '{src}' spell list",
-                                 src, s.get("name")))
-
-    # `always`-grant validation: an `always` spell must be justified by its source's grant spec — a fixed
-    # grant, or a valid choose{from: school|tag|list} pick (checked against the spell catalog). Only sources
-    # that HAVE a grant record are checked; an ungranted source can't be validated, so it's skipped (no
-    # false positive). Level-scaling of grants is a later slice.
-    total_level = sum((c.get("level") or 0) for c in classes) or ((sheet.get("identity") or {}).get("total_level") or 0)
-
-    def _applicable_level(rec, source_id):
-        """The level to gate a source's grants by — a subclass's parent-class level, else total character level."""
-        if (rec or {}).get("kind") == "subclass":
-            parent = _norm(rec.get("parent_class"))
-            for c in classes:
-                if _norm(c.get("class")) == parent or _norm(c.get("subclass")) == _norm(source_id):
-                    return c.get("level") or 0
-            return 0
-        return total_level
-
-    def _applicable_entries(rec, level):
-        return [gr for gr in (rec.get("grants") or []) if (gr.get("gained_at") or {}).get("level", 1) <= level]
-
-    def _resolve_n(choose, level):
-        """The count a choose{} grants, or None if it uses an unresolvable scaling token."""
-        n = (choose or {}).get("n")
-        if isinstance(n, int):
-            return n
-        if n == "proficiency_bonus":
-            return rules.proficiency_bonus(level)
-        return None
-
-    def _satisfies(name, choose, variant=None):
-        frm = (choose or {}).get("from") or {}
-        typ, val = frm.get("type"), frm.get("value") or []
-        want_lvl = frm.get("spell_level")
-        if want_lvl not in (None, "any", "any_available") and rules.spell_catalog_level(name) != want_lvl:
-            return False
-        if typ == "school":
-            return (rules.spell_catalog_school(name) or "").lower() in [str(v).lower() for v in val]
-        if typ == "tag":
-            return bool(rules.spell_catalog_ritual(name)) if "ritual" in [str(v).lower() for v in val] else False
-        if typ == "list":
-            allowed = [variant] if variant else val         # a repeatable-feat variant narrows to its chosen list
-            return any(rules.spell_on_class_list(name, c) for c in allowed)
-        return False
-
-    # `always`-grant validation, LEVEL-GATED to the grants the source actually gives at this level.
-    for s in spells:
-        if s.get("bucket") != "always":
-            continue
-        g, variant = rules.resolve_source(s.get("source"))   # resolves repeatable-feat instances too
-        if not g:
-            continue
-        entries = _applicable_entries(g, _applicable_level(g, s.get("source")))
-        fixed = {_norm(n) for gr in entries for n in ((gr.get("spec") or {}).get("fixed") or [])}
-        name = s.get("name")
-        if _norm(name) in fixed:
-            continue
-        if any(_satisfies(name, (gr.get("spec") or {}).get("choose"), variant) for gr in entries
-               if (gr.get("spec") or {}).get("choose")):
-            continue
-        out.append(Violation(LAYER, "always_spell_not_granted",
-                             f"'{name}' is tagged as an always-prepared grant from '{s.get('source')}', "
-                             f"but that source does not grant it", s.get("source"), name))
-
-    # Grant COUNT per always-source (level-gated): the number of always grants must equal what the source
-    # gives at this level. Skipped for a source with an unresolvable scaling token (no false positive).
-    always_count = {}
-    for s in spells:
-        if s.get("bucket") == "always" and s.get("source"):
-            always_count[s.get("source")] = always_count.get(s.get("source"), 0) + 1
-    for src_id, actual in always_count.items():
-        g, _v = rules.resolve_source(src_id)
-        if not g:
-            continue
-        lvl = _applicable_level(g, src_id)
-        expected, unresolvable = 0, False
-        for gr in _applicable_entries(g, lvl):
-            spec = gr.get("spec") or {}
-            expected += len(spec.get("fixed") or [])
-            if spec.get("choose"):
-                n = _resolve_n(spec["choose"], lvl)
-                if n is None:
-                    unresolvable = True
-                else:
-                    expected += n
-        if not unresolvable and actual != expected:
-            out.append(Violation(LAYER, "grant_count_mismatch",
-                                 f"source '{src_id}' has {actual} always-prepared grant(s); expected {expected} "
-                                 f"at this level", expected, actual))
-
-    # bucket ↔ recovery coupling — catch contradictory combinations (independent axes must still agree).
-    for s in spells:
-        b, r = s.get("bucket"), s.get("recovery")
-        if (b == "cantrip" and r in ("spell_slot", "pact_slot", "slotless_per_rest", "ritual_only")) \
-                or (b == "known" and r is not None) \
-                or (b == "prepared" and r == "at_will"):
-            out.append(Violation(LAYER, "bucket_recovery_mismatch",
-                                 f"'{s.get('name')}': bucket '{b}' is incompatible with recovery '{r}'", b, r))
-
-    # Per-source counting (EXACT). For each caster CLASS source, count the cantrip/prepared buckets
-    # attributed to it against that class's budget. `always`/`known` are additive and never counted.
+    # Subclass always-prepared grants: must be present + prepared; collected (with class-feature
+    # always-prepared spells) as additive grants that don't count against the prepared budget.
+    subclass_granted = set()
+    present = {_norm(s.get("name")) for s in spells}
+    prepared_names = {_norm(s.get("name")) for s in spells if s.get("prepared")}
     for c in classes:
-        cid = (c.get("class") or "").lower()
-        lvl = c.get("level") or 0
-        if not rules.caster_type(cid):
-            continue
-        attributed = [s for s in spells if _norm(s.get("source")) == _norm(cid)]
-        exp_c = rules.cantrips_known(cid, lvl)
-        if exp_c is not None:
-            n = sum(1 for s in attributed if s.get("bucket") == "cantrip")
-            if n != exp_c:
-                out.append(Violation(LAYER, "cantrip_count",
-                                     f"class '{cid}': {n} cantrip(s); expected {exp_c}", exp_c, n))
-        exp_p = rules.prepared_count(cid, lvl)
-        if exp_p is not None:
-            n = sum(1 for s in attributed if s.get("bucket") == "prepared")
-            if n != exp_p:
-                out.append(Violation(LAYER, "prepared_count",
-                                     f"class '{cid}': {n} prepared leveled spell(s); expected {exp_p}", exp_p, n))
+        for n in rules.subclass_grants(c.get("subclass"), c.get("level") or 0):
+            subclass_granted.add(_norm(n))
+            if _norm(n) not in present:
+                out.append(Violation(LAYER, "subclass_spell_missing",
+                                     f"subclass '{c.get('subclass')}' grants '{n}' as always-prepared; "
+                                     f"it is not on the sheet", n, None))
+            elif _norm(n) not in prepared_names:
+                out.append(Violation(LAYER, "subclass_spell_not_prepared",
+                                     f"subclass-granted spell '{n}' must be prepared", True, False))
+    always = {_norm(n) for n in rules.always_prepared(classes)}
+    excluded = subclass_granted | always      # additive grants — see prepared_count below
 
-    # Spell slots (single caster → own table; multiclass → combined). Pact magic is separate.
+    # Real-spell membership — grants can sit off the base class lists, so include them and normalise
+    # the comparison. The unified prepared model is skipped for a spellbook caster (its known pool may
+    # legally hold unprepared leveled spells).
+    base = rules.all_spells()
+    known = {_norm(n) for n in base} | excluded
+    spellbook = rules.has_spellbook(classes)
+    for s in spells:
+        name, lvl, prepared = s.get("name"), s.get("level") or 0, s.get("prepared")
+        if lvl >= 1 and prepared is False and not spellbook and not _non_class(s):
+            out.append(Violation(LAYER, "spell_not_prepared",
+                                 f"leveled spell '{name}' is not prepared; casters use one prepared list",
+                                 True, prepared))
+        if base and _norm(name) not in known and not _non_class(s):
+            out.append(Violation(LAYER, "unknown_spell",
+                                 f"'{name}' is not on any class spell list", None, name))
+
+    # Spell slots (single caster → own table; multiclass → combined table). Pact magic is separate.
+    # Compare the rule-checkable slot counts (each pool's max) against what the caster classes grant.
     expected = rules.expected_slots(classes)
     got_slots = _slot_maxes(cb.get("spell_slots"))
     if expected is not None and not _slots_eq(expected, got_slots):
@@ -209,7 +102,73 @@ def check(sheet, rules):
         out.append(Violation(LAYER, "pact_slots_mismatch",
                              f"pact slots {got_pact} != expected {exp_pact}", exp_pact, got_pact))
 
-    # No spell above the highest available slot level (a pact caster may exceed it via above-slot slotless casts).
+    # Cantrip / prepared counts.
+    caster_cls = [c for c in classes if rules.caster_type((c.get("class") or "").lower())]
+    sev = WARNING if len(caster_cls) > 1 else ERROR
+
+    exp_cantrips = _sum_or_none(rules.cantrips_known, caster_cls)
+    n_cantrips = sum(1 for s in spells if (s.get("level") or 0) == 0 and not _non_class(s)
+                     and _norm(s.get("name")) not in excluded)   # subclass/always-granted cantrips are additive
+    if exp_cantrips is not None and n_cantrips != exp_cantrips:
+        out.append(Violation(LAYER, "cantrip_count", f"{n_cantrips} cantrip(s); expected {exp_cantrips}",
+                             exp_cantrips, n_cantrips, severity=sev))
+
+    exp_prepared = _sum_or_none(rules.prepared_count, caster_cls)
+    n_prepared = sum(1 for s in spells if (s.get("level") or 0) >= 1 and s.get("prepared")
+                     and _norm(s.get("name")) not in excluded and not _non_class(s))
+    if exp_prepared is not None and n_prepared != exp_prepared:
+        out.append(Violation(LAYER, "prepared_count",
+                             f"{n_prepared} prepared leveled spell(s) (excluding always-prepared grants); "
+                             f"expected {exp_prepared}", exp_prepared, n_prepared, severity=sev))
+
+    # Per-source ceiling for a non-class source: it can't be tagged with more spells than it declares
+    # it grants. This bounds the source attribution the class-budget exclusion trusts (it does NOT
+    # verify *which* spells the source grants — that grounding is deferred). Only sources that declare
+    # a limit are checked; an undeclared limit can't be bounded, so it's skipped (no false positive).
+    for src_id, src in sources.items():
+        if src.get("kind") in (None, "class"):
+            continue
+        tagged = [s for s in spells if s.get("source") == src_id]
+        cap_c = src.get("cantrips_known")
+        if cap_c is not None:
+            n = sum(1 for s in tagged if (s.get("level") or 0) == 0)
+            if n > cap_c:
+                out.append(Violation(LAYER, "source_cantrips_exceeded",
+                                     f"source '{src_id}' has {n} cantrip(s) tagged but grants {cap_c}",
+                                     cap_c, n))
+        cap_p = src.get("prepared_limit")
+        if cap_p is not None:
+            n = sum(1 for s in tagged if (s.get("level") or 0) >= 1)
+            if n > cap_p:
+                out.append(Violation(LAYER, "source_spells_exceeded",
+                                     f"source '{src_id}' has {n} leveled spell(s) tagged but grants {cap_p}",
+                                     cap_p, n))
+
+    # S17: a class source's DECLARED budgets (cantrips_known / prepared_limit) must equal what the
+    # rules grant for that class at its level. Only class sources whose class the character has and
+    # whose rule value is known are grounded (a prepared-caster budget the data doesn't table → skip).
+    # The actual spell counts are already checked against the rules above, so a correct declared budget
+    # also agrees with the actual counts.
+    class_level = {(c.get("class") or "").lower(): c.get("level") or 0 for c in classes}
+    for src_id, src in sources.items():
+        if src.get("kind") != "class":
+            continue
+        cls_key = src_id.lower()
+        lvl = class_level.get(cls_key)
+        if lvl is None:
+            continue
+        exp_c, dec_c = rules.cantrips_known(cls_key, lvl), src.get("cantrips_known")
+        if exp_c is not None and dec_c is not None and dec_c != exp_c:
+            out.append(Violation(LAYER, "cantrips_known_mismatch",
+                                 f"source '{src_id}' declares cantrips_known {dec_c}; the class grants "
+                                 f"{exp_c} at level {lvl}", exp_c, dec_c))
+        exp_p, dec_p = rules.prepared_count(cls_key, lvl), src.get("prepared_limit")
+        if exp_p is not None and dec_p is not None and dec_p != exp_p:
+            out.append(Violation(LAYER, "prepared_limit_mismatch",
+                                 f"source '{src_id}' declares prepared_limit {dec_p}; the class grants "
+                                 f"{exp_p} at level {lvl}", exp_p, dec_p))
+
+    # No spell above the highest available slot level (pact casters may exceed it via Mystic Arcanum).
     max_level = max([int(k) for k, v in (expected or {}).items() if v]
                     + [int(k) for k, v in (exp_pact or {}).items() if v]
                     + [rules.arcanum_max_level(classes), 0])
@@ -220,24 +179,4 @@ def check(sheet, rules):
                 out.append(Violation(LAYER, "spell_level_too_high",
                                      f"'{s.get('name')}' is level {lvl}; highest available slot is {max_level}",
                                      max_level, lvl))
-
-    # S17: a class source's DECLARED budgets must equal what the rules grant for that class at its level.
-    class_level = {(c.get("class") or "").lower(): c.get("level") or 0 for c in classes}
-    for src_id, src in sources.items():
-        if src.get("kind") != "class":
-            continue
-        lvl = class_level.get(src_id.lower())
-        if lvl is None:
-            continue
-        exp_c, dec_c = rules.cantrips_known(src_id.lower(), lvl), src.get("cantrips_known")
-        if exp_c is not None and dec_c is not None and dec_c != exp_c:
-            out.append(Violation(LAYER, "cantrips_known_mismatch",
-                                 f"source '{src_id}' declares cantrips_known {dec_c}; the class grants "
-                                 f"{exp_c} at level {lvl}", exp_c, dec_c))
-        exp_p, dec_p = rules.prepared_count(src_id.lower(), lvl), src.get("prepared_limit")
-        if exp_p is not None and dec_p is not None and dec_p != exp_p:
-            out.append(Violation(LAYER, "prepared_limit_mismatch",
-                                 f"source '{src_id}' declares prepared_limit {dec_p}; the class grants "
-                                 f"{exp_p} at level {lvl}", exp_p, dec_p))
-
     return out
