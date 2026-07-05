@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:arcane:contract:character-sheet:5",
+  "$id": "urn:arcane:contract:character-sheet:6",
   "title": "CharacterSheet",
   "description": "Canonical, versioned contract for a complete character sheet. Contract-first: this document is the source of truth; the generator, validator and decoder are made to conform to it. Structural only — game vocabulary (ability/skill/class/species/spell/background/resource/condition names) is catalog-driven and never hard-coded here, so this file is content-neutral.",
   "type": "object",
@@ -26,7 +26,7 @@
   "properties": {
     "schema_version": {
       "description": "Contract version. Bump on any breaking change to this schema.",
-      "const": 5
+      "const": 6
     },
     "meta": {
       "description": "Non-sheet provenance. Optional; ignored by the validator.",
@@ -326,6 +326,7 @@
             "spell_slots": { "$ref": "#/$defs/slotTable" },
             "pact_slots": { "$ref": "#/$defs/slotTable" },
             "spells": {
+              "description": "The character's spells. Unique by (name, source): a spell may appear more than once only under DIFFERENT sources (each cast with that source's ability/DC). The validator enforces this composite-key uniqueness — JSON Schema cannot.",
               "type": "array",
               "items": { "$ref": "#/$defs/spell" }
             }
@@ -487,7 +488,7 @@
       "required": ["kind", "ability", "modifier", "save_dc", "attack_bonus"],
       "additionalProperties": false,
       "properties": {
-        "kind": { "type": "string", "description": "What the source is (catalog) — a class / feat / species / item." },
+        "kind": { "type": "string", "description": "What the source is (catalog) — a class / subclass / feat / species / lineage / item. A subclass source covers a subclass's always-prepared grants, and a subclass that grants its own spellcasting (carrying its own budgets)." },
         "ability": { "type": "string", "description": "Spellcasting ability identifier (catalog)." },
         "modifier": { "type": "integer", "description": "Spellcasting ability modifier." },
         "save_dc": { "type": "integer" },
@@ -553,20 +554,36 @@
       }
     },
     "spell": {
+      "description": "One spell the character holds. Three independent axes: source (who grants it → the ability/DC used), bucket (how it is HELD, for counting), and recovery (how it is CAST). Uniqueness is on (name, source) — see the spells array.",
       "type": "object",
-      "required": ["name", "level", "prepared"],
+      "required": ["name", "level", "bucket", "source"],
       "additionalProperties": false,
       "properties": {
         "name": { "type": "string" },
         "level": { "type": "integer", "minimum": 0, "maximum": 9, "description": "0 = cantrip." },
-        "prepared": { "type": "boolean" },
-        "source": { "type": ["string", "null"], "description": "The casting source this spell comes from — a key in spellcasting.sources (a class, feat, species or item; catalog). Disambiguates multiclass and feat/species grants." },
-        "always_prepared": { "type": "boolean", "default": false, "description": "Granted always-prepared by a subclass or feature; does not count against a prepared budget." },
+        "source": { "type": "string", "description": "REQUIRED — the casting source this spell comes from; a key in spellcasting.sources, which supplies the ability/DC/attack used to cast it. For a repeatable feat it is an instance identifier (a per-variant id for a feat taken more than once) that resolves to the feat type plus its chosen-list variant. Every spell is attributed." },
+        "bucket": {
+          "description": "How the spell is HELD, for counting (independent of how it is cast). 'cantrip' = a chosen cantrip (counts against the source's cantrips_known); 'prepared' = a leveled spell prepared from the source's budget (counts against prepared_limit); 'always' = an always-available grant, any level, ADDITIVE (does not count against a budget) — covers BOTH fixed grants and constrained-choice grants (a chosen spell that must satisfy a school/tag/list constraint), each checked by the validator against the source's grant spec (a fixed list or a choose{from} constraint), not an exact set; 'known' = in a known/spellbook pool but not currently prepared (not castable until prepared).",
+          "enum": ["cantrip", "prepared", "always", "known"]
+        },
+        "recovery": {
+          "description": "How the spell is CAST (a slotless spell's rest CADENCE lives in uses.recharge, so cadence has ONE home). The meaning of an absent value is bucket-dependent: a 'cantrip' is cast at will; a 'prepared'/'always' leveled spell is cast via shared spell slots; a 'known' (unprepared spellbook) spell is not currently castable. Explicit values: 'spell_slot'/'pact_slot' = via that slot pool; 'slotless_per_rest' = a slotless cast with its own use pool (uses.recharge names the rest — short or long); 'at_will' = a cantrip; 'ritual_only' = castable only as a ritual. The validator enforces the bucket↔recovery coupling.",
+          "enum": ["spell_slot", "pact_slot", "slotless_per_rest", "at_will", "ritual_only"]
+        },
+        "uses": { "$ref": "#/$defs/resourceEntry", "description": "For a slotless per-rest spell, its own expendable use pool — max casts (1 for a once-per-rest grant, the proficiency bonus for some species grants) and remaining. Absent for at-will and slot-cast spells." },
+        "secondary_cast": {
+          "description": "An ADDITIONAL casting avenue for the SAME (name, source) — e.g. a granted spell castable slotless once per rest that is ALSO slot-castable. Convention: the characteristic/limited avenue is the primary `recovery` (usually the slotless-per-rest grant); the fallback avenue goes here (usually `spell_slot`). Only ONE secondary avenue is modelled (no source needs more than two). Records the second avenue without a duplicate spell entry (which would double-count against the source's grant). Absent for the common single-avenue case.",
+          "type": "object",
+          "required": ["resource"],
+          "additionalProperties": false,
+          "properties": {
+            "resource": { "enum": ["spell_slot", "pact_slot", "slotless_per_rest", "at_will", "ritual_only"] },
+            "uses": { "$ref": "#/$defs/resourceEntry" }
+          }
+        },
         "ritual": { "type": "boolean", "default": false },
         "concentration": { "type": "boolean", "default": false },
         "requires_material": { "type": "boolean", "default": false, "description": "Has a material component." },
-        "recovery": { "type": ["string", "null"], "description": "How the spell is cast/recovered (catalog): at will (cantrips), via a spell slot, or a slotless per-rest grant (e.g. cast once per long rest without a slot, as an origin feat grants). Absent = cast using slots." },
-        "uses": { "$ref": "#/$defs/resourceEntry", "description": "For a slotless per-rest spell, its own expendable use pool — max casts (1 for a once-per-rest grant, the proficiency bonus for some species grants) and remaining. Absent for at-will and slot-cast spells." },
         "casting_time": { "type": ["string", "null"], "description": "Casting-time identifier (catalog)." },
         "range": { "type": ["string", "null"] }
       }
