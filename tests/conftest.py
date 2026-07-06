@@ -430,7 +430,8 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE multiclass_slot (caster_level INT, slot_level INT, slot_count INT)")
     cur.execute("CREATE TABLE pact_slot (class_id TEXT, class_level INT, slot_count INT, slot_level INT)")
     cur.execute("CREATE TABLE class_cantrips_prepared (class_id TEXT, level INT, cantrips_known INT, prepared_spells INT)")
-    cur.execute("CREATE TABLE subclass_spellcasting (subclass_id TEXT PRIMARY KEY)")
+    cur.execute("CREATE TABLE subclass_spellcasting (subclass_id TEXT PRIMARY KEY, "
+                "ability_id TEXT, spell_list_class_id TEXT)")
     cur.execute("CREATE TABLE subclass_spell_slot (subclass_id TEXT, class_level INT, slot_level INT, slot_count INT)")
     cur.execute("CREATE TABLE spell (id TEXT PRIMARY KEY, name TEXT, level INT, is_ritual INT)")
     cur.execute("CREATE TABLE spell_class (spell_id TEXT, class_id TEXT)")
@@ -448,8 +449,15 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO multiclass_slot VALUES (4,1,4)")
     cur.execute("INSERT INTO multiclass_slot VALUES (4,2,3)")
     # sub-b (class-b's subclass) is a third-caster subclass -- combined with class-a L3 (full, +3)
-    # it contributes floor(3/3)=1, reaching combined caster level 4
-    cur.execute("INSERT INTO subclass_spellcasting VALUES ('sub-b')")
+    # it contributes floor(3/3)=1, reaching combined caster level 4. Its own spell_list_class_id is
+    # unused by the multiclass-slots tests, so it's left NULL here.
+    cur.execute("INSERT INTO subclass_spellcasting VALUES ('sub-b',NULL,NULL)")
+    # class-m: a non-caster class (like Fighter/Rogue) whose subclass sub-ek is a third-caster that
+    # casts from class-a's list (like Eldritch Knight casting from wizard's list) -- the
+    # spell-not-on-list false-positive fix's fixture
+    cur.execute("INSERT INTO class VALUES ('class-m','Class M',10,3,'none','all',2,0,'')")
+    cur.execute("INSERT INTO subclass VALUES ('sub-ek','class-m','Sub EK',1,'')")
+    cur.execute("INSERT INTO subclass_spellcasting VALUES ('sub-ek','a1','class-a')")
     # a pact caster class + its pact slot table (2 slots at slot-level 1, for class-p level 2)
     cur.execute("INSERT INTO class VALUES ('class-p','Class P',8,3,'pact','all',2,0,'')")
     cur.execute("INSERT INTO pact_slot VALUES ('class-p',2,2,1)")

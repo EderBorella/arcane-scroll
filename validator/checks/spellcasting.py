@@ -263,6 +263,27 @@ def _granted_spell_ids(sheet: dict, ident: dict, classes: list, access) -> set[s
     return granted
 
 
+def _effective_list_class(cid: str, classes: list, access) -> str:
+    """The class id whose spell list actually governs `cid`'s spells: normally `cid` itself, but a
+    third-caster subclass (Eldritch Knight, Arcane Trickster, ...) has no list of its own -- it casts
+    from another class's list, per subclass_spellcasting.spell_list_class_id."""
+    for c in classes:
+        if not isinstance(c, dict):
+            continue
+        if access.resolve("class", c.get("class")) != cid:
+            continue
+        sub = c.get("subclass")
+        if not sub:
+            continue
+        sid = access.resolve("subclass", sub)
+        if sid is None:
+            continue
+        list_cid = q.subclass_caster_list(access, sid)
+        if list_cid is not None:
+            return list_cid
+    return cid
+
+
 def _check_spell_list_and_uniqueness(sheet: dict, ident: dict, classes: list, spells: list,
                                      access, v: list[Violation]) -> None:
     granted = _granted_spell_ids(sheet, ident, classes, access)
@@ -294,7 +315,8 @@ def _check_spell_list_and_uniqueness(sheet: dict, ident: dict, classes: list, sp
         cid = access.resolve("class", source)
         if cid is None:
             continue  # not a class source (feat/species/subclass/item) -- treat as granted, no list check
-        if not q.spell_on_class_list(access, sid_spell, cid) and sid_spell not in granted:
+        list_cid = _effective_list_class(cid, classes, access)
+        if not q.spell_on_class_list(access, sid_spell, list_cid) and sid_spell not in granted:
             v.append(Violation(DOMAIN, "spell-not-on-list", "illegal",
                                f"{name}: not on {source}'s spell list and not otherwise granted", path))
 

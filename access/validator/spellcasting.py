@@ -47,6 +47,13 @@ def subclass_is_third_caster(access: ValidatorAccess, subclass_id: str) -> bool:
         "SELECT 1 FROM subclass_spellcasting WHERE subclass_id=?", subclass_id) is not None
 
 
+def subclass_caster_list(access: ValidatorAccess, subclass_id: str) -> str | None:
+    """The class id whose spell list a third-caster subclass casts from (e.g. Eldritch Knight ->
+    wizard), or None if the subclass has no third-caster spellcasting row of its own."""
+    return access.db.scalar(
+        "SELECT spell_list_class_id FROM subclass_spellcasting WHERE subclass_id=?", subclass_id)
+
+
 def subclass_slots(access: ValidatorAccess, subclass_id: str, class_level: int) -> dict[int, int]:
     """{slot_level: slot_count} for a third-caster subclass at a given class level."""
     return {row["slot_level"]: row["slot_count"] for row in access.db.q(

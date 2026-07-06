@@ -114,6 +114,28 @@ def test_non_class_source_is_never_list_checked(access):
     assert "spell-not-on-list" not in _codes(_sheet(sources=sources, spells=spells), access)
 
 
+def test_third_caster_subclass_spell_on_its_subclass_caster_list_is_allowed(access):
+    # class-m (non-caster) + sub-ek (third-caster, casts from class-a's list per subclass_spellcasting)
+    # -- Sp1 is on class-a's list, so a spell sourced from class-m via sub-ek is legal even though
+    # class-m has no spell list of its own
+    sources = {"Class M": {"kind": "class", "ability": "Ability 1", "modifier": 2}}
+    classes = [{"class": "Class M", "level": 3, "subclass": "Sub EK"}]
+    spells = [{"name": "Sp1", "level": 0, "bucket": "cantrip", "source": "Class M"}]
+    sheet = _sheet(sources=sources, spells=spells, spell_slots={}, classes=classes, species=None)
+    assert "spell-not-on-list" not in _codes(sheet, access)
+
+
+def test_third_caster_subclass_spell_off_its_subclass_caster_list_is_illegal(access):
+    # Sp4 is not on class-a's list and not otherwise granted -- still illegal for a class-m/sub-ek
+    # source, proving the check uses class-a's list (not class-m's, which doesn't exist) and doesn't
+    # just wave everything through
+    sources = {"Class M": {"kind": "class", "ability": "Ability 1", "modifier": 2}}
+    classes = [{"class": "Class M", "level": 3, "subclass": "Sub EK"}]
+    spells = [{"name": "Sp4", "level": 1, "bucket": "prepared", "source": "Class M"}]
+    sheet = _sheet(sources=sources, spells=spells, spell_slots={}, classes=classes, species=None)
+    assert "spell-not-on-list" in _codes(sheet, access)
+
+
 def test_unknown_spell_name(access):
     spells = _clean_spells() + [{"name": "Nonexistent Spell", "level": 1, "bucket": "prepared",
                                  "source": "Class A"}]
