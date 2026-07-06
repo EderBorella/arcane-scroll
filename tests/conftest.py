@@ -296,3 +296,37 @@ def db_path(tmp_path, monkeypatch) -> str:
 @pytest.fixture
 def catalog(db_path) -> Catalog:
     return Catalog(db_path)
+
+
+def _build_rules_db(path: str) -> None:
+    con = sqlite3.connect(path)   # tests/conftest.py already imports sqlite3 and pytest
+    cur = con.cursor()
+    cur.execute("CREATE TABLE class (id TEXT PRIMARY KEY, name TEXT, hit_die_faces INT, "
+                "subclass_level INT, caster_progression TEXT, primary_mode TEXT, "
+                "skill_choose_n INT, skill_from_any INT, description TEXT)")
+    cur.execute("CREATE TABLE subclass (id TEXT PRIMARY KEY, class_id TEXT, name TEXT, is_caster INT, description TEXT)")
+    cur.execute("CREATE TABLE species (id TEXT PRIMARY KEY, name TEXT, creature_type_id TEXT, base_walk_speed INT, description TEXT)")
+    cur.execute("CREATE TABLE background (id TEXT PRIMARY KEY, name TEXT, feat_id TEXT, feat_choice INT, tool_id TEXT, tool_category_id TEXT, description TEXT)")
+    cur.execute("CREATE TABLE size (id TEXT PRIMARY KEY, name TEXT, ordinal INT, space_ft REAL)")
+    cur.execute("CREATE TABLE creature_type (id TEXT PRIMARY KEY, name TEXT)")
+    cur.execute("CREATE TABLE xp_level (level INT PRIMARY KEY, xp_min INT)")
+    cur.execute("INSERT INTO class VALUES ('class-a','Class A',8,3,'full','all',2,0,'')")
+    cur.execute("INSERT INTO class VALUES ('class-b','Class B',10,3,'none','any',2,0,'')")
+    cur.execute("INSERT INTO subclass VALUES ('sub-a','class-a','Sub A',1,'')")
+    cur.execute("INSERT INTO subclass VALUES ('sub-b','class-b','Sub B',0,'')")
+    cur.execute("INSERT INTO creature_type VALUES ('type-a','Type A')")
+    cur.execute("INSERT INTO creature_type VALUES ('type-b','Type B')")
+    cur.execute("INSERT INTO species VALUES ('species-a','Species A','type-a',30,'')")
+    cur.execute("INSERT INTO background VALUES ('bg-a','Background A',NULL,0,NULL,NULL,'')")
+    cur.execute("INSERT INTO size VALUES ('size-a','Size A',3,5.0)")
+    for lvl, xp in [(1, 0), (2, 300), (3, 900), (4, 2700), (5, 6500)]:
+        cur.execute("INSERT INTO xp_level VALUES (?,?)", (lvl, xp))
+    con.commit()
+    con.close()
+
+
+@pytest.fixture
+def rules_db(tmp_path) -> str:
+    p = tmp_path / "rules.db"
+    _build_rules_db(str(p))
+    return str(p)
