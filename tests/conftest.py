@@ -379,6 +379,17 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO grant_proficiency VALUES "
                 "('gp-class-b-multiclass-skill','class','class-b',NULL,'skill','fixed',0,NULL,1)")
     cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-class-b-multiclass-skill','sk6')")
+    # class-r (a rogue-analogue secondary class): its multiclass-only skill grant is CHOOSE-mode
+    # with choose_n=1 and NO explicit value pool -- mirrors the real DB fact for rogue's multiclass
+    # table row (id gpr-0382: owner_kind='class', owner_id='rogue', target_kind='skill',
+    # mode='choose', choose_n=1, from_any=0, multiclass_only=1, zero grant_proficiency_value rows).
+    # The real schema resolves the pool via a from_class_list column this synthetic schema doesn't
+    # model, so -- as with the existing any-flag fallback below -- an empty-pool choose grant here
+    # widens legality to any skill; the point of this fixture is the previously-uncredited choose_n
+    # budget cost, not the pool-resolution mechanism (out of scope for this fix).
+    cur.execute("INSERT INTO class VALUES ('class-r','Class R',8,3,'none','all',4,0,'')")
+    cur.execute("INSERT INTO grant_proficiency VALUES "
+                "('gp-class-r-multiclass-skill','class','class-r',NULL,'skill','choose',0,1,1)")
     # class-a grants 1 expertise pick at level 1, from already-proficient skills (unrestricted pool)
     cur.execute("INSERT INTO grant_expertise VALUES "
                 "('gex-a','class','class-a',1,1,'choose_from_proficient',NULL)")

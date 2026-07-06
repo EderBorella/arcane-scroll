@@ -28,44 +28,59 @@ def background_skills(access: ValidatorAccess, background_id: str) -> list[str]:
         "SELECT skill_id FROM background_skill WHERE background_id=?", background_id)]
 
 
-def grant_skill_sets(access: ValidatorAccess, owner_kind: str, owner_id: str) -> tuple[bool, list[str]]:
-    """(any_flag, fixed_skill_ids) over an owner's grant_proficiency rows with target_kind='skill'.
-    `any_flag` is True if any such grant confers "any skill" (from_any=1, or a choose-mode grant with
-    no fixed value pool); `fixed_skill_ids` is the union of grant_proficiency_value.target_id across
-    the rest (whether the grant is an unconditional fixed skill or a choose-from-a-limited-pool one --
-    either way it just widens what's legal, per the union+budget simplification for this domain)."""
+def _split_skill_grants(access: ValidatorAccess, headers: list) -> tuple[bool, list[str], list[str], int]:
+    """Shared fan-out for a set of grant_proficiency header rows with target_kind='skill':
+    (any_flag, fixed_skill_ids, choose_pool_skill_ids, choose_n).
+
+    `any_flag` is True if any grant confers "any skill" (from_any=1, or a choose-mode grant with no
+    value pool). `fixed_skill_ids` is the union of values from unconditional (mode='fixed') grants --
+    automatically-conferred proficiencies that cost no budget. `choose_pool_skill_ids` is the union
+    of values from a choose-mode grant that DOES restrict to a limited pool (e.g. species-a-style
+    "choose 1 of {a,b,c}", DB fact: elf's gpr-0190 choosing 1 of insight/perception/survival) --
+    these widen legality but, unlike fixed grants, are real picks. `choose_n` is the sum of choose_n
+    across every choose-mode grant (whether its pool is limited or unrestricted, e.g. rogue's
+    multiclass gpr-0382 or human's species gpr-0193) -- the number of budget slots those grants
+    actually cost, previously dropped on the floor entirely (a choose-mode grant is a pick spent
+    against an enlarged budget, not a free, automatically-conferred proficiency)."""
     any_flag = False
     fixed: set[str] = set()
-    for header in primitives.grants_for(access.db, "grant_proficiency", owner_kind, owner_id):
+    choose_pool: set[str] = set()
+    choose_n_total = 0
+    for header in headers:
         if header["target_kind"] != "skill":
             continue
         values = [row["target_id"] for row in
                   primitives.children_of(access.db, "grant_proficiency", header["id"])
                   .get("grant_proficiency_value", [])]
-        if header["from_any"] or (header["mode"] == "choose" and not values):
+        is_choose = header["mode"] == "choose"
+        if header["from_any"] or (is_choose and not values):
             any_flag = True
+        elif is_choose:
+            choose_pool.update(values)
         else:
             fixed.update(values)
-    return any_flag, sorted(fixed)
+        if is_choose:
+            n = header["choose_n"]
+            if isinstance(n, int) and not isinstance(n, bool):
+                choose_n_total += n
+    return any_flag, sorted(fixed), sorted(choose_pool), choose_n_total
 
 
-def multiclass_skill_grants(access: ValidatorAccess, class_id: str) -> tuple[bool, list[str]]:
-    """(any_flag, fixed_skill_ids) over a class's grant_proficiency skill rows marked
-    multiclass_only=1 -- the reduced skill set a class confers when taken as a secondary
-    (non-first) class in a multiclass build, as opposed to its full primary-class skill pool."""
-    any_flag = False
-    fixed: set[str] = set()
-    for header in primitives.grants_for(access.db, "grant_proficiency", "class", class_id):
-        if header["target_kind"] != "skill" or not header["multiclass_only"]:
-            continue
-        values = [row["target_id"] for row in
-                  primitives.children_of(access.db, "grant_proficiency", header["id"])
-                  .get("grant_proficiency_value", [])]
-        if header["from_any"] or (header["mode"] == "choose" and not values):
-            any_flag = True
-        else:
-            fixed.update(values)
-    return any_flag, sorted(fixed)
+def grant_skill_sets(access: ValidatorAccess, owner_kind: str, owner_id: str) -> tuple[bool, list[str], list[str], int]:
+    """(any_flag, fixed_skill_ids, choose_pool_skill_ids, choose_n) over an owner's grant_proficiency
+    rows with target_kind='skill' -- see `_split_skill_grants` for the field semantics."""
+    headers = primitives.grants_for(access.db, "grant_proficiency", owner_kind, owner_id)
+    return _split_skill_grants(access, headers)
+
+
+def multiclass_skill_grants(access: ValidatorAccess, class_id: str) -> tuple[bool, list[str], list[str], int]:
+    """(any_flag, fixed_skill_ids, choose_pool_skill_ids, choose_n) over a class's grant_proficiency
+    skill rows marked multiclass_only=1 -- the reduced skill set a class confers when taken as a
+    secondary (non-first) class in a multiclass build, as opposed to its full primary-class skill
+    pool. See `_split_skill_grants` for the field semantics."""
+    headers = [h for h in primitives.grants_for(access.db, "grant_proficiency", "class", class_id)
+               if h["multiclass_only"]]
+    return _split_skill_grants(access, headers)
 
 
 def expertise_grants(access: ValidatorAccess, owner_kind: str, owner_id: str, at_level: int) -> list[dict]:

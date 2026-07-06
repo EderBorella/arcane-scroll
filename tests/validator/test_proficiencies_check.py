@@ -129,3 +129,39 @@ def test_expertise_budget_across_classes_still_has_a_ceiling(access):
               "sk1": _skill(proficient=True, expertise=True)}
     sheet = _sheet(skills, classes=[{"class": "Class B", "level": 3}, {"class": "Class A", "level": 6}])
     assert "too-many-expertise" in _codes(sheet, access)
+
+
+def test_multiclass_choose_n_skill_grant_is_credited_to_the_budget(access):
+    # g097-style build: class-a (first, choose 2) + background A (1 fixed) + class-r as a SECOND
+    # class, whose multiclass-only skill grant is choose_n=1 (mirrors the real rogue multiclass
+    # table row, DB id gpr-0382: mode='choose', choose_n=1, multiclass_only=1). Fuller budget is
+    # 2+1+1=4; sk1,sk2 (class-a pool) + sk4 (background) + sk6 (picked via the class-r "choose 1"
+    # grant) is exactly 4 proficient skills -- fully legal, must NOT be flagged over-budget.
+    skills = _clean_skills()
+    skills["sk6"] = _skill(proficient=True)
+    sheet = _sheet(skills, classes=[{"class": "Class A", "level": 3}, {"class": "Class R", "level": 1}])
+    codes = _codes(sheet, access)
+    assert "too-many-skill-proficiencies" not in codes
+    assert "skill-not-legal" not in codes
+
+
+def test_multiclass_choose_n_budget_still_has_a_ceiling(access):
+    # same build as above (fuller/correct budget = 4), but a 5th proficient skill (sk3, also
+    # class-a-pool-legal) exceeds even the enlarged budget -- crediting choose_n must not turn the
+    # budget into an unlimited pass; a genuinely over-budget sheet must still be caught.
+    skills = _clean_skills()
+    skills["sk6"] = _skill(proficient=True)
+    skills["sk3"] = _skill(proficient=True)
+    sheet = _sheet(skills, classes=[{"class": "Class A", "level": 3}, {"class": "Class R", "level": 1}])
+    assert "too-many-skill-proficiencies" in _codes(sheet, access)
+
+
+def test_skill_from_no_legal_source_at_all_is_still_illegal_in_a_multiclass_build(access):
+    # negative regression: crediting multiclass choose_n budgets must not turn skill legality into
+    # a rubber stamp. Background and species are stripped so only the two classes' pools are legal
+    # (class-a: sk1/sk2/sk3; class-b's multiclass grant: sk6) -- sk4 (background-only, no longer
+    # granted) is reachable through neither and must still be caught.
+    skills = {"sk1": _skill(proficient=True), "sk4": _skill(proficient=True)}
+    sheet = _sheet(skills, classes=[{"class": "Class A", "level": 3}, {"class": "Class B", "level": 1}],
+                   background=None, species=None)
+    assert "skill-not-legal" in _codes(sheet, access)

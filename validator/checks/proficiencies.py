@@ -32,7 +32,10 @@ def _class_contribution(first: dict | None, access) -> tuple[int, bool, set[str]
 
 def _secondary_class_contribution(classes: list, access) -> tuple[int, bool, set[str]]:
     """(budget, any_flag, pool) contributed by every class AFTER the first -- their reduced
-    multiclass-only skill grants, not their full (primary-only) skill pool."""
+    multiclass-only skill grants, not their full (primary-only) skill pool. Budget credits BOTH the
+    fixed count and the choose_n of every multiclass skill grant (e.g. a rogue-style secondary class
+    "choose 1 skill" grant) -- previously only fixed grants were credited, which false-flagged a
+    fully-legal multiclass build as too-many-skill-proficiencies."""
     budget = 0
     any_flag = False
     pool: set[str] = set()
@@ -42,12 +45,11 @@ def _secondary_class_contribution(classes: list, access) -> tuple[int, bool, set
         cid = access.resolve("class", c.get("class"))
         if cid is None:
             continue
-        c_any, c_fixed = q.multiclass_skill_grants(access, cid)
+        c_any, c_fixed, c_choose_pool, c_choose_n = q.multiclass_skill_grants(access, cid)
         if c_any:
             any_flag = True
-        else:
-            budget += len(c_fixed)
-        pool |= set(c_fixed)
+        budget += len(c_fixed) + c_choose_n
+        pool |= set(c_fixed) | set(c_choose_pool)
     return budget, any_flag, pool
 
 
@@ -81,16 +83,22 @@ def _legal_universe_and_budget(sheet: dict, ident: dict, classes: list, access) 
 
     base_universe = set(universe)
 
-    # Grant sources (species + feats) only widen legality -- they do not add to the budget, since
-    # they are automatically-conferred proficiencies rather than picks spent against a choice pool.
+    # Grant sources (species + feats): a FIXED grant (mode='fixed') is an automatically-conferred
+    # proficiency -- it widens legality but does not cost a budget slot (it lands in `granted_fixed`
+    # and is excluded from the chargeable count below). A CHOOSE-mode grant (e.g. a feat like
+    # "choose 1 skill of your choice", DB fact gpr-0120; or a species "choose 1 of {a,b,c}", DB fact
+    # elf's gpr-0190; or "choose any skill", DB fact human's gpr-0193) is a real pick spent against
+    # an ENLARGED budget -- it widens legality via `choose_pool`/any_flag but its choose_n is
+    # credited to the budget directly, not folded into the free/automatic set.
     granted_fixed: set[str] = set()
 
     sp_id = access.resolve("species", ident.get("species"))
     if sp_id is not None:
-        sp_any, sp_fixed = q.grant_skill_sets(access, "species", sp_id)
+        sp_any, sp_fixed, sp_choose_pool, sp_choose_n = q.grant_skill_sets(access, "species", sp_id)
         any_flag = any_flag or sp_any
-        universe |= set(sp_fixed)
+        universe |= set(sp_fixed) | set(sp_choose_pool)
         granted_fixed |= set(sp_fixed)
+        budget += sp_choose_n
 
     feats = sheet.get("feats")
     if isinstance(feats, list):
@@ -98,10 +106,11 @@ def _legal_universe_and_budget(sheet: dict, ident: dict, classes: list, access) 
             feat_id = access.resolve("feat", f)
             if feat_id is None:
                 continue
-            f_any, f_fixed = q.grant_skill_sets(access, "feat", feat_id)
+            f_any, f_fixed, f_choose_pool, f_choose_n = q.grant_skill_sets(access, "feat", feat_id)
             any_flag = any_flag or f_any
-            universe |= set(f_fixed)
+            universe |= set(f_fixed) | set(f_choose_pool)
             granted_fixed |= set(f_fixed)
+            budget += f_choose_n
 
     grant_only = granted_fixed - base_universe
 
