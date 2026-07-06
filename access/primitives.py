@@ -1,0 +1,119 @@
+"""Reusable retrieval primitives over the rulebook DB — pure DB facts, no business rules.
+
+Everything the book *confers* lives on one uniform grant spine: a header row
+(owner_kind, owner_id, gained_at_level, ...) in one of the grant_* tables, optionally with child
+value rows keyed by grant_id. These primitives read that spine and a few common tables and return
+raw rows. Business-rule math (proficiency-bonus formulas, spell-slot selection, skill totals) does
+NOT belong here — it belongs in the per-consumer feature files, where it can be re-derived from the
+rulebook rather than trusted from any existing consumer.
+
+All queries are parameterised. The few places that interpolate an identifier (a table name) validate
+it against a known set first — identifiers can't be bound as SQL parameters.
+"""
+from access.db import RulesDB
+
+# The grant spine: each header table -> its child (value) tables, keyed by grant_id.
+GRANT_TABLES: dict[str, list[str]] = {
+    "grant_ability_increase": ["grant_ability_increase_value"],
+    "grant_ability_set": [],
+    "grant_bonus": [],
+    "grant_condition": [],
+    "grant_expertise": ["grant_expertise_value"],
+    "grant_feat": [],
+    "grant_hp": [],
+    "grant_proficiency": ["grant_proficiency_value", "grant_proficiency_category",
+                          "grant_proficiency_weapon_filter"],
+    "grant_resistance": ["grant_resistance_option"],
+    "grant_resource": [],
+    "grant_save_advantage": [],
+    "grant_sense": [],
+    "grant_speed": [],
+    "grant_spell": ["grant_spell_fixed", "grant_spell_choice", "grant_spell_choice_value"],
+}
+
+
+def grants_for(db: RulesDB, table: str, owner_kind: str, owner_id: str,
+               at_level: int | None = None) -> list:
+    """Header rows of ONE grant table for an owner. If at_level is given, keep only rows gained at or
+    below it (a NULL gained_at_level means "always", so it is always included)."""
+    if table not in GRANT_TABLES:
+        raise ValueError(f"unknown grant table: {table!r}")
+    sql = f"SELECT * FROM {table} WHERE owner_kind=? AND owner_id=?"
+    params = [owner_kind, owner_id]
+    if at_level is not None:
+        sql += " AND (gained_at_level IS NULL OR gained_at_level<=?)"
+        params.append(at_level)
+    return db.q(sql, *params)
+
+
+def children_of(db: RulesDB, header_table: str, grant_id: str) -> dict[str, list]:
+    """The child value rows of one grant header row, grouped by child table name."""
+    if header_table not in GRANT_TABLES:
+        raise ValueError(f"unknown grant table: {header_table!r}")
+    return {child: db.q(f"SELECT * FROM {child} WHERE grant_id=?", grant_id)
+            for child in GRANT_TABLES[header_table]}
+
+
+def all_grants_for(db: RulesDB, owner_kind: str, owner_id: str,
+                   at_level: int | None = None) -> dict[str, list]:
+    """Everything a source confers: {grant_table: [header rows]} across the whole spine, non-empty
+    tables only. The highest-value primitive — "give me everything this owner grants"."""
+    out = {}
+    for table in GRANT_TABLES:
+        rows = grants_for(db, table, owner_kind, owner_id, at_level)
+        if rows:
+            out[table] = rows
+    return out
+
+
+def resource_at(db: RulesDB, resource_id: str, level: int):
+    """The class-resource ladder row at the highest tracked level <= `level` (or None)."""
+    return db.one(
+        "SELECT * FROM class_resource_level WHERE resource_id=? AND level<=? ORDER BY level DESC LIMIT 1",
+        resource_id, level)
+
+
+def features_at(db: RulesDB, class_id: str | None = None, subclass_id: str | None = None,
+                level: int | None = None) -> list:
+    """Class or subclass feature rows granted at or below a level (ordered by level)."""
+    if class_id:
+        sql, params, lvl = "SELECT * FROM class_feature WHERE class_id=?", [class_id], "level"
+    elif subclass_id:
+        sql, params, lvl = "SELECT * FROM subclass_feature WHERE subclass_id=?", [subclass_id], "class_level"
+    else:
+        raise ValueError("features_at needs class_id or subclass_id")
+    if level is not None:
+        sql += f" AND {lvl}<=?"
+        params.append(level)
+    return db.q(sql + f" ORDER BY {lvl}", *params)
+
+
+def sum_bonuses(db: RulesDB, owner_kind: str, owner_id: str, target_kind: str,
+                target_id: str | None = None) -> int:
+    """Sum of grant_bonus.value for an owner toward a target (flat numeric bonuses only). Note the
+    same-name-no-stack rule is a CONSUMER concern — this just totals the rows it is given."""
+    sql = ("SELECT COALESCE(SUM(value),0) FROM grant_bonus "
+           "WHERE owner_kind=? AND owner_id=? AND target_kind=?")
+    params = [owner_kind, owner_id, target_kind]
+    if target_id is not None:
+        sql += " AND target_id=?"
+        params.append(target_id)
+    return db.scalar(sql, *params)
+
+
+def constant(db: RulesDB, const_id: str):
+    """A rulebook constant's integer value (rules_constant.value_int), or None."""
+    return db.scalar("SELECT value_int FROM rules_constant WHERE id=?", const_id)
+
+
+# Tables `exists()` may probe — kept small and explicit so the interpolated identifier is never
+# caller-controlled SQL.
+_EXISTS_TABLES = {"class_feature", "subclass_feature", "class_resource", "detail_option",
+                  "spell", "feat", "magic_item", "creature"}
+
+
+def exists(db: RulesDB, table: str, id_value: str, id_col: str = "id") -> bool:
+    """True if a row with the given id exists in an allow-listed table (referential sanity checks)."""
+    if table not in _EXISTS_TABLES:
+        raise ValueError(f"exists() not allowed for table {table!r}")
+    return db.one(f"SELECT 1 FROM {table} WHERE {id_col}=?", id_value) is not None

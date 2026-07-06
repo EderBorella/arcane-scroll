@@ -37,19 +37,8 @@ services:
       - "${APP_PORT:-8080}:8000"   # front with Nginx Proxy Manager in production
     networks: [arcane]
 
-  # Validation micro-service. Same image, but its own entrypoint (no model/seed) and its
-  # own read-only rules data — the functional facts, built offline into VALIDATOR_DATA_DIR_HOST.
-  validator:
-    build: .
-    restart: unless-stopped
-    entrypoint: ["uvicorn", "validator.main:app", "--host", "0.0.0.0", "--port", "8000"]
-    environment:
-      VALIDATOR_DATA: "/rules"
-    volumes:
-      - "${VALIDATOR_DATA_DIR_HOST:?set VALIDATOR_DATA_DIR_HOST in .env}:/rules:ro"
-    ports:
-      - "${VALIDATOR_PORT:-8090}:8000"
-    networks: [arcane]
+  # NOTE: the validation micro-service was removed with the legacy flat-file rules stack. The
+  # validator is being rebuilt on the data-access layer (access/) over the reference DB (F05-S12).
 
 volumes:
   ollama-models:
