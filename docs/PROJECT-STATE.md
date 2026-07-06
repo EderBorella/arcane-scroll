@@ -3,11 +3,13 @@
 > **Master state doc (public, high-level).** One source of truth for what we're building, what
 > works, what's decided, and what's next.
 >
-> Last updated: **2026-07-05**. **Recent:** the reference rulebook is now a fully-typed **relational
+> Last updated: **2026-07-06**. **Recent:** the reference rulebook is now a fully-typed **relational
 > DB** (`rules.db`, built outside this repo) read through a new **data-access layer** (`access/`,
 > F05-S01). The old flat-file **validation micro-service** (F02: `validator/` + regex `build_rules.py`)
-> has been **removed** — the validator is being rebuilt on the data-access layer (F05-S12); its
-> *principles* (contract-first, book-grounded, independent of the generator) still hold. The
+> was **removed** and is being **rebuilt on the data-access layer** (F05-S12): the foundation plus
+> **7 domains** (identity, abilities, saving-throws, vitals, feats, proficiencies, spellcasting) now
+> run through a **resilient orchestrator** with a typed finding/report model; its *principles*
+> (contract-first, book-grounded, independent of the generator) hold unchanged. The
 > contract schema is now **v6**. *(The F02 history below is retained as changelog; treat this note as
 > the current state until that section is reworked.)* Earlier major shift: dropped the fine-tune in
 > favour of a **base model + per-request dynamic grammar** approach (§1, §4).
@@ -79,20 +81,22 @@ What's left is derivation-side + the service:**
 | Starting equipment choices | ✅ done |
 | Flavour bundle (physical/traits/backstory) | ✅ done (one structured call) |
 | Strict validator + reference data (by-construction, generator-side) | ✅ working |
-| **Reference rulebook DB (`rules.db`) + data-access layer (`access/`)** | ✅ **landed (F05-S01)** — relational DB read via a read-only handle + retrieval primitives; validator feature-access file is boilerplate |
-| **Validation micro-service (independent post-hoc gate)** | 🔄 **REMOVED & rebuilding** — the flat-file service (was contract v5 + 10 layers) was retired 2026-07-05; being rebuilt on `access/` over `rules.db` (F05-S12). Contract now **v6** |
+| **Reference rulebook DB (`rules.db`) + data-access layer (`access/`)** | ✅ **landed (F05-S01)** — relational DB read via a read-only handle + retrieval primitives + a name→id resolver + per-domain feature-access query modules |
+| **Validation micro-service (independent post-hoc gate)** | 🔄 **rebuilding on `access/`** (F05-S12) — foundation + **7 of ~13 domains** (identity, abilities, saving-throws, vitals, feats, proficiencies, spellcasting) with a resilient orchestrator + typed report; remaining: features, movement, defenses, equipment, items, companions. Contract **v6** |
 | **Generation (all model choices)** | ✅ **complete & valid by construction** |
 | **Service stack (Docker: model + app)** | ✅ scaffolded — skeleton serving |
 | **Shared resource catalog (load-time)** | ✅ loaded in memory at startup |
 | **Character sheet generator** | ✅ base contract + feature/feat/equipment choices |
 | **Backstory generator** | ✅ physical + personality + backstory |
 | **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live — `/v1/characters` now returns choices **+ derived sheet** |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ 224 generator + 19 data-access (`access/`) = 243 passing; the 116 flat-file validator tests were removed with that stack |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ **367 passing + 8 xfail (375 total)** — generator + data-access (`access/`) + the rebuilt validator's 7 domains; xfail = the intended generator-conformance gaps |
 | **Derivation engine (compute side)** | ✅ render-ready sheet + armour-based AC + inventory assembly + **starting treasure**; two-pass next (T42/T46) |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
+
+- **Validator rebuilt on the data-access layer (F05-S12, part 1).** The retired flat-file validator is being rebuilt over `rules.db` through `access/`. Landed: a read-only DB handle + retrieval **primitives** over the uniform *grant spine*, a display-name→id **resolver**, and per-domain **feature-access** query modules; a **resilient orchestrator** that runs every check and aggregates all findings in one pass (a crashed check becomes an `internal` finding that blocks both `legal` and `complete` — never a silent pass); a typed **finding/report** model (`{domain, code, kind∈{illegal,incomplete,internal}, message, path}` → `{legal, complete, violations[], summary}`); and **7 domain checks** — identity, abilities, saving-throws, vitals, feats, proficiencies, spellcasting — each grounded independently in the DB (spellcasting reconciled to the v6 sources/spells shape). Validated by migrating the 168-sheet gold corpus to v6 and running it through the rebuilt validator: every finding was book-checked and triaged into *validator bug* / reference-DB *data gap* / genuine *gold errata*, surfacing and fixing real reference-DB gaps (missing subclass proficiency & saving-throw grants, missing subclass/feat/class sense grants, and a temporary activated choose-one ability modelled as an option scaffold). Validator-side fixes from that pass: level-gated subclass grants, multiclass/feat/subclass skill & save credit, expertise budget across classes, third-caster subclass spell lists, and origin-feat budgeting from the background. Built spec-first with synthetic, content-neutral fixtures. Remaining domains (features, movement, defenses, equipment, items, companions) follow in part 2.
 
 - **Contract-first shared schema + grounded validator layers (F02, ongoing).** Made the sheet a **contract-first** shared JSON Schema (`contracts/character-sheet.schema.json`, versioned by a `schema_version` const + a URN `$id`) and grew it **v1 → v5** through repeated **independent multi-agent audits** against the reference: **v2** completed the contract; **v3** added round-1 gaps; **v4** added *defenses*, an *equipment redesign* (`equipped` + `backpack` over a self-describing item contract), a batch of **live-play** fields (spell/hit-dice **pools** `{max, remaining}`, `armor_class_detail`, `companions`, per-feature/feat/item **uses & charges**, `active_concentration`/`active_effects`, temporary HP/ability reductions), and generalised spellcasting to **sources** (class/feat/species/item; slots optional for slotless casters); **v5** added **`speed_detail`**. AC and speed carry **provenance** (base + sourced modifiers) so both re-derive and trace to source; the sheet is a **live play document** and **identifiers suffice** (no rules prose embedded). On the validator: added **feats** (S07), **features** (S10), **movement / identity (size + creature-type) / weapon-mastery** (S12–S15), **skill-source** (S16) and **declared spell-budget** (S17) layers, and reconciled spellcasting to the pool + sources shape (F02-VAL) — **10 layers** total. Throughout, the guiding rule: the validator is built to the correct rules **independently**; the generator's non-conformance is the *intended, measured* gap (fixed later, never by bending the validator/contract), and generator-conformance tests stay `xfail`. Each change landed spec-first with synthetic, content-neutral fixtures (**116** validator tests) and a per-PR **independent multi-agent review**.
 
@@ -387,7 +391,7 @@ seconds. Stable at q4 (0 parse failures / 0 loops across 149).
 **Done:**
 - ✅ **Service stack scaffolded** (Docker: model + app, self-contained; app skeleton serving) — see Changelog.
 - ✅ **Reference rulebook DB + data-access layer (F05-S01)** — the 2024 ruleset as a fully-typed **relational DB** (`rules.db`, built outside the repo by the reference-DB pipeline), read via the repo's read-only **data-access layer** (`access/`: connection handle + retrieval primitives + a boilerplate validator feature file). Replaces the regex `build_rules.py` / flat-file approach.
-- 🔄 **Validation micro-service (F02) — RETIRED & rebuilding.** The contract-first shared schema landed (now **v6**), but the flat-file micro-service (was v5 + 10 grounded layers) was **removed** 2026-07-05; the validator is being rebuilt on the data-access layer (F05-S12). Its principles (independent, book-grounded) carry over. *(Prior backlog folds into the rebuild: **S18** spell-metadata, **S19** attunement, **S20** passive-scores, the **S11** conformance-corpus capstone; deferred/carded **F02-SRC**, **F02-GEN**, **F02-HYGIENE**.)*
+- 🔄 **Validation micro-service — rebuilding on the DAL (F05-S12).** The contract-first shared schema landed (now **v6**); the flat-file micro-service was removed 2026-07-05 and is being rebuilt over `rules.db` via `access/`. **Part 1 landed**: foundation + 7 domains (identity, abilities, saving-throws, vitals, feats, proficiencies, spellcasting) + resilient orchestrator + typed report. Remaining: features, movement, defenses, equipment, items, companions. Principles (independent, book-grounded) carry over. *(Prior backlog folds into the rebuild: **S18** spell-metadata, **S19** attunement, **S20** passive-scores, the **S11** conformance-corpus capstone; deferred/carded **F02-SRC**, **F02-GEN**, **F02-HYGIENE**.)*
 
 **Now (highest leverage):**
 1. **Generator** (base contract) is in — catalog-driven grammar/prompt → model → repaired choices.
