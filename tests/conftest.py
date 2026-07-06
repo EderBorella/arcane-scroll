@@ -458,6 +458,31 @@ def _build_rules_db(path: str) -> None:
     # (origin-feat budget now comes from background.feat_id, set above for bg-a -- NOT grant_feat;
     # the grant_feat spine is still used for species-granted origin feats, see feats-check tests)
 
+    # movement domain: movement_mode catalog + grant_speed spine (F05) + class_resource speed bonuses
+    cur.execute("CREATE TABLE movement_mode (id TEXT PRIMARY KEY, name TEXT, hover_capable INT)")
+    for mid, mname in [("walk", "Walk"), ("fly", "Fly"), ("swim", "Swim"), ("climb", "Climb")]:
+        cur.execute("INSERT INTO movement_mode VALUES (?,?,0)", (mid, mname))
+    cur.execute("CREATE TABLE grant_speed (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
+                "gained_at_level INTEGER, movement_mode_id TEXT, feet INTEGER, "
+                "equals_walk INTEGER DEFAULT 0, sets_total INTEGER DEFAULT 0, additive INTEGER DEFAULT 0, note TEXT)")
+    cur.execute("INSERT INTO grant_speed VALUES "
+                "('gsd-feat','feat','feat-gen',NULL,'walk',10,0,0,1,NULL)")
+    cur.execute("INSERT INTO grant_speed VALUES "
+                "('gsd-sub-swim','subclass','sub-a',3,'swim',NULL,1,0,0,NULL)")
+    cur.execute("INSERT INTO grant_speed VALUES "
+                "('gsd-feat-fly','feat','feat-rep',NULL,'fly',NULL,1,0,0,NULL)")
+
+    cur.execute("INSERT INTO feat VALUES ('feat-over','Feat Over','general',0)")
+    cur.execute("INSERT INTO grant_speed VALUES "
+                "('gsd-feat-over','feat','feat-over',NULL,'climb',20,0,1,0,NULL)")
+
+    cur.execute("CREATE TABLE class_resource (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, name TEXT)")
+    cur.execute("CREATE TABLE class_resource_level (resource_id TEXT, level INTEGER, count INTEGER, "
+                "die_count INTEGER, die_faces INTEGER, bonus INTEGER)")
+    cur.execute("INSERT INTO class_resource VALUES ('unarmored-movement','class','class-a','Unarmored Movement')")
+    cur.execute("INSERT INTO class_resource_level VALUES ('unarmored-movement',2,NULL,NULL,NULL,10)")
+    cur.execute("INSERT INTO class_resource_level VALUES ('unarmored-movement',6,NULL,NULL,NULL,15)")
+
     # spellcasting domain: slot tables (single-class/multiclass/pact), cantrip+prepared counts,
     # third-caster subclass slots, spell catalog + class-list membership, and the always-granted
     # spell spine (grant_spell -> grant_spell_fixed; grant_spell_choice(_value) unused here but must
@@ -537,6 +562,37 @@ def _build_rules_db(path: str) -> None:
     # a feat that grants blindsight 10
     cur.execute("INSERT INTO grant_sense VALUES "
                 "('gs-feat-blind','feat','feat-rep',NULL,'blindsight',10,0,NULL)")
+
+    # defenses domain: damage types, conditions, resistance/condition/save-advantage grants
+    cur.execute("CREATE TABLE damage_type (id TEXT PRIMARY KEY, name TEXT)")
+    cur.execute("CREATE TABLE condition (id TEXT PRIMARY KEY, name TEXT)")
+    for did, dname in [("fire","Fire"),("cold","Cold"),("poison","Poison")]:
+        cur.execute("INSERT INTO damage_type VALUES (?,?)", (did, dname))
+    for cid, cname in [("charmed","Charmed"),("frightened","Frightened"),("poisoned","Poisoned")]:
+        cur.execute("INSERT INTO condition VALUES (?,?)", (cid, cname))
+
+    cur.execute("CREATE TABLE grant_resistance (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
+                "gained_at_level INTEGER, damage_type_id TEXT, variant_axis TEXT, "
+                "mode TEXT NOT NULL DEFAULT 'fixed', choose_n INTEGER NOT NULL DEFAULT 1, "
+                "rechoose TEXT, source_filter TEXT, via_aura INTEGER NOT NULL DEFAULT 0)")
+    cur.execute("CREATE TABLE grant_resistance_option (grant_id TEXT, damage_type_id TEXT)")
+
+    cur.execute("CREATE TABLE grant_condition (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
+                "gained_at_level INTEGER, condition_id TEXT, effect TEXT, "
+                "via_aura INTEGER NOT NULL DEFAULT 0)")
+
+    cur.execute("CREATE TABLE grant_save_advantage (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
+                "gained_at_level INTEGER, scope_kind TEXT, ability_id TEXT, note TEXT)")
+
+    # species-a grants poison resistance
+    cur.execute("INSERT INTO grant_resistance VALUES "
+                "('gre-species-a','species','species-a',NULL,'poison',NULL,'fixed',1,NULL,NULL,0)")
+    # feat-gen grants fire resistance
+    cur.execute("INSERT INTO grant_resistance VALUES "
+                "('gre-feat-gen','feat','feat-gen',NULL,'fire',NULL,'fixed',1,NULL,NULL,0)")
+    # sub-a at L3 grants charmed immunity
+    cur.execute("INSERT INTO grant_condition VALUES "
+                "('gcn-sub-a','subclass','sub-a',3,'charmed','immunity',0)")
 
     con.commit()
     con.close()
