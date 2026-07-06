@@ -83,6 +83,14 @@ def multiclass_skill_grants(access: ValidatorAccess, class_id: str) -> tuple[boo
     return _split_skill_grants(access, headers)
 
 
+def subclass_skill_grants(access: ValidatorAccess, subclass_id: str) -> tuple[bool, list[str], list[str], int]:
+    """(any_flag, fixed_skill_ids, choose_pool_skill_ids, choose_n) over a subclass's
+    grant_proficiency skill rows (owner_kind='subclass') -- e.g. College of Lore's "choose 3
+    skills of your choice". See `_split_skill_grants` for the field semantics."""
+    headers = primitives.grants_for(access.db, "grant_proficiency", "subclass", subclass_id)
+    return _split_skill_grants(access, headers)
+
+
 def expertise_grants(access: ValidatorAccess, owner_kind: str, owner_id: str, at_level: int) -> list[dict]:
     """grant_expertise rows for an owner gained at or below `at_level`, each as
     {choose_n, mode, skill_id, values} where `values` is the resolved grant_expertise_value pool

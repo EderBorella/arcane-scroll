@@ -326,6 +326,10 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO class VALUES ('class-b','Class B',10,3,'none','any',2,0,'')")
     cur.execute("INSERT INTO subclass VALUES ('sub-a','class-a','Sub A',1,'')")
     cur.execute("INSERT INTO subclass VALUES ('sub-b','class-b','Sub B',0,'')")
+    # sub-skills / sub-save: class-a subclasses used by the subclass-grant fixtures below
+    # (grant_proficiency rows inserted once that table exists, in the proficiencies/feats sections)
+    cur.execute("INSERT INTO subclass VALUES ('sub-skills','class-a','Sub Skills',0,'')")
+    cur.execute("INSERT INTO subclass VALUES ('sub-save','class-a','Sub Save',0,'')")
     cur.execute("INSERT INTO creature_type VALUES ('type-a','Type A')")
     cur.execute("INSERT INTO creature_type VALUES ('type-b','Type B')")
     cur.execute("INSERT INTO species VALUES ('species-a','Species A','type-a',30,'')")
@@ -363,7 +367,7 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE grant_expertise (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
                 "gained_at_level INT, choose_n INT, mode TEXT, skill_id TEXT)")
     cur.execute("CREATE TABLE grant_expertise_value (grant_id TEXT, skill_id TEXT)")
-    for i in range(1, 7):
+    for i in range(1, 8):
         cur.execute("INSERT INTO skill VALUES (?,?,?)", (f"sk{i}", f"Sk{i}", "a1"))
     # class-a (skill_choose_n=2, skill_from_any=0): choose 2 from {sk1,sk2,sk3}
     for sid in ("sk1", "sk2", "sk3"):
@@ -390,6 +394,11 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO class VALUES ('class-r','Class R',8,3,'none','all',4,0,'')")
     cur.execute("INSERT INTO grant_proficiency VALUES "
                 "('gp-class-r-multiclass-skill','class','class-r',NULL,'skill','choose',0,1,1)")
+    # sub-skills (class-a's subclass): a College-of-Lore-style grant -- choose 3 skills of your
+    # choice (mode='choose', from_any=1, choose_n=3, no restricted value pool) via the
+    # owner_kind='subclass' proficiency grant spine -- the subclass-skill-grant fix's fixture.
+    cur.execute("INSERT INTO grant_proficiency VALUES "
+                "('gp-subclass-skills','subclass','sub-skills',NULL,'skill','choose',1,3,0)")
     # class-a grants 1 expertise pick at level 1, from already-proficient skills (unrestricted pool)
     cur.execute("INSERT INTO grant_expertise VALUES "
                 "('gex-a','class','class-a',1,1,'choose_from_proficient',NULL)")
@@ -420,6 +429,12 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO grant_proficiency VALUES "
                 "('gp-featsave','feat','feat-save',NULL,'saving_throw','fixed',0,NULL,0)")
     cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-featsave','a3')")
+    # sub-save (class-a's subclass) grants saving-throw proficiency in a3 (like Gloom Stalker's
+    # Wisdom save) via the same proficiency grant spine, owner_kind='subclass' -- the
+    # subclass-granted-save fix's fixture.
+    cur.execute("INSERT INTO grant_proficiency VALUES "
+                "('gp-subclass-save','subclass','sub-save',NULL,'saving_throw','fixed',0,NULL,0)")
+    cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-subclass-save','a3')")
     # feat-pre needs total_level>=4 (group 1) AND ability a1>=13 (group 2) -- AND across groups,
     # OR within a group (single row per group here, so each group's one row must hold)
     cur.execute("INSERT INTO feat_prereq VALUES "

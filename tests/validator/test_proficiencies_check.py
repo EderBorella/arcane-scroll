@@ -156,6 +156,37 @@ def test_multiclass_choose_n_budget_still_has_a_ceiling(access):
     assert "too-many-skill-proficiencies" in _codes(sheet, access)
 
 
+def test_subclass_skill_grant_is_legal_and_budgeted_at_exactly_the_new_budget(access):
+    # College-of-Lore-style: sub-skills (class-a's subclass) grants "choose 3 skills of your
+    # choice" (choose_n=3, from_any=1). Species is stripped so its own free sk5 grant doesn't
+    # muddy the budget math. Budget = class-a pool (2) + background (1) + subclass (3) = 6;
+    # sk1,sk2,sk3,sk4,sk5,sk6 proficient hits that exactly -- must not be flagged over-budget or
+    # illegal (from_any legalises every skill).
+    skills = _clean_skills()
+    skills["sk3"] = _skill(proficient=True)
+    skills["sk5"] = _skill(proficient=True)
+    skills["sk6"] = _skill(proficient=True)
+    sheet = _sheet(skills, classes=[{"class": "Class A", "subclass": "Sub Skills", "level": 3}],
+                   species=None)
+    codes = _codes(sheet, access)
+    assert "too-many-skill-proficiencies" not in codes
+    assert "skill-not-legal" not in codes
+
+
+def test_subclass_skill_grant_budget_still_has_a_ceiling(access):
+    # same build as above (budget = 6), but a 7th proficient skill (sk7) exceeds even the
+    # subclass-enlarged budget -- crediting the subclass grant must not turn the budget into an
+    # unlimited pass.
+    skills = _clean_skills()
+    skills["sk3"] = _skill(proficient=True)
+    skills["sk5"] = _skill(proficient=True)
+    skills["sk6"] = _skill(proficient=True)
+    skills["sk7"] = _skill(proficient=True)
+    sheet = _sheet(skills, classes=[{"class": "Class A", "subclass": "Sub Skills", "level": 3}],
+                   species=None)
+    assert "too-many-skill-proficiencies" in _codes(sheet, access)
+
+
 def test_skill_from_no_legal_source_at_all_is_still_illegal_in_a_multiclass_build(access):
     # negative regression: crediting multiclass choose_n budgets must not turn skill legality into
     # a rubber stamp. Background and species are stripped so only the two classes' pools are legal

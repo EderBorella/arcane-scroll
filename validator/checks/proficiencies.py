@@ -53,6 +53,31 @@ def _secondary_class_contribution(classes: list, access) -> tuple[int, bool, set
     return budget, any_flag, pool
 
 
+def _subclass_contribution(classes: list, access) -> tuple[int, bool, set[str]]:
+    """(budget, any_flag, pool) contributed by every class entry's SUBCLASS skill grants (e.g. a
+    College-of-Lore-style "choose 3 skills of your choice") -- same shape as the multiclass grants
+    handled by `_secondary_class_contribution`: budget credits both the fixed count and the
+    choose_n of every subclass skill grant, not just fixed values."""
+    budget = 0
+    any_flag = False
+    pool: set[str] = set()
+    for c in classes:
+        if not isinstance(c, dict):
+            continue
+        sub = c.get("subclass")
+        if not sub:
+            continue
+        sub_id = access.resolve("subclass", sub)
+        if sub_id is None:
+            continue
+        s_any, s_fixed, s_choose_pool, s_choose_n = q.subclass_skill_grants(access, sub_id)
+        if s_any:
+            any_flag = True
+        budget += len(s_fixed) + s_choose_n
+        pool |= set(s_fixed) | set(s_choose_pool)
+    return budget, any_flag, pool
+
+
 def _legal_universe_and_budget(sheet: dict, ident: dict, classes: list, access) -> tuple[set[str], int, set[str]]:
     """(universe, budget, grant_only) -- `grant_only` is the subset of the universe that is legal
     *solely* because a species/feat grant confers it (not also reachable via the class pool or
@@ -74,6 +99,11 @@ def _legal_universe_and_budget(sheet: dict, ident: dict, classes: list, access) 
     budget += sec_budget
     any_flag = any_flag or sec_any
     universe |= sec_pool
+
+    sub_budget, sub_any, sub_pool = _subclass_contribution(classes, access)
+    budget += sub_budget
+    any_flag = any_flag or sub_any
+    universe |= sub_pool
 
     bg_id = access.resolve("background", ident.get("background"))
     if bg_id is not None:
