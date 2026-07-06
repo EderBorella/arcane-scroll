@@ -55,3 +55,19 @@ def test_missing_finding_is_incomplete_not_illegal(access):
     s = _sheet(classes=[{"class": "Class A", "level": 3}])
     v = [x for x in check(s, access) if x.code == "subclass-missing"][0]
     assert v.kind == "incomplete"
+
+
+def test_xp_too_high(access):
+    assert "xp-too-high" in _codes(_sheet(xp=2700), access)
+
+
+def test_malformed_classes_not_a_list(access):
+    s = _sheet(classes="oops")
+    codes = _codes(s, access)
+    assert "malformed-classes" in codes
+
+
+def test_malformed_level_not_an_int(access):
+    s = _sheet(classes=[{"class": "Class A", "subclass": "Sub A", "level": "3"}])
+    codes = _codes(s, access)
+    assert "malformed-level" in codes

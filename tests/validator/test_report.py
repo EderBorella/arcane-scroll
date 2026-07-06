@@ -19,6 +19,13 @@ def test_incomplete_sets_complete_false_but_stays_legal():
     assert r["violations"][0]["severity"] == "WARNING"
 
 
+def test_internal_blocks_both_legal_and_complete():
+    r = build_report([Violation("identity", "check-crashed", "internal", "boom")])
+    assert r["legal"] is False and r["complete"] is False
+    assert r["violations"][0]["severity"] == "WARNING"
+    assert r["summary"] == {"total": 1, "errors": 0, "warnings": 1}
+
+
 def test_violations_sorted_by_domain_then_code():
     r = build_report([
         Violation("vitals", "a", "illegal", "x"),

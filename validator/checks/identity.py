@@ -9,17 +9,29 @@ DOMAIN = "identity"
 def check(sheet: dict, access) -> list[Violation]:
     v: list[Violation] = []
     ident = sheet.get("identity", {}) or {}
-    classes = ident.get("classes", []) or []
+    raw_classes = ident.get("classes", []) or []
 
     total = 0
+    if not isinstance(raw_classes, list):
+        v.append(Violation(DOMAIN, "malformed-classes", "illegal",
+                           "classes must be a list", "identity.classes"))
+        classes = []
+    else:
+        classes = raw_classes
+
     for i, c in enumerate(classes):
-        total += c.get("level") or 0
+        level = c.get("level")
+        if not isinstance(level, int) or isinstance(level, bool):
+            v.append(Violation(DOMAIN, "malformed-level", "illegal",
+                               f"level must be an integer, got {level!r}", f"identity.classes[{i}].level"))
+            level = 0
+        total += level or 0
         cid = access.resolve("class", c.get("class"))
         if cid is None:
             v.append(Violation(DOMAIN, "unknown-class", "illegal",
                                f"unknown class: {c.get('class')!r}", f"identity.classes[{i}].class"))
             continue
-        lvl = c.get("level") or 0
+        lvl = level or 0
         unlock = q.subclass_unlock_level(access, cid)
         sub = c.get("subclass")
         if sub:
