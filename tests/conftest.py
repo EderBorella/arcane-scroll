@@ -373,6 +373,34 @@ def _build_rules_db(path: str) -> None:
     # class-a grants 1 expertise pick at level 1, from already-proficient skills (unrestricted pool)
     cur.execute("INSERT INTO grant_expertise VALUES "
                 "('gex-a','class','class-a',1,1,'choose_from_proficient',NULL)")
+
+    # feats domain: feat catalog, prerequisite rows, ASI/Epic-Boon slot spine (class_feature), and
+    # the origin-feat grant spine (grant_feat)
+    cur.execute("CREATE TABLE feat (id TEXT PRIMARY KEY, name TEXT, category TEXT, repeatable INT)")
+    cur.execute("CREATE TABLE feat_prereq (id TEXT PRIMARY KEY, feat_id TEXT, any_of_group INT, kind TEXT, "
+                "min_level INT, ability_id TEXT, min_score INT, armor_category_id TEXT, note TEXT)")
+    cur.execute("CREATE TABLE class_feature (id TEXT PRIMARY KEY, class_id TEXT, level INT, name TEXT)")
+    cur.execute("CREATE TABLE grant_feat (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
+                "gained_at_level INT, choose_n INT, from_category TEXT)")
+    for row in [
+        ("feat-gen", "Feat Gen", "general", 0),
+        ("feat-rep", "Feat Rep", "general", 1),
+        ("feat-origin", "Feat Origin", "origin", 0),
+        ("feat-pre", "Feat Pre", "general", 0),
+    ]:
+        cur.execute("INSERT INTO feat VALUES (?,?,?,?)", row)
+    # feat-pre needs total_level>=4 (group 1) AND ability a1>=13 (group 2) -- AND across groups,
+    # OR within a group (single row per group here, so each group's one row must hold)
+    cur.execute("INSERT INTO feat_prereq VALUES "
+                "('fpx1','feat-pre',1,'level',4,NULL,NULL,NULL,NULL)")
+    cur.execute("INSERT INTO feat_prereq VALUES "
+                "('fpx2','feat-pre',2,'ability',NULL,'a1',13,NULL,NULL)")
+    # class-a's ASI/Epic-Boon slots: one at level 4, one at level 8 (two distinct slots by level 8 --
+    # needed so a repeatable feat can legitimately be taken twice in the domain tests)
+    cur.execute("INSERT INTO class_feature VALUES ('cf-asi4','class-a',4,'Ability Score Improvement')")
+    cur.execute("INSERT INTO class_feature VALUES ('cf-asi8','class-a',8,'Ability Score Improvement')")
+    # bg-a grants one origin-category feat
+    cur.execute("INSERT INTO grant_feat VALUES ('gft-bga','background','bg-a',NULL,1,'origin')")
     con.commit()
     con.close()
 
