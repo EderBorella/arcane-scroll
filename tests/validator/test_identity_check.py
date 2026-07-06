@@ -48,7 +48,12 @@ def test_creature_type_mismatch(access):
 
 
 def test_xp_too_low(access):
-    assert "xp-too-low" in _codes(_sheet(xp=0), access)
+    assert "xp-too-low" in _codes(_sheet(xp=100), access)
+
+
+def test_xp_zero_is_untracked_milestone_leveling_no_finding(access):
+    # xp==0 means the sheet doesn't track xp (milestone leveling) -- not an inconsistency.
+    assert check(_sheet(xp=0), access) == []
 
 
 def test_missing_finding_is_incomplete_not_illegal(access):

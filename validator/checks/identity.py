@@ -82,7 +82,7 @@ def check(sheet: dict, access) -> list[Violation]:
                            "identity.total_level"))
 
     xp = ident.get("xp")
-    if xp is not None and total:
+    if xp is not None and xp > 0 and total:
         lo = q.xp_min(access, total)
         hi = q.xp_min(access, total + 1)
         if lo is not None and xp < lo:
