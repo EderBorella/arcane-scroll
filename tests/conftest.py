@@ -382,6 +382,11 @@ def _build_rules_db(path: str) -> None:
     # class-a grants 1 expertise pick at level 1, from already-proficient skills (unrestricted pool)
     cur.execute("INSERT INTO grant_expertise VALUES "
                 "('gex-a','class','class-a',1,1,'choose_from_proficient',NULL)")
+    # ... and a second expertise pick at level 6 (mirrors e.g. rogue L1->2, L6->2 -- two separate
+    # per-level grants summing over a class's own levels); no existing test uses class-a above
+    # level 3, so this is additive-only for the multiclass-expertise-budget fix
+    cur.execute("INSERT INTO grant_expertise VALUES "
+                "('gex-a6','class','class-a',6,1,'choose_from_proficient',NULL)")
 
     # feats domain: feat catalog, prerequisite rows, ASI/Epic-Boon slot spine (class_feature), and
     # the origin-feat grant spine (grant_feat)

@@ -110,3 +110,22 @@ def test_multiclass_skill_grant_from_a_class_not_taken_is_still_illegal(access):
     skills["sk6"] = _skill(proficient=True)
     sheet = _sheet(skills, classes=[{"class": "Class A", "level": 3}])
     assert "skill-not-legal" in _codes(sheet, access)
+
+
+def test_expertise_budget_sums_across_all_classes(access):
+    # class-b (first, no expertise of its own) + class-a (second, level 6 -> grants 1 at level 1
+    # AND 1 at level 6 = 2 total). Only sk4 (background, universally legal) and sk5 (species-
+    # granted) are used so the skill-legality/budget side stays clean; 2 expertise picks against
+    # a 2-point budget sourced entirely from the SECOND class must not be flagged.
+    skills = {"sk4": _skill(proficient=True, expertise=True), "sk5": _skill(proficient=True, expertise=True)}
+    sheet = _sheet(skills, classes=[{"class": "Class B", "level": 3}, {"class": "Class A", "level": 6}])
+    assert "too-many-expertise" not in _codes(sheet, access)
+
+
+def test_expertise_budget_across_classes_still_has_a_ceiling(access):
+    # same build (combined expertise budget = 2), but a 3rd expertise pick exceeds it -- multiclass
+    # summing must not turn the budget into an unlimited pass.
+    skills = {"sk4": _skill(proficient=True, expertise=True), "sk5": _skill(proficient=True, expertise=True),
+              "sk1": _skill(proficient=True, expertise=True)}
+    sheet = _sheet(skills, classes=[{"class": "Class B", "level": 3}, {"class": "Class A", "level": 6}])
+    assert "too-many-expertise" in _codes(sheet, access)

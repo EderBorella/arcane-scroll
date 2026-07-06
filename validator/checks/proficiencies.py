@@ -137,7 +137,6 @@ def check(sheet: dict, access) -> list[Violation]:
         ident = {}
     raw_classes = ident.get("classes")
     classes = raw_classes if isinstance(raw_classes, list) else []
-    first_class = _first_class(classes)
 
     universe, budget, grant_only = _legal_universe_and_budget(sheet, ident, classes, access)
 
@@ -167,16 +166,26 @@ def check(sheet: dict, access) -> list[Violation]:
                            f"{chargeable_count} proficient skills exceeds the budget of {budget}",
                            "skills"))
 
-    level = first_class.get("level") if first_class is not None else None
-    at_level = level if isinstance(level, int) and not isinstance(level, bool) else 0
-    cid = access.resolve("class", first_class.get("class")) if first_class is not None else None
-    sub = first_class.get("subclass") if first_class is not None else None
-    sub_id = access.resolve("subclass", sub) if sub else None
+    # Expertise budget sums EVERY class's own grants at that class's own level (a rogue picked up
+    # as a second class still grants its expertise, gated by the rogue's own level, not the first
+    # class's) -- plus each class's subclass, plus feats (gated by total character level, since a
+    # feat isn't tied to any one class's level track).
+    ex_budget = 0
+    total_level = 0
+    for c in classes:
+        if not isinstance(c, dict):
+            continue
+        c_level = c.get("level")
+        c_at_level = c_level if isinstance(c_level, int) and not isinstance(c_level, bool) else 0
+        total_level += c_at_level
+        c_cid = access.resolve("class", c.get("class"))
+        c_sub = c.get("subclass")
+        c_sub_id = access.resolve("subclass", c_sub) if c_sub else None
+        ex_budget += _expertise_budget(access, [("class", c_cid), ("subclass", c_sub_id)], c_at_level)
+
     feats = sheet.get("feats") if isinstance(sheet.get("feats"), list) else []
     feat_ids = [access.resolve("feat", f) for f in feats]
-
-    ex_budget = _expertise_budget(
-        access, [("class", cid), ("subclass", sub_id)] + [("feat", fid) for fid in feat_ids], at_level)
+    ex_budget += _expertise_budget(access, [("feat", fid) for fid in feat_ids], total_level)
 
     for sid, k, path in expertise_picks:
         if sid not in proficient_ids:
