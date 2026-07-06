@@ -90,3 +90,23 @@ def test_malformed_identity_not_a_dict_does_not_raise(access):
     sheet = _sheet()
     sheet["identity"] = "oops"
     assert isinstance(check(sheet, access), list)
+
+
+def test_multiclass_secondary_class_skill_grant_is_legal_and_budgeted(access):
+    # class-b, taken as the SECOND class, grants sk6 (multiclass_only=1) -- it should widen both
+    # the legal universe and the budget, so a sheet proficient in it is fully clean.
+    skills = _clean_skills()
+    skills["sk6"] = _skill(proficient=True)
+    sheet = _sheet(skills, classes=[{"class": "Class A", "level": 3}, {"class": "Class B", "level": 1}])
+    codes = _codes(sheet, access)
+    assert "skill-not-legal" not in codes
+    assert "too-many-skill-proficiencies" not in codes
+
+
+def test_multiclass_skill_grant_from_a_class_not_taken_is_still_illegal(access):
+    # sk6 is only legal via class-b's multiclass grant -- proficient in it WITHOUT class-b in the
+    # build is still an illegal skill (a real error must still be caught).
+    skills = _clean_skills()
+    skills["sk6"] = _skill(proficient=True)
+    sheet = _sheet(skills, classes=[{"class": "Class A", "level": 3}])
+    assert "skill-not-legal" in _codes(sheet, access)

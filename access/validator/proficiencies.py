@@ -49,6 +49,25 @@ def grant_skill_sets(access: ValidatorAccess, owner_kind: str, owner_id: str) ->
     return any_flag, sorted(fixed)
 
 
+def multiclass_skill_grants(access: ValidatorAccess, class_id: str) -> tuple[bool, list[str]]:
+    """(any_flag, fixed_skill_ids) over a class's grant_proficiency skill rows marked
+    multiclass_only=1 -- the reduced skill set a class confers when taken as a secondary
+    (non-first) class in a multiclass build, as opposed to its full primary-class skill pool."""
+    any_flag = False
+    fixed: set[str] = set()
+    for header in primitives.grants_for(access.db, "grant_proficiency", "class", class_id):
+        if header["target_kind"] != "skill" or not header["multiclass_only"]:
+            continue
+        values = [row["target_id"] for row in
+                  primitives.children_of(access.db, "grant_proficiency", header["id"])
+                  .get("grant_proficiency_value", [])]
+        if header["from_any"] or (header["mode"] == "choose" and not values):
+            any_flag = True
+        else:
+            fixed.update(values)
+    return any_flag, sorted(fixed)
+
+
 def expertise_grants(access: ValidatorAccess, owner_kind: str, owner_id: str, at_level: int) -> list[dict]:
     """grant_expertise rows for an owner gained at or below `at_level`, each as
     {choose_n, mode, skill_id, values} where `values` is the resolved grant_expertise_value pool

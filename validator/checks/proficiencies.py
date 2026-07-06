@@ -30,7 +30,28 @@ def _class_contribution(first: dict | None, access) -> tuple[int, bool, set[str]
     return (n or 0), bool(from_any), set(pool)
 
 
-def _legal_universe_and_budget(sheet: dict, ident: dict, first_class: dict | None, access) -> tuple[set[str], int, set[str]]:
+def _secondary_class_contribution(classes: list, access) -> tuple[int, bool, set[str]]:
+    """(budget, any_flag, pool) contributed by every class AFTER the first -- their reduced
+    multiclass-only skill grants, not their full (primary-only) skill pool."""
+    budget = 0
+    any_flag = False
+    pool: set[str] = set()
+    for c in classes[1:]:
+        if not isinstance(c, dict):
+            continue
+        cid = access.resolve("class", c.get("class"))
+        if cid is None:
+            continue
+        c_any, c_fixed = q.multiclass_skill_grants(access, cid)
+        if c_any:
+            any_flag = True
+        else:
+            budget += len(c_fixed)
+        pool |= set(c_fixed)
+    return budget, any_flag, pool
+
+
+def _legal_universe_and_budget(sheet: dict, ident: dict, classes: list, access) -> tuple[set[str], int, set[str]]:
     """(universe, budget, grant_only) -- `grant_only` is the subset of the universe that is legal
     *solely* because a species/feat grant confers it (not also reachable via the class pool or
     background). Those skills are automatically-conferred proficiencies, not picks spent against a
@@ -41,10 +62,16 @@ def _legal_universe_and_budget(sheet: dict, ident: dict, first_class: dict | Non
     universe: set[str] = set()
     budget = 0
 
+    first_class = _first_class(classes)
     n, class_any, class_pool = _class_contribution(first_class, access)
     budget += n
     any_flag = any_flag or class_any
     universe |= class_pool
+
+    sec_budget, sec_any, sec_pool = _secondary_class_contribution(classes, access)
+    budget += sec_budget
+    any_flag = any_flag or sec_any
+    universe |= sec_pool
 
     bg_id = access.resolve("background", ident.get("background"))
     if bg_id is not None:
@@ -112,7 +139,7 @@ def check(sheet: dict, access) -> list[Violation]:
     classes = raw_classes if isinstance(raw_classes, list) else []
     first_class = _first_class(classes)
 
-    universe, budget, grant_only = _legal_universe_and_budget(sheet, ident, first_class, access)
+    universe, budget, grant_only = _legal_universe_and_budget(sheet, ident, classes, access)
 
     proficient_ids: set[str] = set()
     expertise_picks: list[tuple[str, str, str]] = []   # (skill_id, key, path)

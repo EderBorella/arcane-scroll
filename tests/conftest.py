@@ -353,7 +353,8 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE class_skill_option (class_id TEXT, skill_id TEXT)")
     cur.execute("CREATE TABLE background_skill (background_id TEXT, skill_id TEXT)")
     cur.execute("CREATE TABLE grant_proficiency (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
-                "gained_at_level INT, target_kind TEXT, mode TEXT, from_any INT, choose_n INT)")
+                "gained_at_level INT, target_kind TEXT, mode TEXT, from_any INT, choose_n INT, "
+                "multiclass_only INT)")
     cur.execute("CREATE TABLE grant_proficiency_value (grant_id TEXT, target_id TEXT)")
     # children_of() fans out over the whole grant_proficiency child list (access/primitives.py's
     # GRANT_TABLES); these two are unused by the skills fixture but must exist for the query.
@@ -371,8 +372,13 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO background_skill VALUES ('bg-a','sk4')")
     # species-a grants a fixed skill proficiency (sk5) -- exercises grant-sourced skills
     cur.execute("INSERT INTO grant_proficiency VALUES "
-                "('gp-species-a-skill','species','species-a',NULL,'skill','fixed',0,NULL)")
+                "('gp-species-a-skill','species','species-a',NULL,'skill','fixed',0,NULL,0)")
     cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-species-a-skill','sk5')")
+    # class-b grants a reduced multiclass-only skill (sk6) -- what a secondary (non-first) class
+    # confers, per grant_proficiency.multiclass_only=1
+    cur.execute("INSERT INTO grant_proficiency VALUES "
+                "('gp-class-b-multiclass-skill','class','class-b',NULL,'skill','fixed',0,NULL,1)")
+    cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-class-b-multiclass-skill','sk6')")
     # class-a grants 1 expertise pick at level 1, from already-proficient skills (unrestricted pool)
     cur.execute("INSERT INTO grant_expertise VALUES "
                 "('gex-a','class','class-a',1,1,'choose_from_proficient',NULL)")
@@ -396,7 +402,7 @@ def _build_rules_db(path: str) -> None:
     # feat-save (e.g. Resilient) grants saving-throw proficiency in ability a3 via the proficiency
     # grant spine (target_kind='saving_throw') -- the saving-throws domain's feat-granted-save fix
     cur.execute("INSERT INTO grant_proficiency VALUES "
-                "('gp-featsave','feat','feat-save',NULL,'saving_throw','fixed',0,NULL)")
+                "('gp-featsave','feat','feat-save',NULL,'saving_throw','fixed',0,NULL,0)")
     cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-featsave','a3')")
     # feat-pre needs total_level>=4 (group 1) AND ability a1>=13 (group 2) -- AND across groups,
     # OR within a group (single row per group here, so each group's one row must hold)
