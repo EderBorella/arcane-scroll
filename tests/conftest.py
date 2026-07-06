@@ -390,8 +390,14 @@ def _build_rules_db(path: str) -> None:
         ("feat-rep", "Feat Rep", "general", 1),
         ("feat-origin", "Feat Origin", "origin", 0),
         ("feat-pre", "Feat Pre", "general", 0),
+        ("feat-save", "Feat Save", "general", 0),
     ]:
         cur.execute("INSERT INTO feat VALUES (?,?,?,?)", row)
+    # feat-save (e.g. Resilient) grants saving-throw proficiency in ability a3 via the proficiency
+    # grant spine (target_kind='saving_throw') -- the saving-throws domain's feat-granted-save fix
+    cur.execute("INSERT INTO grant_proficiency VALUES "
+                "('gp-featsave','feat','feat-save',NULL,'saving_throw','fixed',0,NULL)")
+    cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-featsave','a3')")
     # feat-pre needs total_level>=4 (group 1) AND ability a1>=13 (group 2) -- AND across groups,
     # OR within a group (single row per group here, so each group's one row must hold)
     cur.execute("INSERT INTO feat_prereq VALUES "

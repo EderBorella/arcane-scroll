@@ -1,6 +1,7 @@
-"""Saving-throws domain: proficiency and modifier consistency against the first class's
-class_saving_throw rows (the 2024 first-class-grants-saves rule). Every expectation is derived
-from the DB; malformed or missing sheet data is skipped rather than raised."""
+"""Saving-throws domain: proficiency and modifier consistency against the union of the first
+class's class_saving_throw rows (the 2024 first-class-grants-saves rule) and any saving-throw
+proficiency granted by a feat (e.g. Resilient) or the species. Every expectation is derived from
+the DB; malformed or missing sheet data is skipped rather than raised."""
 from access.validator import abilities as abilities_q
 from access.validator import saving_throws as q
 from validator.report import Violation
@@ -24,7 +25,18 @@ def check(sheet: dict, access) -> list[Violation]:
     cid = access.resolve("class", classes[0].get("class"))
     if cid is None:
         return v
-    class_saves = set(q.class_save_abilities(access, cid))
+    expected_saves = set(q.class_save_abilities(access, cid))
+
+    sp_id = access.resolve("species", ident.get("species"))
+    if sp_id is not None:
+        expected_saves |= set(q.granted_save_abilities(access, "species", sp_id))
+
+    feats = sheet.get("feats")
+    if isinstance(feats, list):
+        for f in feats:
+            feat_id = access.resolve("feat", f)
+            if feat_id is not None:
+                expected_saves |= set(q.granted_save_abilities(access, "feat", feat_id))
 
     abilities_sheet = sheet.get("abilities")
     pb = sheet.get("proficiency_bonus")
@@ -36,7 +48,7 @@ def check(sheet: dict, access) -> list[Violation]:
         aid = abilities_q.ability_id(access, k)
         if aid is None:
             continue
-        expected = aid in class_saves
+        expected = aid in expected_saves
 
         proficient = entry.get("proficient")
         if proficient != expected:
