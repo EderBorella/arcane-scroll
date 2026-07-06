@@ -307,6 +307,7 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE subclass (id TEXT PRIMARY KEY, class_id TEXT, name TEXT, is_caster INT, description TEXT)")
     cur.execute("CREATE TABLE species (id TEXT PRIMARY KEY, name TEXT, creature_type_id TEXT, base_walk_speed INT, description TEXT)")
     cur.execute("CREATE TABLE background (id TEXT PRIMARY KEY, name TEXT, feat_id TEXT, feat_choice INT, tool_id TEXT, tool_category_id TEXT, description TEXT)")
+    cur.execute("CREATE TABLE lineage (id TEXT PRIMARY KEY, name TEXT, description TEXT)")
     cur.execute("CREATE TABLE size (id TEXT PRIMARY KEY, name TEXT, ordinal INT, space_ft REAL)")
     cur.execute("CREATE TABLE creature_type (id TEXT PRIMARY KEY, name TEXT)")
     cur.execute("CREATE TABLE xp_level (level INT PRIMARY KEY, xp_min INT)")
@@ -516,6 +517,27 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO grant_spell_choice VALUES ('gsp-classa-widen',NULL,'class_list')")
     cur.execute("INSERT INTO grant_spell_choice_value VALUES ('gsp-classa-widen','class-a')")
     cur.execute("INSERT INTO grant_spell_choice_value VALUES ('gsp-classa-widen','class-b')")
+
+    # senses domain: sense catalog + grant_sense spine (F05-T23 max-not-sum rule)
+    cur.execute("CREATE TABLE sense (id TEXT PRIMARY KEY, name TEXT, description TEXT)")
+    cur.execute("CREATE TABLE grant_sense (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
+                "gained_at_level INTEGER, sense_id TEXT, range_ft INTEGER, "
+                "extends_existing INTEGER NOT NULL DEFAULT 0, note TEXT)")
+    for sid, sname in [("darkvision", "Darkvision"), ("blindsight", "Blindsight")]:
+        cur.execute("INSERT INTO sense VALUES (?,?,?)", (sid, sname, ""))
+    # species-a grants darkvision 60 (non-extending base)
+    cur.execute("INSERT INTO grant_sense VALUES "
+                "('gs-species-a','species','species-a',NULL,'darkvision',60,0,NULL)")
+    # subclass sub-a grants darkvision 120 (also non-extending — should be max, not sum)
+    cur.execute("INSERT INTO grant_sense VALUES "
+                "('gs-sub-a','subclass','sub-a',3,'darkvision',120,0,NULL)")
+    # a feat that extends existing darkvision by 30
+    cur.execute("INSERT INTO grant_sense VALUES "
+                "('gs-feat-extend','feat','feat-gen',NULL,'darkvision',30,1,'if you already have it')")
+    # a feat that grants blindsight 10
+    cur.execute("INSERT INTO grant_sense VALUES "
+                "('gs-feat-blind','feat','feat-rep',NULL,'blindsight',10,0,NULL)")
+
     con.commit()
     con.close()
 
