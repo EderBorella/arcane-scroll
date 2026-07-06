@@ -448,8 +448,8 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE spell_class (spell_id TEXT, class_id TEXT)")
     cur.execute("CREATE TABLE grant_spell (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, gained_at_level INT)")
     cur.execute("CREATE TABLE grant_spell_fixed (grant_id TEXT, spell_id TEXT)")
-    cur.execute("CREATE TABLE grant_spell_choice (grant_id TEXT, choose_n INT)")
-    cur.execute("CREATE TABLE grant_spell_choice_value (grant_id TEXT, spell_id TEXT)")
+    cur.execute("CREATE TABLE grant_spell_choice (grant_id TEXT, choose_n INT, from_kind TEXT)")
+    cur.execute("CREATE TABLE grant_spell_choice_value (grant_id TEXT, value_id TEXT)")
 
     # class-a (already 'full') L3: 2 cantrips known, 3 prepared; slots {1:4, 2:2}
     cur.execute("INSERT INTO class_cantrips_prepared VALUES ('class-a',3,2,3)")
@@ -480,6 +480,18 @@ def _build_rules_db(path: str) -> None:
     # species-a always grants sp4 (legal even though it's off class-a's list)
     cur.execute("INSERT INTO grant_spell VALUES ('gsp-species-a','species','species-a',NULL)")
     cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-species-a','sp4')")
+    # sp5 is on class-b's list only (not class-a's) -- the Magical-Secrets-style widening fixture
+    cur.execute("INSERT INTO spell VALUES ('sp5','Sp5',1,0)")
+    cur.execute("INSERT INTO spell_class VALUES ('sp5','class-b')")
+    # class-a's Magical-Secrets-style widening grant, gained at level 10 -- mirrors the real Bard
+    # L10 row (id l10-gsp-0010): grant_spell(owner_kind='class', owner_id='bard', gained_at_level=10)
+    # + grant_spell_choice(from_kind='class_list') + grant_spell_choice_value = {bard, cleric, druid,
+    # wizard}. Here it widens class-a's legal list to include class-b's list once the character has
+    # reached level 10 in class-a, so a prepared sp5 (class-b only) becomes legal from that level on.
+    cur.execute("INSERT INTO grant_spell VALUES ('gsp-classa-widen','class','class-a',10)")
+    cur.execute("INSERT INTO grant_spell_choice VALUES ('gsp-classa-widen',NULL,'class_list')")
+    cur.execute("INSERT INTO grant_spell_choice_value VALUES ('gsp-classa-widen','class-a')")
+    cur.execute("INSERT INTO grant_spell_choice_value VALUES ('gsp-classa-widen','class-b')")
     con.commit()
     con.close()
 

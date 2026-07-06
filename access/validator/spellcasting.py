@@ -67,6 +67,24 @@ def spell_on_class_list(access: ValidatorAccess, spell_id: str, class_id: str) -
         "SELECT 1 FROM spell_class WHERE spell_id=? AND class_id=?", spell_id, class_id) is not None
 
 
+def list_widening_classes(access: ValidatorAccess, class_id: str, at_level: int) -> list[str]:
+    """Class ids whose spell list is ADDITIONALLY legal for `class_id` at `at_level`, via a
+    Magical-Secrets-style grant: a grant_spell row (owner_kind='class', owner_id=class_id) gained at
+    or below `at_level`, that carries a grant_spell_choice with from_kind='class_list' -- the
+    widened list ids live in that grant's grant_spell_choice_value.value_id rows. DB fact: Bard's
+    Magical Secrets (row l10-gsp-0010) is a grant_spell(class, bard, gained_at_level=10) +
+    grant_spell_choice(from_kind='class_list') widening to {bard, cleric, druid, wizard}."""
+    widened: set[str] = set()
+    for header in primitives.grants_for(access.db, "grant_spell", "class", class_id, at_level):
+        children = primitives.children_of(access.db, "grant_spell", header["id"])
+        choices = children.get("grant_spell_choice", [])
+        if not any(c["from_kind"] == "class_list" for c in choices):
+            continue
+        for row in children.get("grant_spell_choice_value", []):
+            widened.add(row["value_id"])
+    return sorted(widened)
+
+
 def granted_spell_ids(access: ValidatorAccess, owner_kind: str, owner_id: str) -> set[str]:
     """spell_ids always granted to an owner (species/feat/subclass/class), via the grant_spell ->
     grant_spell_fixed spine. These are additive and may legitimately sit off the owner's class list."""

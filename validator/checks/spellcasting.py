@@ -316,7 +316,15 @@ def _check_spell_list_and_uniqueness(sheet: dict, ident: dict, classes: list, sp
         if cid is None:
             continue  # not a class source (feat/species/subclass/item) -- treat as granted, no list check
         list_cid = _effective_list_class(cid, classes, access)
-        if not q.spell_on_class_list(access, sid_spell, list_cid) and sid_spell not in granted:
+        legal_lists = {list_cid}
+        # Magical-Secrets-style widening (e.g. Bard L10): a class_list grant on the source's OWN
+        # class (not the effective/third-caster list) additionally legalises other class lists, but
+        # only once the character has reached the grant's gained_at_level for that class.
+        own_level = _level_for_class(classes, cid, access)
+        if own_level is not None:
+            legal_lists |= set(q.list_widening_classes(access, cid, own_level))
+        on_a_list = any(q.spell_on_class_list(access, sid_spell, lc) for lc in legal_lists)
+        if not on_a_list and sid_spell not in granted:
             v.append(Violation(DOMAIN, "spell-not-on-list", "illegal",
                                f"{name}: not on {source}'s spell list and not otherwise granted", path))
 

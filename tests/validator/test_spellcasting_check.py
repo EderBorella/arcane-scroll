@@ -248,3 +248,38 @@ def test_missing_modifier_skips_dc_attack_check(access):
     sources["Class A"]["save_dc"] = 99  # would mismatch if the check ran
     codes = _codes(_sheet(sources=sources), access)
     assert "spell-save-dc-mismatch" not in codes
+
+
+def _widen_sources():
+    # class-a at level 10: no declared cantrips_known/prepared_limit budgets, so the
+    # source-budget-truthfulness and spell-count checks stay silent regardless of the (untabulated)
+    # level-10 row -- this fixture is only exercising the spell-list-widening check.
+    return {"Class A": {"kind": "class", "ability": "Ability 1", "modifier": 2}}
+
+
+def test_widened_class_list_spell_is_allowed_at_the_widening_level(access):
+    # class-a's Magical-Secrets-style widening grant (gained_at_level=10) widens its legal list to
+    # include class-b's list; sp5 is on class-b's list only. A level-10 class-a source preparing it
+    # must NOT be flagged -- it's legal via the widened list.
+    classes = [{"class": "Class A", "level": 10}]
+    spells = [{"name": "Sp5", "level": 1, "bucket": "prepared", "source": "Class A"}]
+    sheet = _sheet(sources=_widen_sources(), spells=spells, spell_slots={}, classes=classes, species=None)
+    assert "spell-not-on-list" not in _codes(sheet, access)
+
+
+def test_widened_class_list_spell_is_still_illegal_below_the_widening_level(access):
+    # negative regression: a class-a source BELOW the widening level (gained_at_level=10) has no
+    # widening yet -- sp5 (off class-a's own list, not granted) must still be flagged.
+    classes = [{"class": "Class A", "level": 9}]
+    spells = [{"name": "Sp5", "level": 1, "bucket": "prepared", "source": "Class A"}]
+    sheet = _sheet(sources=_widen_sources(), spells=spells, spell_slots={}, classes=classes, species=None)
+    assert "spell-not-on-list" in _codes(sheet, access)
+
+
+def test_non_widened_class_off_list_non_granted_spell_is_still_illegal(access):
+    # negative regression: a class with no widening grant at all preparing an off-list, non-granted
+    # spell is still caught -- widening support must not turn the list check into a rubber stamp.
+    # (class-a at its ordinary level 3 has no widening grant active either way, but this pins the
+    # pre-existing off-list case explicitly against the widening change.)
+    spells = _clean_spells() + [{"name": "Sp4", "level": 1, "bucket": "prepared", "source": "Class A"}]
+    assert "spell-not-on-list" in _codes(_sheet(spells=spells, species=None), access)
