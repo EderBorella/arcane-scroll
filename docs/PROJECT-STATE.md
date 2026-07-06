@@ -3,12 +3,14 @@
 > **Master state doc (public, high-level).** One source of truth for what we're building, what
 > works, what's decided, and what's next.
 >
-> Last updated: **2026-07-03**. **Recent:** the **independent validation micro-service** (F02) has
-> matured — a **contract-first** shared `CharacterSheet` schema (now **v5**) plus **ten** grounded
-> validator layers, each built to the correct rules *independently of the generator* (§1, Changelog).
-> Earlier major shift: dropped the fine-tune in favour of a **base model + per-request dynamic
-> grammar** approach (§1, §4); generation (sheet + all choices + flavour) is validated and
-> essentially complete.
+> Last updated: **2026-07-05**. **Recent:** the reference rulebook is now a fully-typed **relational
+> DB** (`rules.db`, built outside this repo) read through a new **data-access layer** (`access/`,
+> F05-S01). The old flat-file **validation micro-service** (F02: `validator/` + regex `build_rules.py`)
+> has been **removed** — the validator is being rebuilt on the data-access layer (F05-S12); its
+> *principles* (contract-first, book-grounded, independent of the generator) still hold. The
+> contract schema is now **v6**. *(The F02 history below is retained as changelog; treat this note as
+> the current state until that section is reworked.)* Earlier major shift: dropped the fine-tune in
+> favour of a **base model + per-request dynamic grammar** approach (§1, §4).
 
 ---
 
@@ -77,14 +79,15 @@ What's left is derivation-side + the service:**
 | Starting equipment choices | ✅ done |
 | Flavour bundle (physical/traits/backstory) | ✅ done (one structured call) |
 | Strict validator + reference data (by-construction, generator-side) | ✅ working |
-| **Validation micro-service (independent post-hoc gate)** | ✅ **contract v5** + **10 grounded layers** (class/level, ability, proficiencies, spellcasting, vitals, feats, features, identity, movement, masteries) + resilient report; served over HTTP |
+| **Reference rulebook DB (`rules.db`) + data-access layer (`access/`)** | ✅ **landed (F05-S01)** — relational DB read via a read-only handle + retrieval primitives; validator feature-access file is boilerplate |
+| **Validation micro-service (independent post-hoc gate)** | 🔄 **REMOVED & rebuilding** — the flat-file service (was contract v5 + 10 layers) was retired 2026-07-05; being rebuilt on `access/` over `rules.db` (F05-S12). Contract now **v6** |
 | **Generation (all model choices)** | ✅ **complete & valid by construction** |
 | **Service stack (Docker: model + app)** | ✅ scaffolded — skeleton serving |
 | **Shared resource catalog (load-time)** | ✅ loaded in memory at startup |
 | **Character sheet generator** | ✅ base contract + feature/feat/equipment choices |
 | **Backstory generator** | ✅ physical + personality + backstory |
 | **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live — `/v1/characters` now returns choices **+ derived sheet** |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ 208 generator + 116 validator |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ 224 generator + 19 data-access (`access/`) = 243 passing; the 116 flat-file validator tests were removed with that stack |
 | **Derivation engine (compute side)** | ✅ render-ready sheet + armour-based AC + inventory assembly + **starting treasure**; two-pass next (T42/T46) |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
@@ -383,7 +386,8 @@ seconds. Stable at q4 (0 parse failures / 0 loops across 149).
 
 **Done:**
 - ✅ **Service stack scaffolded** (Docker: model + app, self-contained; app skeleton serving) — see Changelog.
-- ✅ **Validation micro-service (F02)** — independent post-hoc gate: **contract-first** shared schema (**v5**) + **10 grounded layers** + a resilient, aggregate-everything report, served over HTTP as its own compose service. See Changelog. *(Remaining validator layers in backlog: **S18** spell-metadata, **S19** attunement, **S20** passive-scores; then the **S11** conformance-corpus capstone. Deferred/carded: **F02-SRC** (verify non-class spell grants), **F02-GEN** (migrate the generator to the contract), **F02-HYGIENE** (neutralise test vocabulary — blocked on the generator).)*
+- ✅ **Reference rulebook DB + data-access layer (F05-S01)** — the 2024 ruleset as a fully-typed **relational DB** (`rules.db`, built outside the repo by the reference-DB pipeline), read via the repo's read-only **data-access layer** (`access/`: connection handle + retrieval primitives + a boilerplate validator feature file). Replaces the regex `build_rules.py` / flat-file approach.
+- 🔄 **Validation micro-service (F02) — RETIRED & rebuilding.** The contract-first shared schema landed (now **v6**), but the flat-file micro-service (was v5 + 10 grounded layers) was **removed** 2026-07-05; the validator is being rebuilt on the data-access layer (F05-S12). Its principles (independent, book-grounded) carry over. *(Prior backlog folds into the rebuild: **S18** spell-metadata, **S19** attunement, **S20** passive-scores, the **S11** conformance-corpus capstone; deferred/carded **F02-SRC**, **F02-GEN**, **F02-HYGIENE**.)*
 
 **Now (highest leverage):**
 1. **Generator** (base contract) is in — catalog-driven grammar/prompt → model → repaired choices.
