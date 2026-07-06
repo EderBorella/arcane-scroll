@@ -9,6 +9,8 @@ DOMAIN = "identity"
 def check(sheet: dict, access) -> list[Violation]:
     v: list[Violation] = []
     ident = sheet.get("identity", {}) or {}
+    if not isinstance(ident, dict):
+        ident = {}
     raw_classes = ident.get("classes", []) or []
 
     total = 0

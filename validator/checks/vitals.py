@@ -93,6 +93,8 @@ def _check_hp_range(v: list[Violation], sheet: dict, access, resolved: list[tupl
     hp_max = sum(lvl * (faces + con_mod) for _, lvl, faces in resolved)
 
     ident = sheet.get("identity", {}) or {}
+    if not isinstance(ident, dict):
+        ident = {}
     species_id = access.resolve("species", ident.get("species"))
     if species_id is not None:
         for row in q.hp_grants(access, "species", species_id):
@@ -107,6 +109,8 @@ def _check_hp_range(v: list[Violation], sheet: dict, access, resolved: list[tupl
 def check(sheet: dict, access) -> list[Violation]:
     v: list[Violation] = []
     ident = sheet.get("identity", {}) or {}
+    if not isinstance(ident, dict):
+        ident = {}
     raw_classes = ident.get("classes")
     if not isinstance(raw_classes, list) or not raw_classes:
         return v

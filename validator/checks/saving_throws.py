@@ -15,6 +15,8 @@ def check(sheet: dict, access) -> list[Violation]:
         return v
 
     ident = sheet.get("identity", {}) or {}
+    if not isinstance(ident, dict):
+        ident = {}
     classes = ident.get("classes")
     if not isinstance(classes, list) or not classes or not isinstance(classes[0], dict):
         return v

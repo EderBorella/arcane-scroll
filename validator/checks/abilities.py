@@ -58,6 +58,8 @@ def check(sheet: dict, access) -> list[Violation]:
                            f"missing ability entries: {sorted(missing)}", "abilities"))
 
     ident = sheet.get("identity", {}) or {}
+    if not isinstance(ident, dict):
+        ident = {}
     bg_id = access.resolve("background", ident.get("background"))
     if bg_id is not None:
         if not boosts:

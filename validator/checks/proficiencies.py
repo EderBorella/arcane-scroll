@@ -30,7 +30,13 @@ def _class_contribution(first: dict | None, access) -> tuple[int, bool, set[str]
     return (n or 0), bool(from_any), set(pool)
 
 
-def _legal_universe_and_budget(sheet: dict, ident: dict, first_class: dict | None, access) -> tuple[set[str], int]:
+def _legal_universe_and_budget(sheet: dict, ident: dict, first_class: dict | None, access) -> tuple[set[str], int, set[str]]:
+    """(universe, budget, grant_only) -- `grant_only` is the subset of the universe that is legal
+    *solely* because a species/feat grant confers it (not also reachable via the class pool or
+    background). Those skills are automatically-conferred proficiencies, not picks spent against a
+    choice pool, so a proficient sheet skill drawn only from that set must not count against the
+    budget ceiling (it would otherwise produce a `too-many-skill-proficiencies` false positive for
+    an otherwise-legitimate full class+background selection plus a granted skill)."""
     any_flag = False
     universe: set[str] = set()
     budget = 0
@@ -46,13 +52,18 @@ def _legal_universe_and_budget(sheet: dict, ident: dict, first_class: dict | Non
         budget += len(bg_skills)
         universe |= set(bg_skills)
 
+    base_universe = set(universe)
+
     # Grant sources (species + feats) only widen legality -- they do not add to the budget, since
     # they are automatically-conferred proficiencies rather than picks spent against a choice pool.
+    granted_fixed: set[str] = set()
+
     sp_id = access.resolve("species", ident.get("species"))
     if sp_id is not None:
         sp_any, sp_fixed = q.grant_skill_sets(access, "species", sp_id)
         any_flag = any_flag or sp_any
         universe |= set(sp_fixed)
+        granted_fixed |= set(sp_fixed)
 
     feats = sheet.get("feats")
     if isinstance(feats, list):
@@ -63,10 +74,13 @@ def _legal_universe_and_budget(sheet: dict, ident: dict, first_class: dict | Non
             f_any, f_fixed = q.grant_skill_sets(access, "feat", feat_id)
             any_flag = any_flag or f_any
             universe |= set(f_fixed)
+            granted_fixed |= set(f_fixed)
+
+    grant_only = granted_fixed - base_universe
 
     if any_flag:
         universe = set(q.all_skill_ids(access))
-    return universe, budget
+    return universe, budget, grant_only
 
 
 def _expertise_budget(access, owners: list[tuple[str, str | None]], at_level: int) -> int:
@@ -92,11 +106,13 @@ def check(sheet: dict, access) -> list[Violation]:
         return v
 
     ident = sheet.get("identity", {}) or {}
+    if not isinstance(ident, dict):
+        ident = {}
     raw_classes = ident.get("classes")
     classes = raw_classes if isinstance(raw_classes, list) else []
     first_class = _first_class(classes)
 
-    universe, budget = _legal_universe_and_budget(sheet, ident, first_class, access)
+    universe, budget, grant_only = _legal_universe_and_budget(sheet, ident, first_class, access)
 
     proficient_ids: set[str] = set()
     expertise_picks: list[tuple[str, str, str]] = []   # (skill_id, key, path)
@@ -118,9 +134,10 @@ def check(sheet: dict, access) -> list[Violation]:
         if entry.get("expertise"):
             expertise_picks.append((sid, k, path))
 
-    if len(proficient_ids) > budget:
+    chargeable_count = len(proficient_ids - grant_only)
+    if chargeable_count > budget:
         v.append(Violation(DOMAIN, "too-many-skill-proficiencies", "illegal",
-                           f"{len(proficient_ids)} proficient skills exceeds the budget of {budget}",
+                           f"{chargeable_count} proficient skills exceeds the budget of {budget}",
                            "skills"))
 
     level = first_class.get("level") if first_class is not None else None

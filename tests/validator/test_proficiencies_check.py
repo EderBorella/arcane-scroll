@@ -74,3 +74,19 @@ def test_too_many_expertise_over_budget(access):
 
 def test_malformed_skills_not_a_dict_does_not_raise(access):
     assert "malformed-skills" in _codes(_sheet(skills="x"), access)
+
+
+def test_species_granted_fixed_skill_is_credited_to_budget(access):
+    # full budgeted selection (sk1, sk2 class-pool + sk4 background) plus species-granted sk5
+    # (species-a -> sk5, per fixture) must not be flagged as over budget or illegal.
+    skills = _clean_skills()
+    skills["sk5"] = _skill(proficient=True)
+    codes = _codes(_sheet(skills), access)
+    assert "too-many-skill-proficiencies" not in codes
+    assert "skill-not-legal" not in codes
+
+
+def test_malformed_identity_not_a_dict_does_not_raise(access):
+    sheet = _sheet()
+    sheet["identity"] = "oops"
+    assert isinstance(check(sheet, access), list)
