@@ -99,3 +99,37 @@ def test_save_proficiency_without_granting_subclass_is_still_a_mismatch(access):
         "x3": {"proficient": True, "modifier": 3},
     })
     assert "save-proficiency-mismatch" in _codes(s, access)
+
+
+def test_level_gated_subclass_save_is_legal_once_class_level_meets_gained_at_level(access):
+    # sub-save-late (Gloom-Stalker-style) grants a3 only from class level 7 onward -- at class
+    # level 8, proficient in a3 is legal (grant active + present).
+    s = _sheet(classes=[{"class": "Class A", "subclass": "Sub Save Late", "level": 8}], saving_throws={
+        "x1": {"proficient": True, "modifier": 4},
+        "x2": {"proficient": True, "modifier": 4},
+        "x3": {"proficient": True, "modifier": 3},
+    })
+    assert "save-proficiency-mismatch" not in _codes(s, access)
+
+
+def test_level_gated_subclass_save_not_yet_expected_below_gained_at_level(access):
+    # same subclass at class level 5 (below gained_at_level=7): the grant is NOT active yet, so
+    # NOT being proficient in a3 must not be flagged -- the character must not be expected to
+    # have a save their subclass hasn't granted them yet.
+    s = _sheet(classes=[{"class": "Class A", "subclass": "Sub Save Late", "level": 5}], saving_throws={
+        "x1": {"proficient": True, "modifier": 4},
+        "x2": {"proficient": True, "modifier": 4},
+        "x3": {"proficient": False, "modifier": 1},
+    })
+    assert "save-proficiency-mismatch" not in _codes(s, access)
+
+
+def test_level_gated_subclass_save_still_flagged_when_missing_after_gained_at_level(access):
+    # same subclass at class level 8 (grant IS active): NOT being proficient in a3 is a real,
+    # legitimate error and must still be flagged (mirrors gold error g030).
+    s = _sheet(classes=[{"class": "Class A", "subclass": "Sub Save Late", "level": 8}], saving_throws={
+        "x1": {"proficient": True, "modifier": 4},
+        "x2": {"proficient": True, "modifier": 4},
+        "x3": {"proficient": False, "modifier": 1},
+    })
+    assert "save-proficiency-mismatch" in _codes(s, access)

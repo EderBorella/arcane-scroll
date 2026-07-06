@@ -330,6 +330,9 @@ def _build_rules_db(path: str) -> None:
     # (grant_proficiency rows inserted once that table exists, in the proficiencies/feats sections)
     cur.execute("INSERT INTO subclass VALUES ('sub-skills','class-a','Sub Skills',0,'')")
     cur.execute("INSERT INTO subclass VALUES ('sub-save','class-a','Sub Save',0,'')")
+    # sub-save-late: a class-a subclass whose save grant only kicks in at class level 7
+    # (Gloom-Stalker-style -- gained_at_level gating fix's fixture)
+    cur.execute("INSERT INTO subclass VALUES ('sub-save-late','class-a','Sub Save Late',0,'')")
     cur.execute("INSERT INTO creature_type VALUES ('type-a','Type A')")
     cur.execute("INSERT INTO creature_type VALUES ('type-b','Type B')")
     cur.execute("INSERT INTO species VALUES ('species-a','Species A','type-a',30,'')")
@@ -435,6 +438,12 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO grant_proficiency VALUES "
                 "('gp-subclass-save','subclass','sub-save',NULL,'saving_throw','fixed',0,NULL,0)")
     cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-subclass-save','a3')")
+    # sub-save-late grants the same a3 save proficiency, but only from class level 7 onward
+    # (gained_at_level=7) -- the gained_at_level gating fix's fixture (Gloom Stalker's Wisdom
+    # save is a real DB fact granted at level 7, not level 1).
+    cur.execute("INSERT INTO grant_proficiency VALUES "
+                "('gp-subclass-save-late','subclass','sub-save-late',7,'saving_throw','fixed',0,NULL,0)")
+    cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-subclass-save-late','a3')")
     # feat-pre needs total_level>=4 (group 1) AND ability a1>=13 (group 2) -- AND across groups,
     # OR within a group (single row per group here, so each group's one row must hold)
     cur.execute("INSERT INTO feat_prereq VALUES "

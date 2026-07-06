@@ -47,7 +47,13 @@ def check(sheet: dict, access) -> list[Violation]:
             continue
         sub_id = access.resolve("subclass", sub)
         if sub_id is not None:
-            expected_saves |= set(q.granted_save_abilities(access, "subclass", sub_id))
+            # Gate the subclass's save grant by the level of the class entry that owns it (e.g.
+            # Gloom Stalker's Wisdom save is only granted from level 7 onward) -- a malformed or
+            # missing level defensively counts as 0, so only always-on (NULL gained_at_level)
+            # grants apply.
+            c_level = c.get("level")
+            c_at_level = c_level if isinstance(c_level, int) and not isinstance(c_level, bool) else 0
+            expected_saves |= set(q.granted_save_abilities(access, "subclass", sub_id, at_level=c_at_level))
 
     abilities_sheet = sheet.get("abilities")
     pb = sheet.get("proficiency_bonus")

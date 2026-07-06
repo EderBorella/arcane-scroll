@@ -83,11 +83,14 @@ def multiclass_skill_grants(access: ValidatorAccess, class_id: str) -> tuple[boo
     return _split_skill_grants(access, headers)
 
 
-def subclass_skill_grants(access: ValidatorAccess, subclass_id: str) -> tuple[bool, list[str], list[str], int]:
+def subclass_skill_grants(access: ValidatorAccess, subclass_id: str,
+                          at_level: int | None = None) -> tuple[bool, list[str], list[str], int]:
     """(any_flag, fixed_skill_ids, choose_pool_skill_ids, choose_n) over a subclass's
     grant_proficiency skill rows (owner_kind='subclass') -- e.g. College of Lore's "choose 3
-    skills of your choice". See `_split_skill_grants` for the field semantics."""
-    headers = primitives.grants_for(access.db, "grant_proficiency", "subclass", subclass_id)
+    skills of your choice". If `at_level` is given, only rows gained at or below it are included
+    (a NULL gained_at_level always applies), so a level-gated subclass grant isn't credited before
+    the character's class level reaches it. See `_split_skill_grants` for the field semantics."""
+    headers = primitives.grants_for(access.db, "grant_proficiency", "subclass", subclass_id, at_level)
     return _split_skill_grants(access, headers)
 
 

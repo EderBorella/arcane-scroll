@@ -70,7 +70,12 @@ def _subclass_contribution(classes: list, access) -> tuple[int, bool, set[str]]:
         sub_id = access.resolve("subclass", sub)
         if sub_id is None:
             continue
-        s_any, s_fixed, s_choose_pool, s_choose_n = q.subclass_skill_grants(access, sub_id)
+        # Gate the subclass's skill grant by the level of the class entry that owns it -- same
+        # gained_at_level gating as the saving-throws check (most subclass skill grants are
+        # level-3, but this keeps the two checks consistent and correct for any that aren't).
+        c_level = c.get("level")
+        c_at_level = c_level if isinstance(c_level, int) and not isinstance(c_level, bool) else 0
+        s_any, s_fixed, s_choose_pool, s_choose_n = q.subclass_skill_grants(access, sub_id, at_level=c_at_level)
         if s_any:
             any_flag = True
         budget += len(s_fixed) + s_choose_n
