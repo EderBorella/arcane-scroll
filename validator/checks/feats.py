@@ -163,7 +163,7 @@ def _asi_budget(ident: dict, access) -> int:
 
 def _origin_budget(ident: dict, access) -> int:
     bg_id = access.resolve("background", ident.get("background"))
-    if bg_id is not None and q.grants_origin_feat(access, "background", bg_id):
+    if bg_id is not None and q.background_origin_feat(access, bg_id) is not None:
         return 1
     sp_id = access.resolve("species", ident.get("species"))
     if sp_id is not None and q.grants_origin_feat(access, "species", sp_id):

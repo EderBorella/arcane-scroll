@@ -59,6 +59,20 @@ def test_too_many_origin_feats(access):
     assert "too-many-origin-feats" in _codes(sheet, access)
 
 
+def test_origin_feat_budget_comes_from_background_feat_id(access):
+    # bg-a's origin budget is sourced from background.feat_id (='feat-origin'), not grant_feat --
+    # one origin feat with that background is fully legal.
+    sheet = _sheet(feats=["Feat Origin"], classes=_level4())
+    assert check(sheet, access) == []
+
+
+def test_background_without_feat_id_grants_no_origin_budget(access):
+    # bg-b has no feat_id (no origin grant) and species is unset -- a origin feat is still
+    # illegal without a granting source, even though it's the only feat taken.
+    sheet = _sheet(feats=["Feat Origin"], classes=_level4(), background="Background B")
+    assert "too-many-origin-feats" in _codes(sheet, access)
+
+
 def test_prereq_unmet_on_level(access):
     sheet = _sheet(feats=["Feat Pre"], classes=[{"class": "Class A", "level": 3}], abilities=_a1(15))
     assert "feat-prereq-unmet" in _codes(sheet, access)

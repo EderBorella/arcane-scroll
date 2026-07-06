@@ -329,7 +329,10 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO creature_type VALUES ('type-a','Type A')")
     cur.execute("INSERT INTO creature_type VALUES ('type-b','Type B')")
     cur.execute("INSERT INTO species VALUES ('species-a','Species A','type-a',30,'')")
-    cur.execute("INSERT INTO background VALUES ('bg-a','Background A',NULL,0,NULL,NULL,'')")
+    cur.execute("INSERT INTO background VALUES ('bg-a','Background A','feat-origin',0,NULL,NULL,'')")
+    # bg-b: a background with no origin feat grant (feat_id NULL) -- the negative case for the
+    # background.feat_id-sourced origin budget
+    cur.execute("INSERT INTO background VALUES ('bg-b','Background B',NULL,0,NULL,NULL,'')")
     cur.execute("INSERT INTO size VALUES ('size-a','Size A',3,5.0)")
     for lvl, xp in [(1, 0), (2, 300), (3, 900), (4, 2700), (5, 6500)]:
         cur.execute("INSERT INTO xp_level VALUES (?,?)", (lvl, xp))
@@ -399,8 +402,8 @@ def _build_rules_db(path: str) -> None:
     # needed so a repeatable feat can legitimately be taken twice in the domain tests)
     cur.execute("INSERT INTO class_feature VALUES ('cf-asi4','class-a',4,'Ability Score Improvement')")
     cur.execute("INSERT INTO class_feature VALUES ('cf-asi8','class-a',8,'Ability Score Improvement')")
-    # bg-a grants one origin-category feat
-    cur.execute("INSERT INTO grant_feat VALUES ('gft-bga','background','bg-a',NULL,1,'origin')")
+    # (origin-feat budget now comes from background.feat_id, set above for bg-a -- NOT grant_feat;
+    # the grant_feat spine is still used for species-granted origin feats, see feats-check tests)
 
     # spellcasting domain: slot tables (single-class/multiclass/pact), cantrip+prepared counts,
     # third-caster subclass slots, spell catalog + class-list membership, and the always-granted

@@ -26,8 +26,13 @@ def asi_slots(access: ValidatorAccess, class_id: str, level: int) -> int:
 
 
 def grants_origin_feat(access: ValidatorAccess, owner_kind: str, owner_id: str) -> bool:
-    """True if the owner (e.g. a background or species) has a grant_feat row conferring an
-    origin-category feat."""
+    """True if the owner (e.g. a species) has a grant_feat row conferring an origin-category feat."""
     return access.db.scalar(
         "SELECT 1 FROM grant_feat WHERE owner_kind=? AND owner_id=? AND from_category='origin' LIMIT 1",
         owner_kind, owner_id) is not None
+
+
+def background_origin_feat(access: ValidatorAccess, background_id: str) -> str | None:
+    """The origin feat id a background confers (background.feat_id), or None. This -- not
+    grant_feat -- is the DB's actual source of a background's origin-feat grant."""
+    return access.db.scalar("SELECT feat_id FROM background WHERE id=?", background_id)
