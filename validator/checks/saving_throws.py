@@ -1,7 +1,8 @@
 """Saving-throws domain: proficiency and modifier consistency against the union of the first
 class's class_saving_throw rows (the 2024 first-class-grants-saves rule) and any saving-throw
-proficiency granted by a feat (e.g. Resilient) or the species. Every expectation is derived from
-the DB; malformed or missing sheet data is skipped rather than raised."""
+proficiency granted by a feat (e.g. Resilient), the species, or a class's subclass (e.g. Gloom
+Stalker's Wisdom save). Every expectation is derived from the DB; malformed or missing sheet data
+is skipped rather than raised."""
 from access.validator import abilities as abilities_q
 from access.validator import saving_throws as q
 from validator.report import Violation
@@ -37,6 +38,16 @@ def check(sheet: dict, access) -> list[Violation]:
             feat_id = access.resolve("feat", f)
             if feat_id is not None:
                 expected_saves |= set(q.granted_save_abilities(access, "feat", feat_id))
+
+    for c in classes:
+        if not isinstance(c, dict):
+            continue
+        sub = c.get("subclass")
+        if not sub:
+            continue
+        sub_id = access.resolve("subclass", sub)
+        if sub_id is not None:
+            expected_saves |= set(q.granted_save_abilities(access, "subclass", sub_id))
 
     abilities_sheet = sheet.get("abilities")
     pb = sheet.get("proficiency_bonus")

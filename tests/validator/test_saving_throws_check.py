@@ -77,3 +77,25 @@ def test_save_proficiency_without_granting_feat_is_still_a_mismatch(access):
         "x3": {"proficient": True, "modifier": 3},
     })
     assert "save-proficiency-mismatch" in _codes(s, access)
+
+
+def test_subclass_granted_save_proficiency_is_legal(access):
+    # sub-save (class-a's subclass, Gloom-Stalker-style) grants proficiency in a3 (x3) via the
+    # proficiency grant spine (owner_kind='subclass') -- a sheet proficient in it while holding
+    # that subclass is legal, even though a3 isn't a class-a save.
+    s = _sheet(classes=[{"class": "Class A", "subclass": "Sub Save", "level": 3}], saving_throws={
+        "x1": {"proficient": True, "modifier": 4},
+        "x2": {"proficient": True, "modifier": 4},
+        "x3": {"proficient": True, "modifier": 3},
+    })
+    assert "save-proficiency-mismatch" not in _codes(s, access)
+
+
+def test_save_proficiency_without_granting_subclass_is_still_a_mismatch(access):
+    # same a3-proficient sheet, but WITHOUT sub-save (e.g. Sub A instead) -- still illegal.
+    s = _sheet(classes=[{"class": "Class A", "subclass": "Sub A", "level": 3}], saving_throws={
+        "x1": {"proficient": True, "modifier": 4},
+        "x2": {"proficient": True, "modifier": 4},
+        "x3": {"proficient": True, "modifier": 3},
+    })
+    assert "save-proficiency-mismatch" in _codes(s, access)
