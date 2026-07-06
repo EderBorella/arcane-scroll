@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:arcane:contract:character-sheet:6",
+  "$id": "urn:arcane:contract:character-sheet:7",
   "title": "CharacterSheet",
-  "description": "Canonical, versioned contract for a complete character sheet. Contract-first: this document is the source of truth; the generator, validator and decoder are made to conform to it. Structural only — game vocabulary (ability/skill/class/species/spell/background/resource/condition names) is catalog-driven and never hard-coded here, so this file is content-neutral.",
+  "description": "Canonical, versioned contract for a complete character sheet. Contract-first: this document is the source of truth; the generator, validator and decoder are made to conform to it. Structural only \u2014 game vocabulary (ability/skill/class/species/spell/background/resource/condition names) is catalog-driven and never hard-coded here, so this file is content-neutral.",
   "type": "object",
   "required": [
     "schema_version",
@@ -26,130 +26,294 @@
   "properties": {
     "schema_version": {
       "description": "Contract version. Bump on any breaking change to this schema.",
-      "const": 6
+      "const": 7
     },
     "meta": {
       "description": "Non-sheet provenance. Optional; ignored by the validator.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "seed": { "type": ["integer", "string", "null"], "description": "RNG seed for reproducibility." },
-        "request": { "type": ["object", "null"], "description": "The original generation request." }
+        "seed": {
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ],
+          "description": "RNG seed for reproducibility."
+        },
+        "request": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "The original generation request."
+        }
       }
     },
     "identity": {
       "type": "object",
-      "required": ["name", "species", "size", "creature_type", "classes", "total_level", "background"],
+      "required": [
+        "name",
+        "species",
+        "size",
+        "creature_type",
+        "classes",
+        "total_level",
+        "background"
+      ],
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string" },
-        "species": { "type": "string", "description": "Species (or lineage) identifier (catalog)." },
-        "size": { "type": "string", "description": "Size identifier (catalog); species-set, sometimes a per-character choice." },
-        "creature_type": { "type": "string", "description": "Creature-type identifier (catalog); species-derived." },
+        "name": {
+          "type": "string"
+        },
+        "species": {
+          "type": "string",
+          "description": "Species (or lineage) identifier (catalog)."
+        },
+        "lineage": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Lineage sub-choice identifier (catalog). Present only for species that offer lineages (e.g. elf lineages, tiefling fiendish legacies). Null when the species has no lineages."
+        },
+        "species_variant": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Species-variant option identifier (catalog). Used for per-species variant axes like draconic ancestry. Null when not applicable."
+        },
+        "size": {
+          "type": "string",
+          "description": "Size identifier (catalog); species-set, sometimes a per-character choice."
+        },
+        "creature_type": {
+          "type": "string",
+          "description": "Creature-type identifier (catalog); species-derived."
+        },
         "classes": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/classEntry" }
+          "items": {
+            "$ref": "#/$defs/classEntry"
+          }
         },
-        "total_level": { "type": "integer", "minimum": 1, "maximum": 20 },
-        "background": { "type": "string", "description": "Background identifier (catalog); required — it grants the ability-score increases and the origin feat." },
-        "alignment": { "type": ["string", "null"] },
-        "xp": { "type": "integer", "minimum": 0, "default": 0 },
-        "player": { "type": ["string", "null"] }
+        "total_level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "background": {
+          "type": "string",
+          "description": "Background identifier (catalog); required \u2014 it grants the ability-score increases and the origin feat."
+        },
+        "alignment": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "xp": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "player": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
     "abilities": {
       "description": "One entry per ability. Keys are ability identifiers from the catalog (not enumerated here to stay content-neutral).",
       "type": "object",
       "minProperties": 1,
-      "additionalProperties": { "$ref": "#/$defs/abilityEntry" }
+      "additionalProperties": {
+        "$ref": "#/$defs/abilityEntry"
+      }
     },
-    "proficiency_bonus": { "type": "integer", "minimum": 2, "maximum": 6 },
+    "proficiency_bonus": {
+      "type": "integer",
+      "minimum": 2,
+      "maximum": 6
+    },
     "saving_throws": {
       "description": "One entry per ability, keyed by ability identifier (catalog).",
       "type": "object",
       "minProperties": 1,
-      "additionalProperties": { "$ref": "#/$defs/savingThrow" }
+      "additionalProperties": {
+        "$ref": "#/$defs/savingThrow"
+      }
     },
     "skills": {
       "description": "One entry per skill, keyed by skill identifier (catalog).",
       "type": "object",
       "minProperties": 1,
-      "additionalProperties": { "$ref": "#/$defs/skill" }
+      "additionalProperties": {
+        "$ref": "#/$defs/skill"
+      }
     },
     "passive_scores": {
-      "description": "Passive scores keyed by skill identifier (catalog) → value (10 + modifier, + situational bonuses). Includes at least perception.",
+      "description": "Passive scores keyed by skill identifier (catalog) \u2192 value (10 + modifier, + situational bonuses). Includes at least perception.",
       "type": "object",
       "minProperties": 1,
-      "additionalProperties": { "type": "integer" }
+      "additionalProperties": {
+        "type": "integer"
+      }
     },
     "combat": {
       "type": "object",
-      "required": ["armor_class", "initiative", "speed", "hit_points", "hit_dice", "death_saves"],
+      "required": [
+        "armor_class",
+        "initiative",
+        "speed",
+        "hit_points",
+        "hit_dice",
+        "death_saves"
+      ],
       "additionalProperties": false,
       "properties": {
-        "armor_class": { "type": "integer", "description": "The current effective AC — the authoritative number used in play." },
+        "armor_class": {
+          "type": "integer",
+          "description": "The current effective AC \u2014 the authoritative number used in play."
+        },
         "armor_class_detail": {
           "description": "How armor_class was derived, so it can be re-computed when armour or an ability changes. Optional; armor_class stays authoritative. armor_class = base + dex_bonus + sum(bonuses[].value).",
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "source": { "type": ["string", "null"], "description": "Catalog identifier for the AC formula in use (worn armour / an unarmoured-defence feature / a spell)." },
-            "base": { "type": "integer", "description": "Flat base before the Dexterity contribution and any bonuses." },
-            "dex_bonus": { "type": "integer", "description": "Dexterity contribution actually applied (after any armour cap)." },
+            "source": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Catalog identifier for the AC formula in use (worn armour / an unarmoured-defence feature / a spell)."
+            },
+            "base": {
+              "type": "integer",
+              "description": "Flat base before the Dexterity contribution and any bonuses."
+            },
+            "dex_bonus": {
+              "type": "integer",
+              "description": "Dexterity contribution actually applied (after any armour cap)."
+            },
             "bonuses": {
               "description": "Every additional AC contribution, each tagged with what grants it, so the total sums while provenance is retained. A shield, a Ring of Protection, a Shield of Faith, etc. are each one entry.",
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["value", "source"],
+                "required": [
+                  "value",
+                  "source"
+                ],
                 "additionalProperties": false,
                 "properties": {
-                  "value": { "type": "integer", "description": "Signed AC contribution (usually positive)." },
-                  "source": { "type": "string", "description": "What grants it — an item / spell / feature identifier (catalog) or short label." }
+                  "value": {
+                    "type": "integer",
+                    "description": "Signed AC contribution (usually positive)."
+                  },
+                  "source": {
+                    "type": "string",
+                    "description": "What grants it \u2014 an item / spell / feature identifier (catalog) or short label."
+                  }
                 }
               }
             }
           }
         },
-        "initiative": { "type": "integer", "description": "Initiative modifier added to the d20 (Dexterity modifier plus any bonuses); not the '10 + mod' passive score." },
+        "initiative": {
+          "type": "integer",
+          "description": "Initiative modifier added to the d20 (Dexterity modifier plus any bonuses); not the '10 + mod' passive score."
+        },
         "speed": {
-          "description": "Movement speeds keyed by mode identifier (catalog) → speed in feet. At least the base walking mode is present; special modes (fly/swim/climb/burrow) appear when granted. Authoritative — speed_detail (if present) explains how these were derived.",
+          "description": "Movement speeds keyed by mode identifier (catalog) \u2192 speed in feet. At least the base walking mode is present; special modes (fly/swim/climb/burrow) appear when granted. Authoritative \u2014 speed_detail (if present) explains how these were derived.",
           "type": "object",
           "minProperties": 1,
-          "additionalProperties": { "type": "integer", "minimum": 0 }
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
         },
         "speed_detail": {
-          "description": "How the speeds map was derived, so it can be re-computed and each grant traced. Optional; the speeds map stays authoritative. base applies to the mode named by base_mode; final(mode) = (base if mode == base_mode else 0) + the sum of that mode's modifiers, where a modifier contributes its value, or (if relative) factor × final(relative.of). Mirrors armor_class_detail.",
+          "description": "How the speeds map was derived, so it can be re-computed and each grant traced. Optional; the speeds map stays authoritative. base applies to the mode named by base_mode; final(mode) = (base if mode == base_mode else 0) + the sum of that mode's modifiers, where a modifier contributes its value, or (if relative) factor \u00d7 final(relative.of). Mirrors armor_class_detail.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "base": { "type": "integer", "minimum": 0, "description": "Base walking speed before modifiers (from the species)." },
-            "base_source": { "type": ["string", "null"], "description": "What grants the base walking speed — the species identifier (catalog)." },
-            "base_mode": { "type": ["string", "null"], "description": "The speed-map mode identifier (catalog) that `base` applies to — i.e. which key is the base walking mode. Lets the map be re-derived from this block." },
+            "base": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Base walking speed before modifiers (from the species)."
+            },
+            "base_source": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "What grants the base walking speed \u2014 the species identifier (catalog)."
+            },
+            "base_mode": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The speed-map mode identifier (catalog) that `base` applies to \u2014 i.e. which key is the base walking mode. Lets the map be re-derived from this block."
+            },
             "modifiers": {
               "description": "Every speed grant/adjustment, each tagged with what grants it, so the map sums while provenance is retained. A granted fly/swim/climb/burrow speed is one entry; a bonus to walking speed is another. A modifier is either a fixed `value` (feet) or `relative` to another mode (a speed 'equal to' or 'twice' your walking speed).",
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["mode", "source"],
+                "required": [
+                  "mode",
+                  "source"
+                ],
                 "additionalProperties": false,
                 "oneOf": [
-                  { "required": ["value"] },
-                  { "required": ["relative"] }
+                  {
+                    "required": [
+                      "value"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "relative"
+                    ]
+                  }
                 ],
                 "properties": {
-                  "mode": { "type": "string", "description": "Movement-mode identifier (catalog) this applies to." },
-                  "source": { "type": "string", "description": "What grants it — a species / feature / feat / item identifier (catalog)." },
-                  "value": { "type": "integer", "description": "Fixed signed feet this source contributes to the mode (a granted non-walk speed is its full value). Use this OR relative, not both." },
+                  "mode": {
+                    "type": "string",
+                    "description": "Movement-mode identifier (catalog) this applies to."
+                  },
+                  "source": {
+                    "type": "string",
+                    "description": "What grants it \u2014 a species / feature / feat / item identifier (catalog)."
+                  },
+                  "value": {
+                    "type": "integer",
+                    "description": "Fixed signed feet this source contributes to the mode (a granted non-walk speed is its full value). Use this OR relative, not both."
+                  },
                   "relative": {
-                    "description": "A speed defined relative to another mode (e.g. a Climb Speed equal to — or twice — your walking speed). Contributes factor × final(of).",
+                    "description": "A speed defined relative to another mode (e.g. a Climb Speed equal to \u2014 or twice \u2014 your walking speed). Contributes factor \u00d7 final(of).",
                     "type": "object",
-                    "required": ["of"],
+                    "required": [
+                      "of"
+                    ],
                     "additionalProperties": false,
                     "properties": {
-                      "of": { "type": "string", "description": "The mode identifier (catalog) whose final speed this tracks — usually the base walking mode." },
-                      "factor": { "type": "number", "exclusiveMinimum": 0, "default": 1, "description": "Multiplier of the referenced mode's speed — 1 for 'equal to', 2 for 'twice'." }
+                      "of": {
+                        "type": "string",
+                        "description": "The mode identifier (catalog) whose final speed this tracks \u2014 usually the base walking mode."
+                      },
+                      "factor": {
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                        "default": 1,
+                        "description": "Multiplier of the referenced mode's speed \u2014 1 for 'equal to', 2 for 'twice'."
+                      }
                     }
                   }
                 }
@@ -159,29 +323,60 @@
         },
         "hit_points": {
           "type": "object",
-          "required": ["max"],
+          "required": [
+            "max"
+          ],
           "additionalProperties": false,
           "properties": {
-            "max": { "type": "integer", "minimum": 1, "description": "Full Hit Point maximum, before any temporary reduction." },
-            "max_reduction": { "type": "integer", "minimum": 0, "default": 0, "description": "Temporary reduction to the maximum (effective max = max − max_reduction); restored to 0 on a long rest." },
-            "current": { "type": "integer" },
-            "temp": { "type": "integer", "minimum": 0 }
+            "max": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Full Hit Point maximum, before any temporary reduction."
+            },
+            "max_reduction": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "description": "Temporary reduction to the maximum (effective max = max \u2212 max_reduction); restored to 0 on a long rest."
+            },
+            "current": {
+              "type": "integer"
+            },
+            "temp": {
+              "type": "integer",
+              "minimum": 0
+            }
           }
         },
         "hit_dice": {
-          "description": "Hit dice by die size. Keys look like 'd8', 'd10'; each value is a {max, remaining} pool — remaining drops as dice are spent on short rests.",
+          "description": "Hit dice by die size. Keys look like 'd8', 'd10'; each value is a {max, remaining} pool \u2014 remaining drops as dice are spent on short rests.",
           "type": "object",
           "minProperties": 1,
-          "propertyNames": { "pattern": "^d\\d+$" },
-          "additionalProperties": { "$ref": "#/$defs/pool" }
+          "propertyNames": {
+            "pattern": "^d\\d+$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/pool"
+          }
         },
         "death_saves": {
           "type": "object",
-          "required": ["successes", "failures"],
+          "required": [
+            "successes",
+            "failures"
+          ],
           "additionalProperties": false,
           "properties": {
-            "successes": { "type": "integer", "minimum": 0, "maximum": 3 },
-            "failures": { "type": "integer", "minimum": 0, "maximum": 3 }
+            "successes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3
+            },
+            "failures": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3
+            }
           }
         }
       }
@@ -194,398 +389,904 @@
     "conditions": {
       "description": "Active condition identifiers (catalog).",
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
-    "exhaustion": { "type": "integer", "minimum": 0, "maximum": 6, "default": 0 },
+    "exhaustion": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 6,
+      "default": 0
+    },
     "active_concentration": {
       "description": "The spell the character is currently concentrating on (catalog identifier), or null. At most one at a time.",
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "default": null
     },
     "active_effects": {
-      "description": "Ongoing timed effects that are neither formal conditions nor class resources — buffs, active spell effects on self, temporary bonuses. Live play state; empty at a fresh build.",
+      "description": "Ongoing timed effects that are neither formal conditions nor class resources \u2014 buffs, active spell effects on self, temporary bonuses. Live play state; empty at a fresh build.",
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "additionalProperties": false,
         "properties": {
-          "name": { "type": "string", "description": "Effect identifier (catalog) or short label." },
-          "source": { "type": ["string", "null"], "description": "What produced it — a spell/feature/item identifier (catalog)." },
-          "duration": { "type": ["string", "null"], "description": "Remaining duration, e.g. a rounds/minutes/until-rest identifier." },
-          "notes": { "type": ["string", "null"] }
+          "name": {
+            "type": "string",
+            "description": "Effect identifier (catalog) or short label."
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What produced it \u2014 a spell/feature/item identifier (catalog)."
+          },
+          "duration": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Remaining duration, e.g. a rounds/minutes/until-rest identifier."
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
       }
     },
     "companions": {
-      "description": "Secondary creatures the character controls — familiars, summoned creatures, animal companions, mounts, or a wild-shape/polymorph form. Empty for most characters.",
+      "description": "Secondary creatures the character controls \u2014 familiars, summoned creatures, animal companions, mounts, or a wild-shape/polymorph form. Empty for most characters.",
       "type": "array",
-      "items": { "$ref": "#/$defs/companion" }
+      "items": {
+        "$ref": "#/$defs/companion"
+      }
     },
     "senses": {
-      "description": "Special senses, keyed by sense identifier (catalog) → range in feet (0 for a non-ranged sense).",
+      "description": "Special senses, keyed by sense identifier (catalog) \u2192 range in feet (0 for a non-ranged sense).",
       "type": "object",
-      "additionalProperties": { "type": "integer", "minimum": 0 }
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
     },
     "defenses": {
       "description": "Damage and condition defences granted by species, features, feats or items. All lists optional; absent = none. Entries are catalog identifiers (damage type / condition names).",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "resistances": { "type": "array", "items": { "type": "string" }, "description": "Damage-type identifiers (catalog) the character takes half damage from." },
-        "immunities": { "type": "array", "items": { "type": "string" }, "description": "Damage-type identifiers (catalog) the character takes no damage from." },
-        "vulnerabilities": { "type": "array", "items": { "type": "string" }, "description": "Damage-type identifiers (catalog) the character takes double damage from." },
-        "condition_immunities": { "type": "array", "items": { "type": "string" }, "description": "Condition identifiers (catalog) the character cannot suffer." }
+        "resistances": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Damage-type identifiers (catalog) the character takes half damage from."
+        },
+        "immunities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Damage-type identifiers (catalog) the character takes no damage from."
+        },
+        "vulnerabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Damage-type identifiers (catalog) the character takes double damage from."
+        },
+        "condition_immunities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Condition identifiers (catalog) the character cannot suffer."
+        }
       }
     },
     "attacks": {
       "description": "Optional weapon/attack rows as shown on the sheet. Derived/for-render; not required.",
       "type": "array",
-      "items": { "$ref": "#/$defs/attack" }
+      "items": {
+        "$ref": "#/$defs/attack"
+      }
     },
     "proficiencies": {
       "type": "object",
-      "required": ["armor", "weapons", "tools"],
+      "required": [
+        "armor",
+        "weapons",
+        "tools"
+      ],
       "additionalProperties": false,
       "properties": {
-        "armor": { "type": "array", "items": { "type": "string" } },
-        "weapons": { "type": "array", "items": { "type": "string" } },
-        "tools": { "type": "array", "items": { "type": "string" } }
+        "armor": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "weapons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
-    "languages": { "type": "array", "items": { "type": "string" } },
+    "languages": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "weapon_masteries": {
       "description": "Weapon identifiers (catalog) the character currently has the mastery property of. Independent of the (render-only) attacks list.",
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "attunement": {
       "description": "Magic-item attunement slots. max defaults to 3, raised by some features; attuned = slots currently in use.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "max": { "type": "integer", "minimum": 0, "default": 3 },
-        "attuned": { "type": "integer", "minimum": 0 }
+        "max": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 3
+        },
+        "attuned": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "equipped": {
-      "description": "Items currently worn/wielded, keyed by slot identifier (catalog) → the item in that slot. Each is a single instance. See item.schema.json.",
+      "description": "Items currently worn/wielded, keyed by slot identifier (catalog) \u2192 the item in that slot. Each is a single instance. See item.schema.json.",
       "type": "object",
-      "additionalProperties": { "$ref": "#/$defs/item" }
+      "additionalProperties": {
+        "$ref": "#/$defs/item"
+      }
     },
     "backpack": {
-      "description": "Carried-but-not-equipped items — mundane and magic — one line each (with a quantity). See item.schema.json.",
+      "description": "Carried-but-not-equipped items \u2014 mundane and magic \u2014 one line each (with a quantity). See item.schema.json.",
       "type": "array",
-      "items": { "$ref": "#/$defs/item" }
+      "items": {
+        "$ref": "#/$defs/item"
+      }
     },
     "treasure": {
       "description": "Coin purse. All denominations optional; absent = 0.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "pp": { "type": "integer", "minimum": 0 },
-        "gp": { "type": "integer", "minimum": 0 },
-        "ep": { "type": "integer", "minimum": 0 },
-        "sp": { "type": "integer", "minimum": 0 },
-        "cp": { "type": "integer", "minimum": 0 }
+        "pp": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gp": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ep": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sp": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cp": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "class_resources": {
-      "description": "Per-class expendable resources, keyed by class identifier (catalog) → resource identifier (catalog) → its counts. The set of resources each class has is catalog-defined, not enumerated here.",
+      "description": "Per-class expendable resources, keyed by class identifier (catalog) \u2192 resource identifier (catalog) \u2192 its counts. The set of resources each class has is catalog-defined, not enumerated here.",
       "type": "object",
       "additionalProperties": {
         "type": "object",
-        "additionalProperties": { "$ref": "#/$defs/resourceEntry" }
+        "additionalProperties": {
+          "$ref": "#/$defs/resourceEntry"
+        }
       }
     },
     "features": {
       "type": "array",
-      "items": { "$ref": "#/$defs/feature" }
+      "items": {
+        "$ref": "#/$defs/feature"
+      }
     },
     "feats": {
-      "description": "Feats the character has taken. At least one — every character gets an origin feat from its background.",
+      "description": "Feats the character has taken. At least one \u2014 every character gets an origin feat from its background.",
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "#/$defs/feat" }
+      "items": {
+        "$ref": "#/$defs/feat"
+      }
     },
     "spellcasting": {
-      "description": "Null for a wholly non-casting character. Otherwise the casting block: one or more casting SOURCES (a class, a feat, a species or an item — each with its own spell ability and DC), the shared leveled/pact slot pools, and the spell list. Slots are OPTIONAL: a source can be slotless (species cantrips, an origin feat that grants a spell cast once per long rest without a slot), so a character may cast without any slot table.",
+      "description": "Null for a wholly non-casting character. Otherwise the casting block: one or more casting SOURCES (a class, a feat, a species or an item \u2014 each with its own spell ability and DC), the shared leveled/pact slot pools, and the spell list. Slots are OPTIONAL: a source can be slotless (species cantrips, an origin feat that grants a spell cast once per long rest without a slot), so a character may cast without any slot table.",
       "oneOf": [
-        { "type": "null" },
+        {
+          "type": "null"
+        },
         {
           "type": "object",
-          "required": ["sources", "spells"],
+          "required": [
+            "sources",
+            "spells"
+          ],
           "additionalProperties": false,
           "properties": {
             "sources": {
-              "description": "Every source granting this character spells, keyed by source identifier (catalog) — a casting class, or a feat/species/item. At least one.",
+              "description": "Every source granting this character spells, keyed by source identifier (catalog) \u2014 a casting class, or a feat/species/item. At least one.",
               "type": "object",
               "minProperties": 1,
-              "additionalProperties": { "$ref": "#/$defs/castingSource" }
+              "additionalProperties": {
+                "$ref": "#/$defs/castingSource"
+              }
             },
-            "spell_slots": { "$ref": "#/$defs/slotTable" },
-            "pact_slots": { "$ref": "#/$defs/slotTable" },
+            "spell_slots": {
+              "$ref": "#/$defs/slotTable"
+            },
+            "pact_slots": {
+              "$ref": "#/$defs/slotTable"
+            },
             "spells": {
-              "description": "The character's spells. Unique by (name, source): a spell may appear more than once only under DIFFERENT sources (each cast with that source's ability/DC). The validator enforces this composite-key uniqueness — JSON Schema cannot.",
+              "description": "The character's spells. Unique by (name, source): a spell may appear more than once only under DIFFERENT sources (each cast with that source's ability/DC). The validator enforces this composite-key uniqueness \u2014 JSON Schema cannot.",
               "type": "array",
-              "items": { "$ref": "#/$defs/spell" }
+              "items": {
+                "$ref": "#/$defs/spell"
+              }
             }
           }
         }
       ]
     },
     "flavour": {
-      "description": "Optional flavour block, populated by the backstory step. NOT part of legality — the validator ignores it.",
-      "type": ["object", "null"],
+      "description": "Optional flavour block, populated by the backstory step. NOT part of legality \u2014 the validator ignores it.",
+      "type": [
+        "object",
+        "null"
+      ],
       "additionalProperties": false,
       "properties": {
         "personality": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "traits": { "type": "array", "items": { "type": "string" } },
-            "ideals": { "type": "string" },
-            "bonds": { "type": "string" },
-            "flaws": { "type": "string" }
+            "traits": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ideals": {
+              "type": "string"
+            },
+            "bonds": {
+              "type": "string"
+            },
+            "flaws": {
+              "type": "string"
+            }
           }
         },
         "physical": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "age": { "type": ["string", "integer", "null"] },
-            "height": { "type": ["string", "null"] },
-            "weight": { "type": ["string", "null"] },
-            "eyes": { "type": ["string", "null"] },
-            "skin": { "type": ["string", "null"] },
-            "hair": { "type": ["string", "null"] }
+            "age": {
+              "type": [
+                "string",
+                "integer",
+                "null"
+              ]
+            },
+            "height": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "weight": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "eyes": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "skin": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "hair": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         },
-        "backstory": { "type": ["string", "null"] }
+        "backstory": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     }
   },
   "$defs": {
     "item": {
-      "description": "The item contract, bound by version. This is the ONLY place the item-schema version is named; equipped/backpack both point here. The target is a URN — a stable identifier resolved offline via the schema registry, never a network fetch.",
+      "description": "The item contract, bound by version. This is the ONLY place the item-schema version is named; equipped/backpack both point here. The target is a URN \u2014 a stable identifier resolved offline via the schema registry, never a network fetch.",
       "$ref": "urn:arcane:contract:item:2"
     },
     "classEntry": {
       "type": "object",
-      "required": ["class", "level"],
+      "required": [
+        "class",
+        "level"
+      ],
       "additionalProperties": false,
       "properties": {
-        "class": { "type": "string", "description": "Class identifier (catalog)." },
-        "level": { "type": "integer", "minimum": 1, "maximum": 20 },
-        "subclass": { "type": ["string", "null"], "description": "Subclass identifier, or null until unlocked." },
-        "subclass_detail": { "type": ["string", "null"], "description": "An extra choice that specialises the subclass — e.g. a subclass that offers a further sub-choice (a chosen terrain, element, etc.). Absent when not applicable." }
+        "class": {
+          "type": "string",
+          "description": "Class identifier (catalog)."
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "subclass": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Subclass identifier, or null until unlocked."
+        },
+        "subclass_detail": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "An extra choice that specialises the subclass \u2014 e.g. a subclass that offers a further sub-choice (a chosen terrain, element, etc.). Absent when not applicable."
+        }
       }
     },
     "abilityEntry": {
       "description": "One ability. base = pre-increase assignment; final includes the background increase plus feat/ASI bumps (max 30). The background increase must not raise base above 20.",
       "type": "object",
-      "required": ["final", "modifier"],
+      "required": [
+        "final",
+        "modifier"
+      ],
       "additionalProperties": false,
       "properties": {
-        "base": { "type": "integer", "minimum": 1, "maximum": 20, "description": "Pre-increase assignment (never above 20 at any level; later boosts land in final, capped at 30)." },
-        "background_bonus": { "type": "integer", "description": "The background's ability-score increase for this ability." },
-        "final": { "type": "integer", "minimum": 1, "maximum": 30 },
-        "reduction": { "type": "integer", "minimum": 0, "default": 0, "description": "Temporary reduction to final (effective score = final − reduction); restored to 0 on a long rest. modifier reflects the effective score." },
-        "modifier": { "type": "integer" }
+        "base": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Pre-increase assignment (never above 20 at any level; later boosts land in final, capped at 30)."
+        },
+        "background_bonus": {
+          "type": "integer",
+          "description": "The background's ability-score increase for this ability."
+        },
+        "final": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "reduction": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Temporary reduction to final (effective score = final \u2212 reduction); restored to 0 on a long rest. modifier reflects the effective score."
+        },
+        "modifier": {
+          "type": "integer"
+        }
       }
     },
     "savingThrow": {
       "type": "object",
-      "required": ["proficient", "modifier"],
+      "required": [
+        "proficient",
+        "modifier"
+      ],
       "additionalProperties": false,
       "properties": {
-        "proficient": { "type": "boolean" },
-        "modifier": { "type": "integer" }
+        "proficient": {
+          "type": "boolean"
+        },
+        "modifier": {
+          "type": "integer"
+        }
       }
     },
     "skill": {
       "type": "object",
-      "required": ["ability", "proficient", "expertise", "modifier"],
+      "required": [
+        "ability",
+        "proficient",
+        "expertise",
+        "modifier"
+      ],
       "additionalProperties": false,
       "properties": {
-        "ability": { "type": "string", "description": "Governing ability identifier (catalog)." },
-        "proficient": { "type": "boolean" },
-        "expertise": { "type": "boolean" },
-        "modifier": { "type": "integer" },
+        "ability": {
+          "type": "string",
+          "description": "Governing ability identifier (catalog)."
+        },
+        "proficient": {
+          "type": "boolean"
+        },
+        "expertise": {
+          "type": "boolean"
+        },
+        "modifier": {
+          "type": "integer"
+        },
         "source": {
           "description": "Where the proficiency comes from, or null if not proficient.",
-          "enum": ["class", "background", "species", "feat", "feature", "item", null]
+          "enum": [
+            "class",
+            "background",
+            "species",
+            "feat",
+            "feature",
+            "item",
+            null
+          ]
         }
       }
     },
     "feature": {
       "type": "object",
-      "required": ["name", "source"],
+      "required": [
+        "name",
+        "source"
+      ],
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string" },
-        "source": { "type": "string", "description": "Free-text origin, e.g. a class+level, 'Species', or 'Background'." },
-        "choices": {
-          "description": "Selected option identifiers (catalog) for a feature that grants a choice — e.g. the specific options a choice-granting feature lets the character pick. Absent/empty for a feature with no choice.",
-          "type": "array",
-          "items": { "type": "string" }
+        "name": {
+          "type": "string"
         },
-        "uses": { "$ref": "#/$defs/resourceEntry" },
-        "description": { "type": ["string", "null"] }
+        "source": {
+          "type": "string",
+          "description": "Free-text origin, e.g. a class+level, 'Species', or 'Background'."
+        },
+        "choices": {
+          "description": "Selected option identifiers (catalog) for a feature that grants a choice \u2014 e.g. the specific options a choice-granting feature lets the character pick. Absent/empty for a feature with no choice.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "uses": {
+          "$ref": "#/$defs/resourceEntry"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
     "feat": {
       "type": "object",
-      "required": ["name", "source"],
+      "required": [
+        "name",
+        "source"
+      ],
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string", "description": "Feat identifier (catalog)." },
-        "source": { "type": "string", "description": "Where the feat slot came from — e.g. a background-granted feat, an ability-score-improvement slot at a class level, or a high-level boon." },
+        "name": {
+          "type": "string",
+          "description": "Feat identifier (catalog)."
+        },
+        "source": {
+          "type": "string",
+          "description": "Where the feat slot came from \u2014 e.g. a background-granted feat, an ability-score-improvement slot at a class level, or a high-level boon."
+        },
         "ability_increase": {
           "description": "If this feat granted an ability-score increase, the ability and amount. Null/absent when it did not.",
-          "type": ["object", "null"],
-          "required": ["ability", "amount"],
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "ability",
+            "amount"
+          ],
           "additionalProperties": false,
           "properties": {
-            "ability": { "type": "string" },
-            "amount": { "type": "integer" }
+            "ability": {
+              "type": "string"
+            },
+            "amount": {
+              "type": "integer"
+            }
           }
         },
-        "uses": { "$ref": "#/$defs/resourceEntry" }
+        "uses": {
+          "$ref": "#/$defs/resourceEntry"
+        }
       }
     },
     "pool": {
       "description": "A depletable count with a maximum and how much is currently left (e.g. spell slots at a level, hit dice of a size).",
       "type": "object",
-      "required": ["max", "remaining"],
+      "required": [
+        "max",
+        "remaining"
+      ],
       "additionalProperties": false,
       "properties": {
-        "max": { "type": "integer", "minimum": 0 },
-        "remaining": { "type": "integer", "minimum": 0 }
+        "max": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "remaining": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "resourceEntry": {
-      "description": "One expendable resource (a limited-use ability's charges or a point pool) — usable for class resources and for a feat/feature's own uses.",
+      "description": "One expendable resource (a limited-use ability's charges or a point pool) \u2014 usable for class resources and for a feat/feature's own uses.",
       "type": "object",
-      "required": ["max"],
+      "required": [
+        "max"
+      ],
       "additionalProperties": false,
       "properties": {
-        "max": { "type": "integer", "minimum": 0 },
-        "remaining": { "type": "integer", "minimum": 0 },
+        "max": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "remaining": {
+          "type": "integer",
+          "minimum": 0
+        },
         "recharge": {
-          "description": "Recharge trigger identifier(s) (catalog) — a single trigger, or a list when more than one applies (e.g. a short OR long rest).",
+          "description": "Recharge trigger identifier(s) (catalog) \u2014 a single trigger, or a list when more than one applies (e.g. a short OR long rest).",
           "oneOf": [
-            { "type": ["string", "null"] },
-            { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+            {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            }
           ]
         },
-        "recharge_amount": { "type": ["integer", "string", "null"], "description": "How much is regained on recharge — an integer, or a catalog token like an 'all' identifier. Absent = full." }
+        "recharge_amount": {
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ],
+          "description": "How much is regained on recharge \u2014 an integer, or a catalog token like an 'all' identifier. Absent = full."
+        }
       }
     },
     "castingSource": {
-      "description": "One source of spells — a class, or a feat/species/item that grants casting — with its own spell ability and derived DC/attack. Slot-based budgets are optional because not every source has them.",
+      "description": "One source of spells \u2014 a class, or a feat/species/item that grants casting \u2014 with its own spell ability and derived DC/attack. Slot-based budgets are optional because not every source has them.",
       "type": "object",
-      "required": ["kind", "ability", "modifier", "save_dc", "attack_bonus"],
+      "required": [
+        "kind",
+        "ability",
+        "modifier",
+        "save_dc",
+        "attack_bonus"
+      ],
       "additionalProperties": false,
       "properties": {
-        "kind": { "type": "string", "description": "What the source is (catalog) — a class / subclass / feat / species / lineage / item. A subclass source covers a subclass's always-prepared grants, and a subclass that grants its own spellcasting (carrying its own budgets)." },
-        "ability": { "type": "string", "description": "Spellcasting ability identifier (catalog)." },
-        "modifier": { "type": "integer", "description": "Spellcasting ability modifier." },
-        "save_dc": { "type": "integer" },
-        "attack_bonus": { "type": "integer" },
-        "cantrips_known": { "type": "integer", "minimum": 0, "description": "Cantrips this source grants/knows at the current level. Optional — absent when it grants none." },
-        "prepared_limit": { "type": "integer", "minimum": 0, "description": "Level-1+ spells this source can prepare (the budget; excludes always-prepared grants). Optional — only a prepared-casting class has a budget; a feat/species grants a fixed set." }
+        "kind": {
+          "type": "string",
+          "description": "What the source is (catalog) \u2014 a class / subclass / feat / species / lineage / item. A subclass source covers a subclass's always-prepared grants, and a subclass that grants its own spellcasting (carrying its own budgets)."
+        },
+        "ability": {
+          "type": "string",
+          "description": "Spellcasting ability identifier (catalog)."
+        },
+        "modifier": {
+          "type": "integer",
+          "description": "Spellcasting ability modifier."
+        },
+        "save_dc": {
+          "type": "integer"
+        },
+        "attack_bonus": {
+          "type": "integer"
+        },
+        "cantrips_known": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Cantrips this source grants/knows at the current level. Optional \u2014 absent when it grants none."
+        },
+        "prepared_limit": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Level-1+ spells this source can prepare (the budget; excludes always-prepared grants). Optional \u2014 only a prepared-casting class has a budget; a feat/species grants a fixed set."
+        }
       }
     },
     "slotTable": {
-      "description": "Slots by spell level. Keys are the spell level as a string ('1'..'9'); each value is a {max, remaining} pool — remaining drops as slots are spent and resets on the appropriate rest. Slot tables are optional overall (a slotless caster omits them), but when present a table must record at least one level — an empty table carries no information.",
+      "description": "Slots by spell level. Keys are the spell level as a string ('1'..'9'); each value is a {max, remaining} pool \u2014 remaining drops as slots are spent and resets on the appropriate rest. Slot tables are optional overall (a slotless caster omits them), but when present a table must record at least one level \u2014 an empty table carries no information.",
       "type": "object",
       "minProperties": 1,
-      "propertyNames": { "pattern": "^[1-9]$" },
-      "additionalProperties": { "$ref": "#/$defs/pool" }
+      "propertyNames": {
+        "pattern": "^[1-9]$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/pool"
+      }
     },
     "attack": {
       "type": "object",
-      "required": ["name"],
+      "required": [
+        "name"
+      ],
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string" },
-        "attack_bonus": { "type": ["string", "integer", "null"] },
-        "damage": { "type": ["string", "null"] },
-        "damage_type": { "type": ["string", "null"], "description": "Damage type identifier (catalog)." },
-        "weapon_mastery": { "type": ["string", "null"], "description": "Weapon-mastery property identifier (catalog), if the wielder has it." },
-        "properties": { "type": "array", "items": { "type": "string" }, "description": "Weapon property identifiers (catalog)." }
+        "name": {
+          "type": "string"
+        },
+        "attack_bonus": {
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        },
+        "damage": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "damage_type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Damage type identifier (catalog)."
+        },
+        "weapon_mastery": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Weapon-mastery property identifier (catalog), if the wielder has it."
+        },
+        "properties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Weapon property identifiers (catalog)."
+        }
       }
     },
     "companion": {
-      "description": "A lightweight stat block for a secondary creature — enough to run it in play. The consumer resolves any named ability/trait against the catalog, as with the main character.",
+      "description": "A lightweight stat block for a secondary creature \u2014 enough to run it in play. The consumer resolves any named ability/trait against the catalog, as with the main character.",
       "type": "object",
-      "required": ["name"],
+      "required": [
+        "name"
+      ],
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string" },
-        "kind": { "type": ["string", "null"], "description": "What sort of companion (catalog) — familiar / summon / animal companion / mount / shape." },
-        "size": { "type": ["string", "null"], "description": "Size identifier (catalog)." },
-        "creature_type": { "type": ["string", "null"], "description": "Creature-type identifier (catalog)." },
-        "armor_class": { "type": ["integer", "null"] },
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "What sort of companion (catalog) \u2014 familiar / summon / animal companion / mount / shape."
+        },
+        "size": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Size identifier (catalog)."
+        },
+        "creature_type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Creature-type identifier (catalog)."
+        },
+        "armor_class": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "hit_points": {
           "type": "object",
-          "required": ["max"],
+          "required": [
+            "max"
+          ],
           "additionalProperties": false,
           "properties": {
-            "max": { "type": "integer", "minimum": 0 },
-            "current": { "type": "integer" },
-            "temp": { "type": "integer", "minimum": 0 }
+            "max": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "current": {
+              "type": "integer"
+            },
+            "temp": {
+              "type": "integer",
+              "minimum": 0
+            }
           }
         },
         "speed": {
           "type": "object",
-          "additionalProperties": { "type": "integer", "minimum": 0 }
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
         },
         "senses": {
           "type": "object",
-          "additionalProperties": { "type": "integer", "minimum": 0 }
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
         },
         "attacks": {
           "type": "array",
-          "items": { "$ref": "#/$defs/attack" }
+          "items": {
+            "$ref": "#/$defs/attack"
+          }
         },
-        "notes": { "type": ["string", "null"] }
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
     "spell": {
-      "description": "One spell the character holds. Three independent axes: source (who grants it → the ability/DC used), bucket (how it is HELD, for counting), and recovery (how it is CAST). Uniqueness is on (name, source) — see the spells array.",
+      "description": "One spell the character holds. Three independent axes: source (who grants it \u2192 the ability/DC used), bucket (how it is HELD, for counting), and recovery (how it is CAST). Uniqueness is on (name, source) \u2014 see the spells array.",
       "type": "object",
-      "required": ["name", "level", "bucket", "source"],
+      "required": [
+        "name",
+        "level",
+        "bucket",
+        "source"
+      ],
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string" },
-        "level": { "type": "integer", "minimum": 0, "maximum": 9, "description": "0 = cantrip." },
-        "source": { "type": "string", "description": "REQUIRED — the casting source this spell comes from; a key in spellcasting.sources, which supplies the ability/DC/attack used to cast it. For a repeatable feat it is an instance identifier (a per-variant id for a feat taken more than once) that resolves to the feat type plus its chosen-list variant. Every spell is attributed." },
+        "name": {
+          "type": "string"
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9,
+          "description": "0 = cantrip."
+        },
+        "source": {
+          "type": "string",
+          "description": "REQUIRED \u2014 the casting source this spell comes from; a key in spellcasting.sources, which supplies the ability/DC/attack used to cast it. For a repeatable feat it is an instance identifier (a per-variant id for a feat taken more than once) that resolves to the feat type plus its chosen-list variant. Every spell is attributed."
+        },
         "bucket": {
-          "description": "How the spell is HELD, for counting (independent of how it is cast). 'cantrip' = a chosen cantrip (counts against the source's cantrips_known); 'prepared' = a leveled spell prepared from the source's budget (counts against prepared_limit); 'always' = an always-available grant, any level, ADDITIVE (does not count against a budget) — covers BOTH fixed grants and constrained-choice grants (a chosen spell that must satisfy a school/tag/list constraint), each checked by the validator against the source's grant spec (a fixed list or a choose{from} constraint), not an exact set; 'known' = in a known/spellbook pool but not currently prepared (not castable until prepared).",
-          "enum": ["cantrip", "prepared", "always", "known"]
+          "description": "How the spell is HELD, for counting (independent of how it is cast). 'cantrip' = a chosen cantrip (counts against the source's cantrips_known); 'prepared' = a leveled spell prepared from the source's budget (counts against prepared_limit); 'always' = an always-available grant, any level, ADDITIVE (does not count against a budget) \u2014 covers BOTH fixed grants and constrained-choice grants (a chosen spell that must satisfy a school/tag/list constraint), each checked by the validator against the source's grant spec (a fixed list or a choose{from} constraint), not an exact set; 'known' = in a known/spellbook pool but not currently prepared (not castable until prepared).",
+          "enum": [
+            "cantrip",
+            "prepared",
+            "always",
+            "known"
+          ]
         },
         "recovery": {
-          "description": "How the spell is CAST (a slotless spell's rest CADENCE lives in uses.recharge, so cadence has ONE home). The meaning of an absent value is bucket-dependent: a 'cantrip' is cast at will; a 'prepared'/'always' leveled spell is cast via shared spell slots; a 'known' (unprepared spellbook) spell is not currently castable. Explicit values: 'spell_slot'/'pact_slot' = via that slot pool; 'slotless_per_rest' = a slotless cast with its own use pool (uses.recharge names the rest — short or long); 'at_will' = a cantrip; 'ritual_only' = castable only as a ritual. The validator enforces the bucket↔recovery coupling.",
-          "enum": ["spell_slot", "pact_slot", "slotless_per_rest", "at_will", "ritual_only"]
+          "description": "How the spell is CAST (a slotless spell's rest CADENCE lives in uses.recharge, so cadence has ONE home). The meaning of an absent value is bucket-dependent: a 'cantrip' is cast at will; a 'prepared'/'always' leveled spell is cast via shared spell slots; a 'known' (unprepared spellbook) spell is not currently castable. Explicit values: 'spell_slot'/'pact_slot' = via that slot pool; 'slotless_per_rest' = a slotless cast with its own use pool (uses.recharge names the rest \u2014 short or long); 'at_will' = a cantrip; 'ritual_only' = castable only as a ritual. The validator enforces the bucket\u2194recovery coupling.",
+          "enum": [
+            "spell_slot",
+            "pact_slot",
+            "slotless_per_rest",
+            "at_will",
+            "ritual_only"
+          ]
         },
-        "uses": { "$ref": "#/$defs/resourceEntry", "description": "For a slotless per-rest spell, its own expendable use pool — max casts (1 for a once-per-rest grant, the proficiency bonus for some species grants) and remaining. Absent for at-will and slot-cast spells." },
+        "uses": {
+          "$ref": "#/$defs/resourceEntry",
+          "description": "For a slotless per-rest spell, its own expendable use pool \u2014 max casts (1 for a once-per-rest grant, the proficiency bonus for some species grants) and remaining. Absent for at-will and slot-cast spells."
+        },
         "secondary_cast": {
-          "description": "An ADDITIONAL casting avenue for the SAME (name, source) — e.g. a granted spell castable slotless once per rest that is ALSO slot-castable. Convention: the characteristic/limited avenue is the primary `recovery` (usually the slotless-per-rest grant); the fallback avenue goes here (usually `spell_slot`). Only ONE secondary avenue is modelled (no source needs more than two). Records the second avenue without a duplicate spell entry (which would double-count against the source's grant). Absent for the common single-avenue case.",
+          "description": "An ADDITIONAL casting avenue for the SAME (name, source) \u2014 e.g. a granted spell castable slotless once per rest that is ALSO slot-castable. Convention: the characteristic/limited avenue is the primary `recovery` (usually the slotless-per-rest grant); the fallback avenue goes here (usually `spell_slot`). Only ONE secondary avenue is modelled (no source needs more than two). Records the second avenue without a duplicate spell entry (which would double-count against the source's grant). Absent for the common single-avenue case.",
           "type": "object",
-          "required": ["resource"],
+          "required": [
+            "resource"
+          ],
           "additionalProperties": false,
           "properties": {
-            "resource": { "enum": ["spell_slot", "pact_slot", "slotless_per_rest", "at_will", "ritual_only"] },
-            "uses": { "$ref": "#/$defs/resourceEntry" }
+            "resource": {
+              "enum": [
+                "spell_slot",
+                "pact_slot",
+                "slotless_per_rest",
+                "at_will",
+                "ritual_only"
+              ]
+            },
+            "uses": {
+              "$ref": "#/$defs/resourceEntry"
+            }
           }
         },
-        "ritual": { "type": "boolean", "default": false },
-        "concentration": { "type": "boolean", "default": false },
-        "requires_material": { "type": "boolean", "default": false, "description": "Has a material component." },
-        "casting_time": { "type": ["string", "null"], "description": "Casting-time identifier (catalog)." },
-        "range": { "type": ["string", "null"] }
+        "ritual": {
+          "type": "boolean",
+          "default": false
+        },
+        "concentration": {
+          "type": "boolean",
+          "default": false
+        },
+        "requires_material": {
+          "type": "boolean",
+          "default": false,
+          "description": "Has a material component."
+        },
+        "casting_time": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Casting-time identifier (catalog)."
+        },
+        "range": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     }
   }
