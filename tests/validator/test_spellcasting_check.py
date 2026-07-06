@@ -143,3 +143,11 @@ def test_malformed_identity_does_not_raise(access):
     sheet = _sheet()
     sheet["identity"] = "oops"
     assert isinstance(check(sheet, access), list)
+
+
+def test_malformed_ability_list_does_not_raise_and_skips_dc_attack(access):
+    sc = _clean_class_a()
+    sc["ability"] = ["Ability 1"]
+    codes = _codes(_sheet(sc), access)
+    assert "spell-save-dc-mismatch" not in codes
+    assert "spell-attack-mismatch" not in codes

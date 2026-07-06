@@ -4,6 +4,8 @@ from access.validator import ValidatorAccess
 
 def ability_id(access: ValidatorAccess, key: str) -> str | None:
     """Resolve a sheet ability key (id, abbrev, or name) to the ability id, or None if unknown."""
+    if not isinstance(key, str):
+        return None
     return access.db.scalar(
         "SELECT id FROM ability WHERE id=? COLLATE NOCASE OR abbrev=? COLLATE NOCASE OR name=? COLLATE NOCASE",
         key, key, key)

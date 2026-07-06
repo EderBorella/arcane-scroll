@@ -89,3 +89,18 @@ def test_background_boosts_summing_to_four_is_illegal(access):
     codes = _codes(_sheet(abilities), access)
     assert "background-boost-illegal" in codes
     assert "background-boost-missing" not in codes
+
+
+def test_ability_id_returns_none_for_non_string_key_list(access):
+    from access.validator.abilities import ability_id
+    assert ability_id(access, ["x1"]) is None
+
+
+def test_ability_id_returns_none_for_non_string_key_dict(access):
+    from access.validator.abilities import ability_id
+    assert ability_id(access, {"a": 1}) is None
+
+
+def test_ability_id_resolves_normal_string_key(access):
+    from access.validator.abilities import ability_id
+    assert ability_id(access, "x1") == "a1"
