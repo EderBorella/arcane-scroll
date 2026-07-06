@@ -310,6 +310,18 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE size (id TEXT PRIMARY KEY, name TEXT, ordinal INT, space_ft REAL)")
     cur.execute("CREATE TABLE creature_type (id TEXT PRIMARY KEY, name TEXT)")
     cur.execute("CREATE TABLE xp_level (level INT PRIMARY KEY, xp_min INT)")
+    # abilities domain: ability identity + background boost lists + class saves + ASI/HP grant spine
+    cur.execute("CREATE TABLE ability (id TEXT PRIMARY KEY, name TEXT, abbrev TEXT)")
+    cur.execute("CREATE TABLE background_ability (background_id TEXT, ability_id TEXT, ordinal INT)")
+    cur.execute("CREATE TABLE class_saving_throw (class_id TEXT, ability_id TEXT)")
+    cur.execute("CREATE TABLE point_buy_cost (score INT PRIMARY KEY, cost INT)")
+    cur.execute("CREATE TABLE rules_constant (id TEXT PRIMARY KEY, value_int INTEGER, note TEXT)")
+    cur.execute("CREATE TABLE grant_ability_increase (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
+                "gained_at_level INT, points INT, max_per_ability INT, cap INT, from_any INT)")
+    cur.execute("CREATE TABLE grant_ability_set (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
+                "gained_at_level INT, ability_id TEXT, score INT, mode TEXT)")
+    cur.execute("CREATE TABLE grant_hp (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
+                "gained_at_level INT, flat INT, per_level INT)")
     cur.execute("INSERT INTO class VALUES ('class-a','Class A',8,3,'full','all',2,0,'')")
     cur.execute("INSERT INTO class VALUES ('class-b','Class B',10,3,'none','any',2,0,'')")
     cur.execute("INSERT INTO subclass VALUES ('sub-a','class-a','Sub A',1,'')")
@@ -321,6 +333,17 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO size VALUES ('size-a','Size A',3,5.0)")
     for lvl, xp in [(1, 0), (2, 300), (3, 900), (4, 2700), (5, 6500)]:
         cur.execute("INSERT INTO xp_level VALUES (?,?)", (lvl, xp))
+    for i in range(1, 7):
+        cur.execute("INSERT INTO ability VALUES (?,?,?)", (f"a{i}", f"Ability {i}", f"x{i}"))
+    for aid, ordinal in [("a1", 1), ("a2", 2), ("a3", 3)]:
+        cur.execute("INSERT INTO background_ability VALUES ('bg-a',?,?)", (aid, ordinal))
+    for aid in ("a1", "a2"):
+        cur.execute("INSERT INTO class_saving_throw VALUES ('class-a',?)", (aid,))
+    for score, cost in [(8, 0), (9, 1), (10, 2), (11, 3), (12, 4), (13, 5), (14, 7), (15, 9)]:
+        cur.execute("INSERT INTO point_buy_cost VALUES (?,?)", (score, cost))
+    cur.execute("INSERT INTO rules_constant VALUES ('point-buy-budget',27,'')")
+    cur.execute("INSERT INTO grant_ability_increase VALUES "
+                "('gai-asi','feat','ability-score-improvement',NULL,2,2,20,1)")
     con.commit()
     con.close()
 
