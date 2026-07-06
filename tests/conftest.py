@@ -401,6 +401,46 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO class_feature VALUES ('cf-asi8','class-a',8,'Ability Score Improvement')")
     # bg-a grants one origin-category feat
     cur.execute("INSERT INTO grant_feat VALUES ('gft-bga','background','bg-a',NULL,1,'origin')")
+
+    # spellcasting domain: slot tables (single-class/multiclass/pact), cantrip+prepared counts,
+    # third-caster subclass slots, spell catalog + class-list membership, and the always-granted
+    # spell spine (grant_spell -> grant_spell_fixed; grant_spell_choice(_value) unused here but must
+    # exist, same idiom as the proficiency-grant child tables above)
+    cur.execute("CREATE TABLE class_spell_slot (class_id TEXT, class_level INT, slot_level INT, slot_count INT)")
+    cur.execute("CREATE TABLE multiclass_slot (caster_level INT, slot_level INT, slot_count INT)")
+    cur.execute("CREATE TABLE pact_slot (class_id TEXT, class_level INT, slot_count INT, slot_level INT)")
+    cur.execute("CREATE TABLE class_cantrips_prepared (class_id TEXT, level INT, cantrips_known INT, prepared_spells INT)")
+    cur.execute("CREATE TABLE subclass_spellcasting (subclass_id TEXT PRIMARY KEY)")
+    cur.execute("CREATE TABLE subclass_spell_slot (subclass_id TEXT, class_level INT, slot_level INT, slot_count INT)")
+    cur.execute("CREATE TABLE spell (id TEXT PRIMARY KEY, name TEXT, level INT, is_ritual INT)")
+    cur.execute("CREATE TABLE spell_class (spell_id TEXT, class_id TEXT)")
+    cur.execute("CREATE TABLE grant_spell (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, gained_at_level INT)")
+    cur.execute("CREATE TABLE grant_spell_fixed (grant_id TEXT, spell_id TEXT)")
+    cur.execute("CREATE TABLE grant_spell_choice (grant_id TEXT, choose_n INT)")
+    cur.execute("CREATE TABLE grant_spell_choice_value (grant_id TEXT, spell_id TEXT)")
+
+    # class-a (already 'full') L3: 2 cantrips known, 3 prepared; slots {1:4, 2:2}
+    cur.execute("INSERT INTO class_cantrips_prepared VALUES ('class-a',3,2,3)")
+    cur.execute("INSERT INTO class_spell_slot VALUES ('class-a',3,1,4)")
+    cur.execute("INSERT INTO class_spell_slot VALUES ('class-a',3,2,2)")
+    # combined multiclass caster level 4 -> slots {1:4, 2:3} (distinct from class-a's own L3 table,
+    # so a test can tell the multiclass path was actually used)
+    cur.execute("INSERT INTO multiclass_slot VALUES (4,1,4)")
+    cur.execute("INSERT INTO multiclass_slot VALUES (4,2,3)")
+    # sub-b (class-b's subclass) is a third-caster subclass -- combined with class-a L3 (full, +3)
+    # it contributes floor(3/3)=1, reaching combined caster level 4
+    cur.execute("INSERT INTO subclass_spellcasting VALUES ('sub-b')")
+    # a pact caster class + its pact slot table (2 slots at slot-level 1, for class-p level 2)
+    cur.execute("INSERT INTO class VALUES ('class-p','Class P',8,3,'pact','all',2,0,'')")
+    cur.execute("INSERT INTO pact_slot VALUES ('class-p',2,2,1)")
+    # spells: sp1/sp2 cantrips, sp3/sp4 leveled; sp1-sp3 on class-a's list, sp4 deliberately off it
+    for sid, name, level in [("sp1", "Sp1", 0), ("sp2", "Sp2", 0), ("sp3", "Sp3", 1), ("sp4", "Sp4", 1)]:
+        cur.execute("INSERT INTO spell VALUES (?,?,?,0)", (sid, name, level))
+    for sid in ("sp1", "sp2", "sp3"):
+        cur.execute("INSERT INTO spell_class VALUES (?,'class-a')", (sid,))
+    # species-a always grants sp4 (legal even though it's off class-a's list)
+    cur.execute("INSERT INTO grant_spell VALUES ('gsp-species-a','species','species-a',NULL)")
+    cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-species-a','sp4')")
     con.commit()
     con.close()
 
