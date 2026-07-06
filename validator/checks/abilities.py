@@ -44,8 +44,13 @@ def check(sheet: dict, access) -> list[Violation]:
                                    "(item-set exceptions are checked in the items domain)", path))
 
         bonus = entry.get("background_bonus")
-        if bonus:
-            boosts.append((bonus, aid))
+        if bonus is not None:
+            if isinstance(bonus, int) and not isinstance(bonus, bool):
+                if bonus:
+                    boosts.append((bonus, aid))
+            else:
+                v.append(Violation(DOMAIN, "background-bonus-malformed", "illegal",
+                                   f"background_bonus must be an integer, got {bonus!r}", f"{path}.background_bonus"))
 
     missing = set(q.all_ability_ids(access)) - resolved
     if missing:
@@ -55,11 +60,16 @@ def check(sheet: dict, access) -> list[Violation]:
     ident = sheet.get("identity", {}) or {}
     bg_id = access.resolve("background", ident.get("background"))
     if bg_id is not None:
-        allowed = set(q.background_boost_abilities(access, bg_id))
-        bad_target = any(aid not in allowed for _, aid in boosts)
-        values = sorted(b for b, _ in boosts)
-        if bad_target or values not in _VALID_BOOST_SHAPES:
-            v.append(Violation(DOMAIN, "background-boost-illegal", "illegal",
-                               "background ability boosts must total 3 points, as {2,1} or {1,1,1}, "
-                               "all on abilities the background allows", "abilities"))
+        if not boosts:
+            v.append(Violation(DOMAIN, "background-boost-missing", "incomplete",
+                               "background ability boosts (total 3) are expected but none are declared",
+                               "abilities"))
+        else:
+            allowed = set(q.background_boost_abilities(access, bg_id))
+            bad_target = any(aid not in allowed for _, aid in boosts)
+            values = sorted(b for b, _ in boosts)
+            if bad_target or values not in _VALID_BOOST_SHAPES:
+                v.append(Violation(DOMAIN, "background-boost-illegal", "illegal",
+                                   "background ability boosts must total 3 points, as {2,1} or {1,1,1}, "
+                                   "all on abilities the background allows", "abilities"))
     return v

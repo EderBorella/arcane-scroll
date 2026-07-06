@@ -63,3 +63,29 @@ def test_background_boost_wrong_sum(access):
 
 def test_malformed_abilities_not_a_dict(access):
     assert "malformed-abilities" in _codes(_sheet(abilities="x"), access)
+
+
+def test_background_bonus_malformed_type_does_not_raise(access):
+    abilities = _clean_abilities()
+    abilities["x1"]["background_bonus"] = 2
+    abilities["x2"]["background_bonus"] = "oops"
+    codes = _codes(_sheet(abilities), access)
+    assert "background-bonus-malformed" in codes
+
+
+def test_no_background_boosts_declared_is_incomplete(access):
+    abilities = _clean_abilities()
+    del abilities["x1"]["background_bonus"]
+    del abilities["x2"]["background_bonus"]
+    codes = _codes(_sheet(abilities), access)
+    assert "background-boost-missing" in codes
+    assert "background-boost-illegal" not in codes
+
+
+def test_background_boosts_summing_to_four_is_illegal(access):
+    abilities = _clean_abilities()
+    abilities["x1"]["background_bonus"] = 3
+    abilities["x2"]["background_bonus"] = 1
+    codes = _codes(_sheet(abilities), access)
+    assert "background-boost-illegal" in codes
+    assert "background-boost-missing" not in codes
