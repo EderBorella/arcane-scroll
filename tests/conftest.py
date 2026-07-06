@@ -344,6 +344,35 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO rules_constant VALUES ('point-buy-budget',27,'')")
     cur.execute("INSERT INTO grant_ability_increase VALUES "
                 "('gai-asi','feat','ability-score-improvement',NULL,2,2,20,1)")
+
+    # proficiencies domain: skills catalog + class/background skill pools + skill/expertise grants
+    cur.execute("CREATE TABLE skill (id TEXT PRIMARY KEY, name TEXT, ability_id TEXT)")
+    cur.execute("CREATE TABLE class_skill_option (class_id TEXT, skill_id TEXT)")
+    cur.execute("CREATE TABLE background_skill (background_id TEXT, skill_id TEXT)")
+    cur.execute("CREATE TABLE grant_proficiency (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
+                "gained_at_level INT, target_kind TEXT, mode TEXT, from_any INT, choose_n INT)")
+    cur.execute("CREATE TABLE grant_proficiency_value (grant_id TEXT, target_id TEXT)")
+    # children_of() fans out over the whole grant_proficiency child list (access/primitives.py's
+    # GRANT_TABLES); these two are unused by the skills fixture but must exist for the query.
+    cur.execute("CREATE TABLE grant_proficiency_category (grant_id TEXT, tool_category_id TEXT)")
+    cur.execute("CREATE TABLE grant_proficiency_weapon_filter (grant_id TEXT, property_id TEXT)")
+    cur.execute("CREATE TABLE grant_expertise (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
+                "gained_at_level INT, choose_n INT, mode TEXT, skill_id TEXT)")
+    cur.execute("CREATE TABLE grant_expertise_value (grant_id TEXT, skill_id TEXT)")
+    for i in range(1, 7):
+        cur.execute("INSERT INTO skill VALUES (?,?,?)", (f"sk{i}", f"Sk{i}", "a1"))
+    # class-a (skill_choose_n=2, skill_from_any=0): choose 2 from {sk1,sk2,sk3}
+    for sid in ("sk1", "sk2", "sk3"):
+        cur.execute("INSERT INTO class_skill_option VALUES ('class-a',?)", (sid,))
+    # bg-a: 1 fixed background skill
+    cur.execute("INSERT INTO background_skill VALUES ('bg-a','sk4')")
+    # species-a grants a fixed skill proficiency (sk5) -- exercises grant-sourced skills
+    cur.execute("INSERT INTO grant_proficiency VALUES "
+                "('gp-species-a-skill','species','species-a',NULL,'skill','fixed',0,NULL)")
+    cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-species-a-skill','sk5')")
+    # class-a grants 1 expertise pick at level 1, from already-proficient skills (unrestricted pool)
+    cur.execute("INSERT INTO grant_expertise VALUES "
+                "('gex-a','class','class-a',1,1,'choose_from_proficient',NULL)")
     con.commit()
     con.close()
 
