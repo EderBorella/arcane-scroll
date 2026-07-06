@@ -330,3 +330,9 @@ def rules_db(tmp_path) -> str:
     p = tmp_path / "rules.db"
     _build_rules_db(str(p))
     return str(p)
+
+
+@pytest.fixture
+def access(rules_db):
+    from access.validator import ValidatorAccess   # lazy: the package is created in this task
+    return ValidatorAccess(path=rules_db)
