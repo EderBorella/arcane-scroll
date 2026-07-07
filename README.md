@@ -1,6 +1,6 @@
 # Arcane Scroll
 
-*An AI-powered brain for tabletop RPGs — starting with character creation.*
+*An AI-powered helper for tabletop RPGs — starting with character creation.*
 
 ## What it does today
 
