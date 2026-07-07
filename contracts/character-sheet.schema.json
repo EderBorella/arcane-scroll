@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:arcane:contract:character-sheet:8",
+  "$id": "urn:arcane:contract:character-sheet:9",
   "title": "CharacterSheet",
   "description": "Canonical, versioned contract for a complete character sheet. Contract-first: this document is the source of truth; the generator, validator and decoder are made to conform to it. Structural only \u2014 game vocabulary (ability/skill/class/species/spell/background/resource/condition names) is catalog-driven and never hard-coded here, so this file is content-neutral.",
   "type": "object",
@@ -26,7 +26,7 @@
   "properties": {
     "schema_version": {
       "description": "Contract version. Bump on any breaking change to this schema.",
-      "const": 8
+      "const": 9
     },
     "meta": {
       "description": "Non-sheet provenance. Optional; ignored by the validator.",
@@ -163,6 +163,28 @@
       "additionalProperties": {
         "type": "integer"
       }
+    },
+    "permanent_effects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "source",
+          "description"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "What grants this effect (item name, class feature, etc.)."
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable description of the effect."
+          }
+        }
+      },
+      "description": "Permanent effects granted by items, features, or other sources. Each entry carries provenance so the sheet shows WHY a stat changed. The mechanical impact is validated against the grant spine; this field is for display and provenance tracking."
     },
     "combat": {
       "type": "object",
@@ -747,7 +769,7 @@
   "$defs": {
     "item": {
       "description": "The item contract, bound by version. This is the ONLY place the item-schema version is named; equipped/backpack both point here. The target is a URN \u2014 a stable identifier resolved offline via the schema registry, never a network fetch.",
-      "$ref": "urn:arcane:contract:item:2"
+      "$ref": "urn:arcane:contract:item:3"
     },
     "classEntry": {
       "type": "object",
@@ -1131,6 +1153,13 @@
           ],
           "description": "What sort of companion (catalog) \u2014 familiar / summon / animal companion / mount / shape."
         },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "What granted this companion \u2014 an item, class feature, feat, or spell. E.g. 'Figurine of Wondrous Power (Silver Raven)'."
+        },
         "size": {
           "type": [
             "string",
@@ -1196,6 +1225,13 @@
             "string",
             "null"
           ]
+        },
+        "duration": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "How long the companion remains. E.g. '12 hours', '1 minute', 'until dismissed'. Absent for permanent companions."
         }
       }
     },
