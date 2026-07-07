@@ -1,6 +1,6 @@
 """Proficiencies-domain DB facts: class skill pools, background skills, and the skill/expertise
-grant spine (species/feat/subclass "you also gain proficiency in ..." rows). Armor/weapon/tool
-proficiency legality is out of scope here (F05-T19)."""
+grant spine (species/feat/subclass "you also gain proficiency in ..." rows), plus armor/weapon/tool
+proficiency queries (F05-T19)."""
 from access import primitives
 from access.validator import ValidatorAccess
 
@@ -94,6 +94,20 @@ def subclass_skill_grants(access: ValidatorAccess, subclass_id: str,
     return _split_skill_grants(access, headers)
 
 
+def masterable_weapon_ids(access: ValidatorAccess) -> set[str]:
+    """Weapons that have a mastery property (non-NULL mastery_id). Returns lowercased id + name."""
+    rows = access.db.q(
+        "SELECT w.id, ci.name FROM weapon w "
+        "JOIN catalog_item ci ON w.id = ci.id "
+        "WHERE w.mastery_id IS NOT NULL"
+    )
+    names: set[str] = set()
+    for row in rows:
+        names.add(row["id"].lower())
+        names.add(row["name"].lower())
+    return names
+
+
 def expertise_grants(access: ValidatorAccess, owner_kind: str, owner_id: str, at_level: int) -> list[dict]:
     """grant_expertise rows for an owner gained at or below `at_level`, each as
     {choose_n, mode, skill_id, values} where `values` is the resolved grant_expertise_value pool
@@ -110,3 +124,59 @@ def expertise_grants(access: ValidatorAccess, owner_kind: str, owner_id: str, at
             "values": values,
         })
     return out
+
+
+def armor_grants(access: ValidatorAccess, owner_kind: str, owner_id: str,
+                 at_level: int | None = None) -> list:
+    """grant_proficiency rows with target_kind='armor_category' for an owner."""
+    rows = primitives.grants_for(access.db, "grant_proficiency", owner_kind, owner_id, at_level)
+    return [r for r in rows if r["target_kind"] == "armor_category"]
+
+
+def weapon_grants(access: ValidatorAccess, owner_kind: str, owner_id: str,
+                  at_level: int | None = None) -> list:
+    """grant_proficiency rows with target_kind='weapon_tier' for an owner."""
+    rows = primitives.grants_for(access.db, "grant_proficiency", owner_kind, owner_id, at_level)
+    return [r for r in rows if r["target_kind"] == "weapon_tier"]
+
+
+def tool_grants(access: ValidatorAccess, owner_kind: str, owner_id: str,
+                at_level: int | None = None) -> list:
+    """grant_proficiency rows with target_kind='tool' for an owner."""
+    rows = primitives.grants_for(access.db, "grant_proficiency", owner_kind, owner_id, at_level)
+    return [r for r in rows if r["target_kind"] == "tool"]
+
+
+def grant_values(access: ValidatorAccess, grant_id: str) -> list[str]:
+    """target_id values from grant_proficiency_value for a grant header."""
+    return [r["target_id"] for r in
+            primitives.children_of(access.db, "grant_proficiency", grant_id)
+            .get("grant_proficiency_value", [])]
+
+
+def grant_categories(access: ValidatorAccess, grant_id: str) -> list[str]:
+    """tool_category_id values from grant_proficiency_category for a grant header."""
+    return [r["tool_category_id"] for r in
+            primitives.children_of(access.db, "grant_proficiency", grant_id)
+            .get("grant_proficiency_category", [])]
+
+
+def armor_category_ids(access: ValidatorAccess) -> list[str]:
+    """All armor_category IDs in the rulebook."""
+    return [r["id"] for r in access.db.q("SELECT id FROM armor_category")]
+
+
+def weapon_tier_ids(access: ValidatorAccess) -> list[str]:
+    """All weapon_tier IDs in the rulebook."""
+    return [r["id"] for r in access.db.q("SELECT id FROM weapon_tier")]
+
+
+def tool_ids(access: ValidatorAccess) -> list[str]:
+    """All tool IDs from the tool table."""
+    return [r["id"] for r in access.db.q("SELECT id FROM tool")]
+
+
+def tool_category_tools(access: ValidatorAccess, category_id: str) -> list[str]:
+    """All tool IDs in a given tool_category."""
+    return [r["id"] for r in access.db.q(
+        "SELECT id FROM tool WHERE tool_category_id=?", category_id)]

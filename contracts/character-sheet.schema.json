@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:arcane:contract:character-sheet:7",
+  "$id": "urn:arcane:contract:character-sheet:8",
   "title": "CharacterSheet",
   "description": "Canonical, versioned contract for a complete character sheet. Contract-first: this document is the source of truth; the generator, validator and decoder are made to conform to it. Structural only \u2014 game vocabulary (ability/skill/class/species/spell/background/resource/condition names) is catalog-driven and never hard-coded here, so this file is content-neutral.",
   "type": "object",
@@ -26,7 +26,7 @@
   "properties": {
     "schema_version": {
       "description": "Contract version. Bump on any breaking change to this schema.",
-      "const": 7
+      "const": 8
     },
     "meta": {
       "description": "Non-sheet provenance. Optional; ignored by the validator.",
@@ -779,6 +779,13 @@
             "null"
           ],
           "description": "An extra choice that specialises the subclass \u2014 e.g. a subclass that offers a further sub-choice (a chosen terrain, element, etc.). Absent when not applicable."
+        },
+        "class_detail": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A class-level choice that shapes the entire class, e.g. a divine order or primal order chosen at level 1 that grants proficiencies. Absent when not applicable."
         }
       }
     },
