@@ -594,6 +594,30 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO grant_condition VALUES "
                 "('gcn-sub-a','subclass','sub-a',3,'charmed','immunity',0)")
 
+    # features domain: subclass_feature, species_trait, detail_option + additional class_feature rows
+    # (class_feature table already exists from the feats domain section above)
+    cur.execute("CREATE TABLE subclass_feature (id TEXT PRIMARY KEY, subclass_id TEXT, class_level INT, name TEXT)")
+    cur.execute("CREATE TABLE species_trait (id TEXT PRIMARY KEY, species_id TEXT, name TEXT)")
+    cur.execute("CREATE TABLE detail_option (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, axis TEXT, name TEXT, rechoose TEXT)")
+
+    cur.execute("INSERT INTO class_feature VALUES ('cf-a1','class-a',1,'Feat A')")
+    cur.execute("INSERT INTO class_feature VALUES ('cf-a2','class-a',1,'Feat B')")
+    cur.execute("INSERT INTO class_feature VALUES ('cf-a3','class-a',2,'Feat C')")
+    cur.execute("INSERT INTO class_feature VALUES ('cf-a4','class-a',3,'Feat D (one use)')")
+    cur.execute("INSERT INTO class_feature VALUES ('cf-b1','class-b',1,'Feat X')")
+
+    cur.execute("INSERT INTO subclass_feature VALUES ('sf-a1','sub-a',3,'Sub Feat A')")
+    cur.execute("INSERT INTO subclass_feature VALUES ('sf-a2','sub-a',6,'Sub Feat B')")
+    cur.execute("INSERT INTO subclass_feature VALUES ('sf-a3','sub-a',3,'Aspect of the Wilds')")
+
+    cur.execute("INSERT INTO species_trait VALUES ('st-a1','species-a','Species Trait A')")
+
+    cur.execute("INSERT INTO detail_option VALUES ('do-owl','subclass','sub-a','aspect','Owl',NULL)")
+    cur.execute("INSERT INTO detail_option VALUES ('do-panther','subclass','sub-a','aspect','Panther',NULL)")
+
+    cur.execute("INSERT INTO detail_option VALUES ('do-prot','class','class-a','school','Protector',NULL)")
+    cur.execute("INSERT INTO detail_option VALUES ('do-thaum','class','class-a','school','Thaumaturge',NULL)")
+
     con.commit()
     con.close()
 
