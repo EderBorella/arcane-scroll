@@ -412,6 +412,41 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO grant_expertise VALUES "
                 "('gex-a6','class','class-a',6,1,'choose_from_proficient',NULL)")
 
+    # armor/weapon/tool proficiency spine (F05-T19): catalog tables + grant rows
+    cur.execute("CREATE TABLE armor_category (id TEXT PRIMARY KEY, name TEXT, don_minutes REAL, doff_minutes REAL)")
+    cur.execute("CREATE TABLE weapon_tier (id TEXT PRIMARY KEY, name TEXT)")
+    cur.execute("CREATE TABLE tool_category (id TEXT PRIMARY KEY, name TEXT)")
+    cur.execute("CREATE TABLE tool (id TEXT PRIMARY KEY, name TEXT)")
+    cur.execute("CREATE TABLE tool_category_item (tool_category_id TEXT, tool_id TEXT)")
+
+    for aid, aname in [("light-armor","Light Armor"),("medium-armor","Medium Armor"),("heavy-armor","Heavy Armor"),("shield","Shield")]:
+        cur.execute("INSERT INTO armor_category VALUES (?,?,1,1)", (aid, aname))
+    for wid, wname in [("simple","Simple"),("martial","Martial")]:
+        cur.execute("INSERT INTO weapon_tier VALUES (?,?)", (wid, wname))
+    cur.execute("INSERT INTO tool_category VALUES ('artisan-s-tools',\"Artisan's Tools\")")
+
+    cur.execute("INSERT INTO tool VALUES ('herbalism-kit','Herbalism Kit')")
+    cur.execute("INSERT INTO tool VALUES ('smith-s-tools',\"Smith's Tools\")")
+
+    # class-a: light+medium armor + simple weapons (multiclass_only=0 --> full when primary)
+    cur.execute("INSERT INTO grant_proficiency (id,owner_kind,owner_id,gained_at_level,target_kind,mode,from_any,choose_n,multiclass_only) VALUES ('gpr-armor','class','class-a',NULL,'armor_category','fixed',0,NULL,0)")
+    cur.execute("INSERT INTO grant_proficiency_value VALUES ('gpr-armor','light-armor')")
+    cur.execute("INSERT INTO grant_proficiency_value VALUES ('gpr-armor','medium-armor')")
+    cur.execute("INSERT INTO grant_proficiency (id,owner_kind,owner_id,gained_at_level,target_kind,mode,from_any,choose_n,multiclass_only) VALUES ('gpr-weapon','class','class-a',NULL,'weapon_tier','fixed',0,NULL,0)")
+    cur.execute("INSERT INTO grant_proficiency_value VALUES ('gpr-weapon','simple')")
+
+    # background grants 1 specific tool
+    cur.execute("INSERT INTO grant_proficiency (id,owner_kind,owner_id,gained_at_level,target_kind,mode,from_any,choose_n,multiclass_only) VALUES ('gpr-bg-tool','background','bg-a',NULL,'tool','fixed',0,NULL,0)")
+    cur.execute("INSERT INTO grant_proficiency_value VALUES ('gpr-bg-tool','herbalism-kit')")
+
+    # subclass sub-a grants shield at level 3
+    cur.execute("INSERT INTO grant_proficiency (id,owner_kind,owner_id,gained_at_level,target_kind,mode,from_any,choose_n,multiclass_only) VALUES ('gpr-sub-shield','subclass','sub-a',3,'armor_category','fixed',0,NULL,0)")
+    cur.execute("INSERT INTO grant_proficiency_value VALUES ('gpr-sub-shield','shield')")
+
+    # class-b multiclass_only weapon grant (martial, only when taken as secondary class)
+    cur.execute("INSERT INTO grant_proficiency (id,owner_kind,owner_id,gained_at_level,target_kind,mode,from_any,choose_n,multiclass_only) VALUES ('gpr-classb-weapon','class','class-b',NULL,'weapon_tier','fixed',0,NULL,1)")
+    cur.execute("INSERT INTO grant_proficiency_value VALUES ('gpr-classb-weapon','martial')")
+
     # feats domain: feat catalog, prerequisite rows, ASI/Epic-Boon slot spine (class_feature), and
     # the origin-feat grant spine (grant_feat)
     cur.execute("CREATE TABLE feat (id TEXT PRIMARY KEY, name TEXT, category TEXT, repeatable INT)")
@@ -617,6 +652,25 @@ def _build_rules_db(path: str) -> None:
 
     cur.execute("INSERT INTO detail_option VALUES ('do-prot','class','class-a','school','Protector',NULL)")
     cur.execute("INSERT INTO detail_option VALUES ('do-thaum','class','class-a','school','Thaumaturge',NULL)")
+
+    # weapon mastery domain: catalog_item, weapon, mastery_property tables
+    cur.execute("CREATE TABLE IF NOT EXISTS mastery_property (id TEXT PRIMARY KEY, name TEXT)")
+    cur.execute("INSERT OR IGNORE INTO mastery_property VALUES ('cleave','Cleave')")
+    cur.execute("INSERT OR IGNORE INTO mastery_property VALUES ('vex','Vex')")
+    cur.execute("INSERT OR IGNORE INTO mastery_property VALUES ('slow','Slow')")
+    cur.execute("INSERT OR IGNORE INTO mastery_property VALUES ('nick','Nick')")
+    cur.execute("CREATE TABLE IF NOT EXISTS catalog_item (id TEXT PRIMARY KEY, name TEXT)")
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('greataxe','Greataxe')")
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('handaxe','Handaxe')")
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('club','Club')")
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('net','Net')")
+    cur.execute("CREATE TABLE IF NOT EXISTS weapon (id TEXT PRIMARY KEY REFERENCES catalog_item(id), "
+                "tier_id TEXT, range_class_id TEXT, dmg_dice_count INT, dmg_die_faces INT, "
+                "dmg_flat INT, damage_type_id TEXT, mastery_id TEXT REFERENCES mastery_property(id))")
+    cur.execute("INSERT OR IGNORE INTO weapon VALUES ('greataxe','martial','melee',1,12,NULL,'slashing','cleave')")
+    cur.execute("INSERT OR IGNORE INTO weapon VALUES ('handaxe','simple','melee',1,6,NULL,'slashing','vex')")
+    cur.execute("INSERT OR IGNORE INTO weapon VALUES ('club','simple','melee',1,4,NULL,'bludgeoning','slow')")
+    cur.execute("INSERT OR IGNORE INTO weapon VALUES ('net','martial','ranged',NULL,NULL,NULL,NULL,NULL)")
 
     con.commit()
     con.close()

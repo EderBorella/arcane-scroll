@@ -13,6 +13,7 @@ _DIMS = {
     "damage_type", "feat", "language", "lineage", "movement_mode", "rarity", "school", "sense",
     "size", "skill", "species", "spell", "subclass", "tool", "tool_category", "weapon_property_vocab",
     "catalog_item", "class_feature", "subclass_feature", "class_option", "class_resource", "creature",
+    "weapon_tier",
     "detail_option", "hazard", "mastery_property", "power", "species_trait",
 }
 
