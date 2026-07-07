@@ -1,70 +1,227 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:arcane:contract:item:2",
+  "$id": "urn:arcane:contract:item:3",
   "title": "Item",
-  "description": "A self-describing item — a superset of every property an item MIGHT have. Only `name` is required; a torch has no damage dice, a sword has no AC, so most fields are simply absent. The same contract is used for equipped items (by slot on the sheet) and for backpack lines (with a quantity). Content-neutral: item/category/property/type names are catalog-driven, never enumerated here. Magic-item effects are deliberately NOT modelled yet — they will slot in later via a new `effects` field without restructuring.",
+  "description": "A self-describing item \u2014 a superset of every property an item MIGHT have. Only `name` is required; a torch has no damage dice, a sword has no AC, so most fields are simply absent. The same contract is used for equipped items (by slot on the sheet) and for backpack lines (with a quantity). Content-neutral: item/category/property/type names are catalog-driven, never enumerated here. Magic-item effects are deliberately NOT modelled yet \u2014 they will slot in later via a new `effects` field without restructuring.",
   "type": "object",
-  "required": ["name"],
+  "required": [
+    "name"
+  ],
   "additionalProperties": false,
   "properties": {
-    "name": { "type": "string", "description": "Item identifier (catalog)." },
-    "category": { "type": ["string", "null"], "description": "Item category identifier (catalog), e.g. weapon / armor / shield / gear." },
-    "quantity": { "type": "integer", "minimum": 1, "default": 1, "description": "How many the character holds. Used by the backpack, and also on an equipped stack (thrown weapons, loaded ammunition)." },
-    "weight": { "type": ["number", "null"], "minimum": 0 },
-    "description": { "type": ["string", "null"] },
-
-    "magic": { "type": "boolean", "default": false },
-    "rarity": { "type": ["string", "null"], "description": "Rarity identifier (catalog); null for mundane items." },
+    "name": {
+      "type": "string",
+      "description": "Item identifier (catalog)."
+    },
+    "category": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Item category identifier (catalog), e.g. weapon / armor / shield / gear."
+    },
+    "quantity": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1,
+      "description": "How many the character holds. Used by the backpack, and also on an equipped stack (thrown weapons, loaded ammunition)."
+    },
+    "weight": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "magic": {
+      "type": "boolean",
+      "default": false
+    },
+    "rarity": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Rarity identifier (catalog); null for mundane items."
+    },
     "attunement": {
       "description": "Attunement state for a magic item. Absent for items that don't use attunement.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "required": { "type": "boolean", "default": false },
-        "attuned": { "type": "boolean", "default": false }
+        "required": {
+          "type": "boolean",
+          "default": false
+        },
+        "attuned": {
+          "type": "boolean",
+          "default": false
+        }
       }
     },
-
     "properties": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "Item/weapon property identifiers (catalog), e.g. two-handed / versatile / light / finesse."
     },
-
-    "damage_dice": { "type": ["string", "null"], "description": "Weapon: base damage dice, e.g. '1d8'." },
-    "versatile_damage": { "type": ["string", "null"], "description": "Weapon: damage dice when wielded two-handed (versatile weapons), e.g. '1d10'." },
-    "damage_type": { "type": ["string", "null"], "description": "Weapon: damage type identifier (catalog)." },
-    "mastery": { "type": ["string", "null"], "description": "Weapon: mastery property identifier (catalog)." },
-    "range": { "type": ["string", "null"], "description": "Weapon: range, e.g. '30/120' or null for melee-only." },
-    "grip": { "type": ["string", "null"], "description": "Weapon: how it is currently held (catalog) — one-handed / two-handed. Selects versatile_damage and governs shield/two-handed exclusivity. Null / absent when not held." },
+    "damage_dice": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Weapon: base damage dice, e.g. '1d8'."
+    },
+    "versatile_damage": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Weapon: damage dice when wielded two-handed (versatile weapons), e.g. '1d10'."
+    },
+    "damage_type": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Weapon: damage type identifier (catalog)."
+    },
+    "mastery": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Weapon: mastery property identifier (catalog)."
+    },
+    "range": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Weapon: range, e.g. '30/120' or null for melee-only."
+    },
+    "grip": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Weapon: how it is currently held (catalog) \u2014 one-handed / two-handed. Selects versatile_damage and governs shield/two-handed exclusivity. Null / absent when not held."
+    },
     "ammunition": {
       "description": "Weapon: the ammunition this weapon consumes and how much is currently loaded/on hand. Absent for weapons that need none.",
       "type": "object",
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "additionalProperties": false,
       "properties": {
-        "type": { "type": "string", "description": "Ammunition item identifier (catalog)." },
-        "count": { "type": "integer", "minimum": 0 }
+        "type": {
+          "type": "string",
+          "description": "Ammunition item identifier (catalog)."
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "charges": {
       "description": "Item: an expendable charge economy (wands, staves, some wondrous items). Absent for items without charges.",
       "type": "object",
-      "required": ["max"],
+      "required": [
+        "max"
+      ],
       "additionalProperties": false,
       "properties": {
-        "max": { "type": "integer", "minimum": 0 },
-        "remaining": { "type": "integer", "minimum": 0 },
-        "recharge": { "type": ["string", "null"], "description": "Recharge trigger identifier (catalog), e.g. a dawn/short-rest token." }
+        "max": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "remaining": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recharge": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Recharge trigger identifier (catalog), e.g. a dawn/short-rest token."
+        }
       }
     },
-
-    "armor_category": { "type": ["string", "null"], "description": "Armour: category identifier (catalog) — light / medium / heavy." },
-    "base_ac": { "type": ["integer", "null"], "description": "Armour: base AC before the Dexterity modifier." },
-    "dex_cap": { "type": ["integer", "null"], "description": "Armour: max Dex bonus to AC — null = uncapped (light), 2 (medium). Heavy armour adds no Dexterity at all (not even a negative modifier): use 0, meaning the applied Dex contribution is clamped to the 0..cap range." },
-    "stealth_disadvantage": { "type": "boolean", "default": false, "description": "Armour: imposes Disadvantage on Stealth." },
-    "strength_req": { "type": ["integer", "null"], "description": "Armour: minimum Strength, or null." },
-
-    "ac_bonus": { "type": ["integer", "null"], "description": "Shield (or AC-granting item): bonus to AC." }
+    "effects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "description"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the activated ability."
+          },
+          "description": {
+            "type": "string",
+            "description": "What happens when activated."
+          },
+          "uses": {
+            "$ref": "#/$defs/resourceEntry",
+            "description": "Uses per rest/dawn."
+          }
+        }
+      },
+      "description": "Activated powers this item grants (e.g. 'Produce Liquid' on Alchemy Jug). NOT validated \u2014 these are documentation for item-specific activated abilities."
+    },
+    "armor_category": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Armour: category identifier (catalog) \u2014 light / medium / heavy."
+    },
+    "base_ac": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Armour: base AC before the Dexterity modifier."
+    },
+    "dex_cap": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Armour: max Dex bonus to AC \u2014 null = uncapped (light), 2 (medium). Heavy armour adds no Dexterity at all (not even a negative modifier): use 0, meaning the applied Dex contribution is clamped to the 0..cap range."
+    },
+    "stealth_disadvantage": {
+      "type": "boolean",
+      "default": false,
+      "description": "Armour: imposes Disadvantage on Stealth."
+    },
+    "strength_req": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Armour: minimum Strength, or null."
+    },
+    "ac_bonus": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Shield (or AC-granting item): bonus to AC."
+    }
   }
 }
