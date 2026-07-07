@@ -14,7 +14,7 @@ _DIMS = {
     "size", "skill", "species", "spell", "subclass", "tool", "tool_category", "weapon_property_vocab",
     "catalog_item", "class_feature", "subclass_feature", "class_option", "class_resource", "creature",
     "weapon_tier",
-    "detail_option", "hazard", "mastery_property", "power", "species_trait",
+    "detail_option", "hazard", "mastery_property", "magic_item", "power", "species_trait",
 }
 
 
@@ -35,7 +35,14 @@ class Resolver:
             raise ValueError(f"resolver: unknown dimension {dim!r}")
         m = self._maps.get(dim)
         if m is None:
-            m = {_norm(row["name"]): row["id"] for row in self._db.q(f"SELECT id, name FROM {dim}")}
+            if dim == "magic_item":
+                m = {_norm(row["name"]): row["id"]
+                     for row in self._db.q(
+                         "SELECT mi.id, ci.name FROM magic_item mi "
+                         "JOIN catalog_item ci ON mi.id = ci.id")}
+            else:
+                m = {_norm(row["name"]): row["id"]
+                     for row in self._db.q(f"SELECT id, name FROM {dim}")}
             self._maps[dim] = m
         return m
 

@@ -117,3 +117,32 @@ def exists(db: RulesDB, table: str, id_value: str, id_col: str = "id") -> bool:
     if table not in _EXISTS_TABLES:
         raise ValueError(f"exists() not allowed for table {table!r}")
     return db.one(f"SELECT 1 FROM {table} WHERE {id_col}=?", id_value) is not None
+
+
+def item_grants_for(db: RulesDB, sheet: dict, grant_table: str,
+                    resolver) -> list:
+    """Grant rows of one table for every magic item the character has equipped or in backpack.
+    Items are resolved by name against the magic_item dimension via the resolver."""
+    rows = []
+    if grant_table not in GRANT_TABLES:
+        raise ValueError(f"unknown grant table: {grant_table!r}")
+
+    items = []
+    equipped = sheet.get("equipped")
+    if isinstance(equipped, dict):
+        items.extend(equipped.values())
+    backpack = sheet.get("backpack")
+    if isinstance(backpack, list):
+        items.extend(backpack)
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if not item.get("magic"):
+            continue
+        item_id = resolver.resolve("magic_item", item.get("name"))
+        if not item_id:
+            continue
+        gr = grants_for(db, grant_table, "magic_item", item_id)
+        rows.extend(gr)
+    return rows

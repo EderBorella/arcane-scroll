@@ -68,6 +68,12 @@ def check(sheet: dict, access) -> list[Violation]:
     v: list[Violation] = []
 
     resistance_rows = _gather_owner_grants(access, sheet, q.resistance_grants)
+
+    # magic items: resistance grants
+    from access import primitives
+    resistance_rows.extend(
+        primitives.item_grants_for(access.db, sheet, "grant_resistance", access.resolver))
+
     expected_resistances: set[str] = set()
     for row in resistance_rows:
         if row["mode"] == "fixed" and row["damage_type_id"]:
@@ -87,6 +93,8 @@ def check(sheet: dict, access) -> list[Violation]:
                         expected_resistances.add(dmg)
 
     condition_rows = _gather_owner_grants(access, sheet, q.condition_grants)
+    condition_rows.extend(
+        primitives.item_grants_for(access.db, sheet, "grant_condition", access.resolver))
     expected_condition_immunities: set[str] = set()
     for row in condition_rows:
         if row["effect"] == "immunity":
