@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:arcane:contract:character-sheet:9",
+  "$id": "urn:arcane:contract:character-sheet:10",
   "title": "CharacterSheet",
   "description": "Canonical, versioned contract for a complete character sheet. Contract-first: this document is the source of truth; the generator, validator and decoder are made to conform to it. Structural only \u2014 game vocabulary (ability/skill/class/species/spell/background/resource/condition names) is catalog-driven and never hard-coded here, so this file is content-neutral.",
   "type": "object",
@@ -26,7 +26,7 @@
   "properties": {
     "schema_version": {
       "description": "Contract version. Bump on any breaking change to this schema.",
-      "const": 9
+      "const": 10
     },
     "meta": {
       "description": "Non-sheet provenance. Optional; ignored by the validator.",
@@ -513,6 +513,39 @@
             "type": "string"
           },
           "description": "Condition identifiers (catalog) the character cannot suffer."
+        },
+        "save_advantages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Advantage on saving throws by ability ID or scope keyword. Scope keywords: concentration, death, spells. Ability IDs from the ability catalog (intelligence, wisdom, charisma, dexterity, etc.)."
+        },
+        "condition_advantages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "condition",
+              "effect"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "condition": {
+                "type": "string",
+                "description": "Condition identifier (catalog)."
+              },
+              "effect": {
+                "type": "string",
+                "enum": [
+                  "avoid_or_end",
+                  "end"
+                ],
+                "description": "avoid_or_end = advantage on saves to avoid or end the condition. end = advantage only on saves to end it."
+              }
+            }
+          },
+          "description": "Advantage on saving throws related to specific conditions. Each entry specifies the condition and whether the advantage applies to saves to avoid/end it, or only to end it."
         }
       }
     },

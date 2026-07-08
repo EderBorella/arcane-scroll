@@ -153,4 +153,67 @@ def check(sheet: dict, access) -> list[Violation]:
                                    f"immunity to {cid}: no grant found",
                                    "defenses.condition_immunities"))
 
+    # save advantages
+    sa_rows = _gather_owner_grants(access, sheet, q.save_advantage_grants)
+    sa_rows.extend(
+        primitives.item_grants_for(access.db, sheet, "grant_save_advantage", access.resolver))
+    expected_sa: set[str] = set()
+    for row in sa_rows:
+        scope = q.save_scope_for(access, row)
+        if scope:
+            expected_sa.add(scope)
+
+    sheet_sa = defenses.get("save_advantages")
+    if not isinstance(sheet_sa, list):
+        sheet_sa = []
+    sheet_sa_set = set(sheet_sa)
+
+    for scope in expected_sa:
+        if scope not in sheet_sa_set:
+            v.append(Violation(DOMAIN, "save-advantage-missing", "incomplete",
+                               f"expected save advantage '{scope}', not on sheet",
+                               "defenses.save_advantages"))
+
+    for scope in sheet_sa_set:
+        if scope not in expected_sa:
+            v.append(Violation(DOMAIN, "save-advantage-ungranted", "illegal",
+                               f"save advantage '{scope}': no grant found",
+                               "defenses.save_advantages"))
+
+    # condition advantages (from grant_condition with advantage effects)
+    expected_ca: dict[str, str] = {}  # condition_id -> effect
+    for row in condition_rows:
+        if row["effect"] in ("advantage_to_avoid_or_end", "advantage_to_end"):
+            key = row["condition_id"]
+            effect = "avoid_or_end" if row["effect"] == "advantage_to_avoid_or_end" else "end"
+            expected_ca[key] = effect
+
+    sheet_ca = defenses.get("condition_advantages")
+    if not isinstance(sheet_ca, list):
+        sheet_ca = []
+    sheet_ca_map: dict[str, str] = {}
+    for entry in sheet_ca:
+        if isinstance(entry, dict):
+            c = entry.get("condition")
+            e = entry.get("effect")
+            if c and e:
+                sheet_ca_map[c] = e
+
+    for cond, effect in expected_ca.items():
+        if cond not in sheet_ca_map:
+            v.append(Violation(DOMAIN, "condition-advantage-missing", "incomplete",
+                               f"expected condition advantage vs {cond}, not on sheet",
+                               "defenses.condition_advantages"))
+        elif sheet_ca_map[cond] != effect:
+            v.append(Violation(DOMAIN, "condition-advantage-effect-mismatch", "illegal",
+                               f"condition advantage vs {cond}: expected '{effect}', got '{sheet_ca_map[cond]}'",
+                               "defenses.condition_advantages"))
+
+    for cond in sheet_ca_map:
+        if cond not in expected_ca:
+            if cond in known_conditions:
+                v.append(Violation(DOMAIN, "condition-advantage-ungranted", "illegal",
+                                   f"condition advantage vs {cond}: no grant found",
+                                   "defenses.condition_advantages"))
+
     return v
