@@ -62,3 +62,18 @@ def variant_damage_type(access: ValidatorAccess, species_id: str, axis: str,
         "SELECT damage_type_id FROM species_variant_option "
         "WHERE species_id=? AND axis=? AND option_name=?",
         species_id, axis, option_name)
+
+
+def save_scope_for(access: ValidatorAccess, row: dict) -> str | None:
+    """Map a grant_save_advantage row to a save_advantages scope string.
+    ability scope -> ability abbreviation. concentration/death_save/spells -> keyword."""
+    if row["scope_kind"] == "ability":
+        abbr = access.db.scalar("SELECT abbrev FROM ability WHERE id=?", row["ability_id"])
+        return abbr
+    if row["scope_kind"] == "concentration":
+        return "concentration"
+    if row["scope_kind"] == "death_save":
+        return "death"
+    if row["scope_kind"] == "spells":
+        return "spells"
+    return None

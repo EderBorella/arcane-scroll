@@ -152,6 +152,13 @@ def item_grants_for(db: RulesDB, sheet: dict, grant_table: str,
             "WHERE LOWER(ci.name) = ?", name.strip().lower())
         if not item_id:
             continue
+        # Attunement check: if item requires attunement, it must be attuned
+        requires = db.scalar(
+            "SELECT requires_attunement FROM magic_item WHERE id=?", item_id)
+        if requires:
+            attune = item.get("attunement")
+            if not isinstance(attune, dict) or attune.get("attuned") is not True:
+                continue
         if item_id not in seen_items:
             seen_items.add(item_id)
             gr = grants_for(db, grant_table, "magic_item", item_id)
