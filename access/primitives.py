@@ -122,11 +122,13 @@ def exists(db: RulesDB, table: str, id_value: str, id_col: str = "id") -> bool:
 def item_grants_for(db: RulesDB, sheet: dict, grant_table: str,
                     resolver) -> list:
     """Grant rows of one table for every magic item the character has equipped or in backpack.
-    Items are resolved by name against the magic_item dimension via the resolver."""
+    Resolves item names by direct catalog_item.name lookup (bypasses the resolver's parenthetical
+    stripping, which would collapse 'Ioun Stone (Protection)' and 'Ioun Stone (Sustenance)')."""
     rows = []
     if grant_table not in GRANT_TABLES:
         raise ValueError(f"unknown grant table: {grant_table!r}")
 
+    seen_items = set()
     items = []
     equipped = sheet.get("equipped")
     if isinstance(equipped, dict):
@@ -138,11 +140,20 @@ def item_grants_for(db: RulesDB, sheet: dict, grant_table: str,
     for item in items:
         if not isinstance(item, dict):
             continue
-        if not item.get("magic"):
+        if item.get("magic") is not True:
             continue
-        item_id = resolver.resolve("magic_item", item.get("name"))
+        name = item.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        # Direct catalog_item lookup (case-insensitive) to avoid _norm collisions
+        item_id = db.scalar(
+            "SELECT mi.id FROM magic_item mi "
+            "JOIN catalog_item ci ON mi.id = ci.id "
+            "WHERE LOWER(ci.name) = ?", name.strip().lower())
         if not item_id:
             continue
-        gr = grants_for(db, grant_table, "magic_item", item_id)
-        rows.extend(gr)
+        if item_id not in seen_items:
+            seen_items.add(item_id)
+            gr = grants_for(db, grant_table, "magic_item", item_id)
+            rows.extend(gr)
     return rows
