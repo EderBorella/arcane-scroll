@@ -83,6 +83,10 @@ def _gather_owner_grants(access, sheet: dict) -> list:
             if fid:
                 rows.extend(q.sense_grants(access, "feat", fid))
 
+    # magic items (equipped + backpack)
+    from access import primitives
+    rows.extend(primitives.item_grants_for(access.db, sheet, "grant_sense", access.resolver))
+
     return rows
 
 
