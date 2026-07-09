@@ -3,25 +3,11 @@
 > **Master state doc (public, high-level).** One source of truth for what we're building, what
 > works, what's decided, and what's next.
 >
-> Last updated: **2026-07-06**. **Recent:** the reference rulebook is now a fully-typed **relational
-> DB** (`rules.db`, built outside this repo) read through a new **data-access layer** (`access/`,
-> F05-S01). The old flat-file **validation micro-service** (F02: `validator/` + regex `build_rules.py`)
-> was **removed** and is being **rebuilt on the data-access layer** (F05-S12): the foundation plus
-> **7 domains** (identity, abilities, saving-throws, vitals, feats, proficiencies, spellcasting) now
-> run through a **resilient orchestrator** with a typed finding/report model; its *principles*
-> (contract-first, book-grounded, independent of the generator) hold unchanged. The
-> contract schema is now **v6**. *(The F02 history below is retained as changelog; treat this note as
-> the current state until that section is reworked.)* Earlier major shift: dropped the fine-tune in
-> favour of a **base model + per-request dynamic grammar** approach (§1, §4).
+> Last updated: **2026-07-09**. **Recent:** Phase A of the 5-schema contract split (F05-T29) + CORE validator (C0) + partial Phase B (B4/B5/B9 — condition_kind on grants, item_slot table, state_compatibility table). 474 passed + 8 xfail.
 
 ---
 
 ## 1. Executive summary (read this first)
-
-**What we're building.** Arcane Scroll is the **AI generation service** behind *Arcane Desk* (the
-RPG web app). You give it a short prompt — *"a high elf wizard, level 5"* or just a name and a
-class — and it returns a **rules-correct character sheet as JSON**, served over HTTP for Arcane
-Desk to render.
 
 **The core architecture decision.** The AI system lives in its **own repo/service** (Python),
 separate from the web app (`arcane-desk`, SvelteKit), talking over a small versioned HTTP API.
@@ -82,19 +68,21 @@ What's left is derivation-side + the service:**
 | Flavour bundle (physical/traits/backstory) | ✅ done (one structured call) |
 | Strict validator + reference data (by-construction, generator-side) | ✅ working |
 | **Reference rulebook DB (`rules.db`) + data-access layer (`access/`)** | ✅ **landed (F05-S01)** — relational DB read via a read-only handle + retrieval primitives + a name→id resolver + per-domain feature-access query modules |
-| **Validation micro-service (independent post-hoc gate)** | 🔄 **rebuilding on `access/`** (F05-S12) — foundation + **7 of ~13 domains** (identity, abilities, saving-throws, vitals, feats, proficiencies, spellcasting) with a resilient orchestrator + typed report; remaining: features, movement, defenses, equipment, items, companions. Contract **v6** |
+| **Validation micro-service (independent post-hoc gate)** | 🔄 **rebuilding on `access/`** (F05-S12) — foundation + **7 of ~13 domains** (identity, abilities, saving-throws, vitals, feats, proficiencies, spellcasting) with a resilient orchestrator + typed report; remaining: features, movement, defenses, equipment, items, companions. Contract split (F05-T29) adds CORE validator (`validate_core`) for 12-domain subset. |
 | **Generation (all model choices)** | ✅ **complete & valid by construction** |
 | **Service stack (Docker: model + app)** | ✅ scaffolded — skeleton serving |
 | **Shared resource catalog (load-time)** | ✅ loaded in memory at startup |
 | **Character sheet generator** | ✅ base contract + feature/feat/equipment choices |
 | **Backstory generator** | ✅ physical + personality + backstory |
 | **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live — `/v1/characters` now returns choices **+ derived sheet** |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ **367 passing + 8 xfail (375 total)** — generator + data-access (`access/`) + the rebuilt validator's 7 domains; xfail = the intended generator-conformance gaps |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ **474 passed + 8 xfail (482 total)** — generator + data-access (`access/`) + validator (7 v10 domains + CORE validator) + state_compatibility access tests (8); xfail = generator-conformance gaps |
 | **Derivation engine (compute side)** | ✅ render-ready sheet + armour-based AC + inventory assembly + **starting treasure**; two-pass next (T42/T46) |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
+
+- **5-schema contract split + partial Phase B (F05-T29).** **Phase A**: single v10 character-sheet contract split into 5 independently versioned schemas (PR #70). **CORE validator (C0)**: validates `core-sheet:1` through path adapter + 12 domain checks via `POST /validate-core`. **Phase B partial**: B4 (condition_kind on 8 grant_* tables), B5 (item_slot dim, 13 slots), B9 (state_compatibility table, 14 rows + access layer with transitive-closure queries). 8 new state_compatibility tests. Suite: 474 passed + 8 xfail.
 
 - **Validator rebuilt on the data-access layer (F05-S12, part 1).** The retired flat-file validator is being rebuilt over `rules.db` through `access/`. Landed: a read-only DB handle + retrieval **primitives** over the uniform *grant spine*, a display-name→id **resolver**, and per-domain **feature-access** query modules; a **resilient orchestrator** that runs every check and aggregates all findings in one pass (a crashed check becomes an `internal` finding that blocks both `legal` and `complete` — never a silent pass); a typed **finding/report** model (`{domain, code, kind∈{illegal,incomplete,internal}, message, path}` → `{legal, complete, violations[], summary}`); and **7 domain checks** — identity, abilities, saving-throws, vitals, feats, proficiencies, spellcasting — each grounded independently in the DB (spellcasting reconciled to the v6 sources/spells shape). Validated by migrating the 168-sheet gold corpus to v6 and running it through the rebuilt validator: every finding was book-checked and triaged into *validator bug* / reference-DB *data gap* / genuine *gold errata*, surfacing and fixing real reference-DB gaps (missing subclass proficiency & saving-throw grants, missing subclass/feat/class sense grants, and a temporary activated choose-one ability modelled as an option scaffold). Validator-side fixes from that pass: level-gated subclass grants, multiclass/feat/subclass skill & save credit, expertise budget across classes, third-caster subclass spell lists, and origin-feat budgeting from the background. Built spec-first with synthetic, content-neutral fixtures. Remaining domains (features, movement, defenses, equipment, items, companions) follow in part 2.
 

@@ -7,6 +7,7 @@ from fastapi import Body, FastAPI
 
 from access.validator import ValidatorAccess
 from validator.validate import validate
+from validator.validate_core import validate_core
 
 _state: dict = {}
 
@@ -27,3 +28,8 @@ async def validate_sheet(sheet: dict = Body(...)) -> dict:
     # RulesDB connection was opened — sqlite3 connections are single-thread-only, and a sync def here
     # would run in Starlette's worker threadpool and raise a cross-thread ProgrammingError.
     return validate(sheet, _state["access"])
+
+
+@app.post("/validate-core")
+async def validate_core_sheet(sheet: dict = Body(...)) -> dict:
+    return validate_core(sheet, _state["access"])
