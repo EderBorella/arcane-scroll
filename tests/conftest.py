@@ -729,6 +729,7 @@ def _build_rules_db(path: str) -> None:
     for blk, bd in blocks:
         cur.execute("INSERT INTO state_compatibility VALUES (?,?,'blocks')", (blk, bd))
 
+<<<<<<< HEAD
     # B3: condition_effect table — representative subset for test coverage
     cur.execute("CREATE TABLE condition_effect ("
                 "id INTEGER PRIMARY KEY, "
@@ -762,6 +763,8 @@ def _build_rules_db(path: str) -> None:
     cur.execute("DROP TABLE grant_spell")
     cur.execute("ALTER TABLE grant_spell_new_t RENAME TO grant_spell")
 
+=======
+>>>>>>> origin/main
     con.commit()
     con.close()
 
