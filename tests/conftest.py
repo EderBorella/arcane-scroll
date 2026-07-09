@@ -604,7 +604,9 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE condition (id TEXT PRIMARY KEY, name TEXT)")
     for did, dname in [("fire","Fire"),("cold","Cold"),("poison","Poison")]:
         cur.execute("INSERT INTO damage_type VALUES (?,?)", (did, dname))
-    for cid, cname in [("charmed","Charmed"),("frightened","Frightened"),("poisoned","Poisoned")]:
+    for cid, cname in [("charmed","Charmed"),("frightened","Frightened"),("poisoned","Poisoned"),
+                        ("blinded","Blinded"),("incapacitated","Incapacitated"),
+                        ("prone","Prone"),("unconscious","Unconscious")]:
         cur.execute("INSERT INTO condition VALUES (?,?)", (cid, cname))
 
     cur.execute("CREATE TABLE grant_resistance (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
@@ -726,6 +728,39 @@ def _build_rules_db(path: str) -> None:
         cur.execute("INSERT INTO state_compatibility VALUES (?,?,'implies')", (blk, bd))
     for blk, bd in blocks:
         cur.execute("INSERT INTO state_compatibility VALUES (?,?,'blocks')", (blk, bd))
+
+    # B3: condition_effect table — representative subset for test coverage
+    cur.execute("CREATE TABLE condition_effect ("
+                "id INTEGER PRIMARY KEY, "
+                "condition_id TEXT NOT NULL REFERENCES condition(id), "
+                "effect_kind TEXT NOT NULL, target_kind TEXT, target_id TEXT, "
+                "modifier TEXT NOT NULL, source_scope TEXT, note TEXT)")
+    test_conditions = [
+        ("blinded", "attack_disadvantage", "attack", None, "disadvantage", "self_vs_others", ""),
+        ("blinded", "attacks_advantage_against", "attack", None, "advantage", "others_vs_self", ""),
+        ("incapacitated", "action_blocked", "action", None, "blocked", "self", ""),
+        ("incapacitated", "reaction_blocked", "reaction", None, "blocked", "self", ""),
+        ("poisoned", "attack_disadvantage", "attack", None, "disadvantage", "self_vs_others", ""),
+        ("unconscious", "attacks_advantage_against", "attack", None, "advantage", "others_vs_self", ""),
+        ("prone", "crawl_only", "movement", None, "crawl_only", "self", ""),
+    ]
+    cur.executemany("INSERT INTO condition_effect (condition_id, effect_kind, target_kind, target_id, modifier, source_scope, note) VALUES (?,?,?,?,?,?,?)", test_conditions)
+
+    # B11: add pact_slot to grant_spell recovery CHECK in test DB
+    # Replace the minimal 4-col grant_spell with one that has the expanded CHECK.
+    cur.execute("""CREATE TABLE grant_spell_new_t (
+        id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, gained_at_level INT,
+        bucket TEXT, recovery TEXT CHECK (recovery IN
+          ('at_will','spell_slot','pact_slot','slotless_per_rest','ritual_only')),
+        condition_kind TEXT, uses_kind TEXT,
+        uses_ability_id TEXT, uses_resource_id TEXT, uses_num INTEGER,
+        recharge_id TEXT, also_slot_castable INTEGER, ability_mode TEXT,
+        ability_id TEXT, choice_group INTEGER, note TEXT
+    )""")
+    cur.execute("INSERT INTO grant_spell_new_t (id, owner_kind, owner_id, gained_at_level) "
+                "SELECT id, owner_kind, owner_id, gained_at_level FROM grant_spell")
+    cur.execute("DROP TABLE grant_spell")
+    cur.execute("ALTER TABLE grant_spell_new_t RENAME TO grant_spell")
 
     con.commit()
     con.close()
