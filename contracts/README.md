@@ -1,59 +1,101 @@
-# Character-sheet contract
+# Arcane Scroll — Contract Schemas
 
-`character-sheet.schema.json` is the **single source of truth** for the shape of a character sheet
-across the Arcane projects — a versioned [JSON Schema (Draft 2020-12)](https://json-schema.org/)
-describing a complete, render-ready sheet.
+The single-source-of-truth contracts for character sheet data across the Arcane projects. Each schema
+is independently versioned via its `$id` URN and uses [JSON Schema Draft 2020-12](https://json-schema.org/).
 
-It is **contract-first**: authored and agreed here, then every consumer is made to conform to it. It
-is hosted in this repo for now, but is deliberately standalone and content-neutral so the validator
-micro-service, the unique-phrase decoder and Arcane Desk can all consume it (copy / submodule /
-generate types from it).
+## The 5-schema split (v1)
 
-## Consumers (dependency direction)
+| Schema | URN | Purpose | When it changes |
+|--------|-----|---------|-----------------|
+| **CORE** | `urn:arcane:contract:core-sheet:1` | Permanent, always-active facts. No live-play counters, no spells, no items. | Level-up, feat choice, species/background choice. |
+| **INVENTORY** | `urn:arcane:contract:inventory:1` | Item records — equipped and carried. Catalog-ref facts + quantity. | Acquire, consume, lose, or trade items. |
+| **GRIMOIRE** | `urn:arcane:contract:grimoire:1` | Spellcasting maximums. Derived from CORE + DB. No remaining counters. | Level-up, learn/scribe spells, subclass unlock. |
+| **MODIFIER** | `urn:arcane:contract:modifier-sheet:1` | Live-play, derived, and conditional state. Counters, effective values, character states. | Every round, every rest, every spell cast, every hit taken. |
+| **COMPANION_MODIFIER** | `urn:arcane:contract:companion-modifier:1` | Companion gameplay stats. Links to CORE companion identity. | Every round for the companion, every rest. |
+
+All 5 schemas share `character_id` (UUID) and `character_name`.
+
+## Derivation flow
 
 ```
-arcane-scroll (generator)  ── produces  ─┐
-validator micro-service    ── checks    ─┼─▶  character-sheet.schema.json
-unique-phrase decoder      ── pre-fills ─┤
-arcane-desk (frontend)     ── renders   ─┘
+CORE ──▶ Core Validator
+  │
+  ├──▶ GRIMOIRE = derive(CORE, DB) ──▶ Grimoire Validator
+  │
+  ├──▶ MODIFIER = derive(CORE, INVENTORY, GRIMOIRE, DB) ──▶ Modifier Validator
+  │
+  └──▶ COMPANION_MODIFIER (after T27 monsters catalog)
 ```
 
-## Design
+INVENTORY is read by the MODIFIER deriver but is player-managed — the deriver never writes to it.
 
-- **Contract-first.** Change the schema here first, bump `schema_version`, then update consumers.
-  Reshape the *generator* to match the contract, not the contract to match today's output
-  (tracked as board `F01-T60`).
-- **Content-neutral.** Structural only. Game vocabulary (ability / skill / class / spell / background
-  / race names) is **catalog-driven** and never hard-coded: those maps use `additionalProperties`
-  keyed by catalog identifiers, so nothing here trips the repo content scan.
-- **Legality vs. flavour.** `flavour` (personality / physical / backstory) is optional, populated by
-  the backstory step, and explicitly **ignored by the validator**. Everything else is mechanical.
-- **Non-casters.** `spellcasting` is `null` for a wholly non-casting character.
+## MODIFIER deriver modes
 
-## Field map (official character sheet → contract block)
+| Mode | Input | Behaviour |
+|------|-------|-----------|
+| **(a) Full derivation** | CORE + INVENTORY + GRIMOIRE | Fill all MODIFIER fields from scratch |
+| **(b) Gap-fill** | Above + partially filled MODIFIER | Fill missing derivable fields, protect non-overwritable fields, then validate |
+| **(c) Validate only** | Above + fully filled MODIFIER | Skip derivation, validate all fields |
 
-| Block | Official sheet section |
-|---|---|
-| `identity` | header (name, class & level, background, race, alignment, XP) |
-| `abilities`, `proficiency_bonus` | ability scores + proficiency bonus |
-| `saving_throws`, `skills`, `passive_scores` | saves, skills, passive scores (incl. perception) |
-| `combat`, `defenses` | AC, initiative, speed, HP, hit dice, death saves; resistances/immunities |
-| `attacks` | attacks & spellcasting (weapon rows) |
-| `proficiencies`, `languages` | other proficiencies & languages |
-| `equipped`, `backpack`, `treasure` | worn/wielded items, carried items, coin |
-| `features` | features & traits |
-| `spellcasting` | the spellcasting page |
-| `flavour` | page-2 details + personality + backstory (out of scope for legality) |
+The **validator ALWAYS runs** — modes (a) and (b) validate after derivation; mode (c) validates the
+pre-filled sheet. Mode (b) overwrites derivable pre-filled values but never touches non-overwritable
+fields.
 
-## Versioning
+## Non-overwritable MODIFIER fields (18 entries)
 
-`schema_version` is a single integer, currently **5**. Bump it on any breaking change; keep old
-versions alongside if a consumer needs to migrate gradually.
+The deriver never overwrites these when pre-filled in mode (b):
 
-## Generating types
+```
+character_states[], hit_points.current, hit_points.temp, death_saves.*,
+hit_dice.*.remaining, spell_slots.*.remaining, pact_slots.*.remaining,
+resource_state.*.remaining, features[].uses.remaining, feats[].uses.remaining,
+item_states[].attuned, item_states[].consumed, item_states[].charges.remaining,
+item_states[].cumulative_seconds_used, prepared_spells, treasure.*, xp
+```
 
-- **Python (Pydantic v2):** `datamodel-code-generator --input character-sheet.schema.json --input-file-type jsonschema --output models.py`
-- **TypeScript:** `json-schema-to-typescript character-sheet.schema.json > CharacterSheet.ts`
+## Design rules
+
+- **Content-neutral.** All 5 schemas are structural only. Game vocabulary (ability/skill/class/spell/
+  species/condition names) is catalog-driven and never hard-coded.
+- **additionalProperties: false** at root of every schema — no field may appear without being defined.
+- **Legacy contracts.** `character-sheet.schema.json` (v10) and `item.schema.json` (v3) remain for
+  backward compatibility during migration (Phase D). They will be removed after migration is complete.
+
+## Legacy field migration
+
+The old v10 `character-sheet.schema.json` single-contract fields split as follows:
+
+| v10 field | New home(s) |
+|-----------|-------------|
+| `identity` (minus `xp`) | CORE |
+| `identity.xp` | MODIFIER (non-overwritable) |
+| `abilities` (base/final) | CORE |
+| `abilities` (modifier/reduction) | MODIFIER |
+| `saving_throws` (proficient) | CORE |
+| `saving_throws` (modifier) | MODIFIER |
+| `skills` (ability/proficient/expertise/source) | CORE |
+| `skills` (modifier) | MODIFIER |
+| `passive_scores` | MODIFIER |
+| `proficiency_bonus` | CORE |
+| `senses` | CORE (`permanent_senses`) + MODIFIER (`effective_senses`) |
+| `defenses` | CORE (`permanent_defenses`) + MODIFIER (`effective_defenses`) |
+| `combat.speed` | CORE (`permanent_speed`) + MODIFIER (`speed` + `speed_detail`) |
+| `combat.armor_class` + `armor_class_detail` | MODIFIER |
+| `combat.initiative` | MODIFIER |
+| `combat.hit_points` | CORE (`max`) + MODIFIER (`current/temp/max_reduction/max_boost`) |
+| `combat.hit_dice` | CORE (`max`) + MODIFIER (`remaining`) |
+| `combat.death_saves` | MODIFIER |
+| `heroic_inspiration`, `conditions`, `exhaustion`, `active_concentration`, `active_effects` | MODIFIER (`character_states[]` — unified) |
+| `equipped`, `backpack` | INVENTORY (catalog-refs) + MODIFIER (`item_states[]` — live-play) |
+| `treasure` | MODIFIER |
+| `attunement` | MODIFIER (`item_states[].attuned`) |
+| `class_resources` | CORE (`resource_budgets`) + MODIFIER (`resource_state`) |
+| `features` | CORE (definition) + MODIFIER (always-appear with `uses`) |
+| `feats` | CORE (definition) + MODIFIER (always-appear with `uses`) |
+| `spellcasting` | GRIMOIRE (max values + spell metadata) + MODIFIER (remaining counters + modifier/DC/attack_bonus) |
+| `companions` | CORE (identity) + COMPANION_MODIFIER (gameplay stats) |
+| `permanent_effects` | CORE |
+| `flavour` | CORE |
 
 ## Validating
 
@@ -62,10 +104,19 @@ Any Draft 2020-12 validator. Example (Python):
 ```python
 import json
 from jsonschema import Draft202012Validator
-schema = json.load(open("contracts/character-sheet.schema.json"))
-Draft202012Validator.check_schema(schema)                 # the schema itself is valid
-Draft202012Validator(schema).validate(my_sheet)           # a sheet conforms
+
+for schema_file in [
+    "core-sheet.schema.json",
+    "inventory.schema.json",
+    "grimoire.schema.json",
+    "modifier-sheet.schema.json",
+    "companion-modifier.schema.json",
+]:
+    schema = json.load(open(f"contracts/{schema_file}"))
+    Draft202012Validator.check_schema(schema)  # verify the schema is valid
 ```
 
-`examples/minimal.sheet.json` is a content-neutral placeholder sheet that validates against the
-schema (used as a smoke test).
+## Generating types
+
+- **Python (Pydantic v2):** `datamodel-code-generator --input <schema>.json --input-file-type jsonschema --output models.py`
+- **TypeScript:** `json-schema-to-typescript <schema>.json > types.ts`

@@ -1,0 +1,289 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:arcane:contract:grimoire:1",
+  "title": "Grimoire",
+  "description": "Spellcasting maximums derived from CORE + DB. Carries only maximum values — no remaining counters. Deterministic: the deriver computes everything from CORE choices; no player decisions beyond what's already in CORE. Content-neutral: catalog-driven.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "character_id",
+    "character_name",
+    "sources",
+    "spells"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "character_id": {
+      "type": "string"
+    },
+    "character_name": {
+      "type": "string"
+    },
+    "derived_from_core": {
+      "type": "string",
+      "description": "Hash of the CORE sheet this grimoire was derived from. Mismatch triggers re-derivation."
+    },
+    "sources": {
+      "description": "Every source granting this character spells, keyed by source identifier. A class, feat, species, or item.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/castingSource"
+      }
+    },
+    "spells": {
+      "description": "The character's spells with full DB metadata. Unique by (name, source).",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/spell"
+      }
+    },
+    "spell_slots": {
+      "description": "Leveled spell slot maximums by spell level. Keys are spell levels as strings '1'..'9'. NO remaining counters.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[1-9]$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["max"],
+        "additionalProperties": false,
+        "properties": {
+          "max": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "pact_slots": {
+      "description": "Pact Magic slot maximums by spell level. NO remaining counters.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[1-9]$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["max"],
+        "additionalProperties": false,
+        "properties": {
+          "max": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "castingSource": {
+      "description": "One source of spells with its own spellcasting ability and budgets. Kind + ability + cantrips_known + prepared_limit. No derived modifier/save_dc/attack_bonus — those live in MODIFIER.",
+      "type": "object",
+      "required": ["kind", "ability", "cantrips_known"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "What the source is: a class, subclass, feat, species, lineage, or item."
+        },
+        "ability": {
+          "type": "string",
+          "description": "Spellcasting ability catalog identifier."
+        },
+        "cantrips_known": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Cantrips this source grants/knows at the current level."
+        },
+        "prepared_limit": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Level-1+ spells this source can prepare (the budget). null for non-preparing casters (e.g. pact-magic casters, feat-granted spells)."
+        },
+        "ability_mode": {
+          "type": ["string", "null"],
+          "description": "How the spellcasting ability was resolved. 'choose' (e.g. species-lineage grants with per-player ability choice), 'increased' (feat-granted spells keyed to the feat's ability increase), or null for fixed-ability sources."
+        }
+      }
+    },
+    "spell": {
+      "description": "One spell the character holds. Three independent axes: source (who grants it), bucket (how it is HELD), and recovery (how it is CAST).",
+      "type": "object",
+      "required": [
+        "name",
+        "level",
+        "source",
+        "bucket",
+        "recovery"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Spell catalog identifier."
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9,
+          "description": "0 = cantrip."
+        },
+        "source": {
+          "type": "string",
+          "description": "Key into sources. Supplies the ability/DC/attack used to cast this spell."
+        },
+        "bucket": {
+          "description": "How the spell is HELD. cantrip = chosen cantrip (counts against cantrips_known). prepared = leveled spell prepared from budget (counts against prepared_limit). always = additive grant (subclass domain/oath spells, feat grants — does NOT count against budget). known = in spellbook but not currently prepared. class_list = added to class spell list as learnable option (subclass expanded-spell-list grants, NOT auto-prepared).",
+          "enum": ["cantrip", "prepared", "always", "known", "class_list"]
+        },
+        "recovery": {
+          "description": "How the spell is CAST. at_will = cantrip. spell_slot = via leveled slot pool. pact_slot = via Pact Magic slots. slotless_per_rest = once/short-or-long with its own use pool. ritual_only = castable only as a ritual.",
+          "enum": ["at_will", "spell_slot", "pact_slot", "slotless_per_rest", "ritual_only"]
+        },
+        "ritual_castable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Can be cast as a ritual (+10 min, no slot) even when bucket='known' and not currently prepared."
+        },
+        "concentration": {
+          "type": "boolean",
+          "default": false
+        },
+        "school": {
+          "type": "string",
+          "description": "School of magic catalog identifier."
+        },
+        "save_ability": {
+          "type": ["string", "null"],
+          "description": "Ability catalog identifier for the saving throw this spell forces, or null."
+        },
+        "attack_kind": {
+          "type": ["string", "null"],
+          "description": "Attack type catalog identifier (melee_spell, ranged_spell), or null."
+        },
+        "components": {
+          "type": "object",
+          "required": ["verbal", "somatic", "material"],
+          "additionalProperties": false,
+          "properties": {
+            "verbal": { "type": "boolean" },
+            "somatic": { "type": "boolean" },
+            "material": { "type": "boolean" },
+            "material_cost_gp": {
+              "type": ["number", "null"],
+              "description": "Cost of consumed or focus material in gp. null = no cost."
+            },
+            "material_consumed": {
+              "type": "boolean",
+              "default": false,
+              "description": "Whether the material component is consumed by the casting."
+            }
+          }
+        },
+        "casting_time": {
+          "type": ["object", "null"],
+          "description": "Structured casting time. null = not yet populated from DB.",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["action", "bonus", "reaction", "minute", "hour"],
+              "description": "The casting-time category."
+            },
+            "value": {
+              "type": ["integer", "null"],
+              "description": "For minute/hour: how many. null for action/bonus/reaction."
+            },
+            "condition": {
+              "type": ["string", "null"],
+              "description": "For reaction: the trigger condition."
+            }
+          }
+        },
+        "range": {
+          "type": ["object", "null"],
+          "description": "Structured range. null = not yet populated from DB.",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["distance", "self", "touch", "sight", "unlimited", "special"],
+              "description": "The range category."
+            },
+            "distance": {
+              "type": ["integer", "null"],
+              "description": "For distance: range in feet. null for non-distance kinds."
+            }
+          }
+        },
+        "duration": {
+          "type": ["object", "null"],
+          "description": "Structured duration. null = not yet populated from DB.",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["instantaneous", "round", "minute", "hour", "day", "until_dispelled", "special"],
+              "description": "The duration category."
+            },
+            "value": {
+              "type": ["integer", "null"],
+              "description": "For round/minute/hour/day: how many. null for instantaneous/until_dispelled/special."
+            },
+            "concentration": {
+              "type": "boolean",
+              "default": false,
+              "description": "Whether this duration requires concentration to maintain."
+            }
+          }
+        },
+        "description": {
+          "type": ["string", "null"],
+          "description": "Prose description for rendering."
+        },
+        "uses": {
+          "$ref": "#/$defs/pool",
+          "description": "For slotless_per_rest spells: the max uses pool. Absent for at-will and slot-cast spells."
+        },
+        "secondary_cast": {
+          "description": "An additional casting avenue for the same (name, source). E.g. a granted spell castable slotless once per rest that is ALSO slot-castable. The limited avenue is primary recovery; the fallback goes here.",
+          "type": ["object", "null"],
+          "required": ["resource"],
+          "additionalProperties": false,
+          "properties": {
+            "resource": {
+              "enum": ["spell_slot", "pact_slot", "slotless_per_rest", "at_will", "ritual_only"]
+            },
+            "uses": {
+              "$ref": "#/$defs/pool"
+            }
+          }
+        }
+      }
+    },
+    "pool": {
+      "description": "A maximum count (no remaining). Used for spell uses budgets and secondary cast pools.",
+      "type": "object",
+      "required": ["max"],
+      "additionalProperties": false,
+      "properties": {
+        "max": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recharge": {
+          "description": "Recharge trigger identifier(s). Single trigger, or a list when more than one applies (e.g. short OR long rest).",
+          "oneOf": [
+            { "type": ["string", "null"] },
+            { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+          ]
+        }
+      }
+    }
+  }
+}
