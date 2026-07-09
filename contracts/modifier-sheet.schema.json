@@ -1,0 +1,699 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:arcane:contract:modifier-sheet:1",
+  "title": "ModifierSheet",
+  "description": "Live-play, derived, and conditional character state. The 'scratch paper' tracked during a session. Deriver has 3 modes: (a) fill from scratch, (b) fill gaps + protect non-overwritable fields, (c) skip derivation + validate only. The validator ALWAYS runs regardless of mode. All fields below marked 'non-overwritable' are NEVER touched by the deriver when pre-filled. Content-neutral: catalog-driven.",
+  "$comment": "NON-OVERWRITABLE FIELDS (deriver never touches when pre-filled in mode b): character_states[], hit_points.current, hit_points.temp, death_saves.*, hit_dice.*.remaining, spell_slots.*.remaining, pact_slots.*.remaining, resource_state.*.remaining, features[].uses.remaining, feats[].uses.remaining, item_states[].attuned, item_states[].consumed, item_states[].charges.remaining, item_states[].cumulative_seconds_used, prepared_spells, treasure.*, xp. All other fields are overwritten with computed values.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "character_id",
+    "character_name",
+    "xp",
+    "treasure",
+    "hit_points",
+    "death_saves",
+    "hit_dice",
+    "spell_slots",
+    "pact_slots",
+    "resource_state",
+    "abilities",
+    "saving_throws",
+    "skills",
+    "passive_scores",
+    "effective_senses",
+    "effective_defenses",
+    "effective_size",
+    "effective_abilities",
+    "armor_class",
+    "initiative",
+    "speed",
+    "character_states",
+    "item_states",
+    "features",
+    "feats",
+    "prepared_spells"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "character_id": {
+      "type": "string"
+    },
+    "character_name": {
+      "type": "string"
+    },
+    "derived_from_core": {
+      "type": ["string", "null"],
+      "description": "Hash of the CORE sheet this modifier was derived from. Null when hand-built."
+    },
+    "derived_from_grimoire": {
+      "type": ["string", "null"],
+      "description": "Hash of the GRIMOIRE sheet this modifier was derived from. Null when hand-built."
+    },
+    "xp": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Experience points. NON-OVERWRITABLE. Set at generation time only; the deriver never touches a pre-filled value."
+    },
+    "treasure": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pp": { "type": "integer", "minimum": 0, "default": 0 },
+        "gp": { "type": "integer", "minimum": 0, "default": 0 },
+        "ep": { "type": "integer", "minimum": 0, "default": 0 },
+        "sp": { "type": "integer", "minimum": 0, "default": 0 },
+        "cp": { "type": "integer", "minimum": 0, "default": 0 }
+      },
+      "description": "Coin purse. NON-OVERWRITABLE. Absent denomination = 0."
+    },
+    "hit_points": {
+      "type": "object",
+      "required": ["current", "temp", "max_reduction", "max_boost"],
+      "additionalProperties": false,
+      "properties": {
+        "current": {
+          "type": "integer",
+          "description": "Current HP. NON-OVERWRITABLE."
+        },
+        "temp": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Temporary HP. NON-OVERWRITABLE."
+        },
+        "max_reduction": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Temporary reduction to max HP (effective max = CORE.hit_points.max + max_boost - max_reduction). Derivable from active states (curse, drain)."
+        },
+        "max_boost": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Temporary increase to max HP (e.g. Aid spell). Derivable from active states."
+        }
+      }
+    },
+    "death_saves": {
+      "type": "object",
+      "required": ["successes", "failures"],
+      "additionalProperties": false,
+      "properties": {
+        "successes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3,
+          "default": 0,
+          "description": "NON-OVERWRITABLE."
+        },
+        "failures": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3,
+          "default": 0,
+          "description": "NON-OVERWRITABLE."
+        }
+      }
+    },
+    "hit_dice": {
+      "description": "Remaining hit dice by die size. Keys like 'd8', 'd10'. NON-OVERWRITABLE (per die). Max values live in CORE.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^d\\d+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["remaining"],
+        "additionalProperties": false,
+        "properties": {
+          "remaining": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "spell_slots": {
+      "description": "Remaining leveled spell slots by level. NON-OVERWRITABLE. Max values live in GRIMOIRE.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[1-9]$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["remaining"],
+        "additionalProperties": false,
+        "properties": {
+          "remaining": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "pact_slots": {
+      "description": "Remaining Pact Magic slots by level. NON-OVERWRITABLE. Max values live in GRIMOIRE.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[1-9]$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["remaining"],
+        "additionalProperties": false,
+        "properties": {
+          "remaining": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "resource_state": {
+      "description": "Per-resource expendable counters (class resources, feature uses, feat uses, slotless-per-rest spell uses). Key identifies the resource. max and recharge are derivable (from CORE resource_budgets + DB). remaining is NON-OVERWRITABLE.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["max", "remaining"],
+        "additionalProperties": false,
+        "properties": {
+          "max": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "description": "Max uses. null = unlimited. Derivable from CORE resource_budgets."
+          },
+          "remaining": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "description": "Remaining uses. NON-OVERWRITABLE. null when max is null (unlimited)."
+          },
+          "recharge": {
+            "description": "Recharge trigger(s). Derivable from CORE resource_budgets + DB.",
+            "oneOf": [
+              { "type": ["string", "null"] },
+              { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+            ]
+          },
+          "recharge_amount": {
+            "type": ["integer", "string", "null"],
+            "description": "How much is regained on recharge. Derivable from CORE resource_budgets + DB."
+          }
+        }
+      }
+    },
+    "abilities": {
+      "description": "Derived ability modifiers and temporary reductions. Final scores and base values live in CORE.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["modifier", "reduction"],
+        "additionalProperties": false,
+        "properties": {
+          "modifier": {
+            "type": "integer",
+            "description": "Derived: floor((effective_score - 10) / 2) where effective_score = CORE.final - reduction."
+          },
+          "reduction": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0,
+            "description": "Temporary reduction to the score. Effective score = CORE.final - reduction."
+          }
+        }
+      }
+    },
+    "saving_throws": {
+      "description": "Derived saving throw modifiers. Proficiency lives in CORE.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["modifier"],
+        "additionalProperties": false,
+        "properties": {
+          "modifier": {
+            "type": "integer",
+            "description": "Derived: ability_modifier + (proficient ? PB : 0) + any bonuses."
+          }
+        }
+      }
+    },
+    "skills": {
+      "description": "Derived skill modifiers. Proficiency + expertise + ability live in CORE.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["modifier"],
+        "additionalProperties": false,
+        "properties": {
+          "modifier": {
+            "type": "integer",
+            "description": "Derived: ability_modifier + proficiency (x1 or x2 for expertise) + any bonuses."
+          }
+        }
+      }
+    },
+    "passive_scores": {
+      "description": "Derived passive scores. Keyed by skill identifier -> value (10 + skill_modifier + situational bonuses). At minimum includes perception.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "effective_senses": {
+      "description": "Current special senses including temporary grants (spells, active effects). Merges CORE.permanent_senses with active-effect grants. Key = sense catalog ID -> range in feet.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "effective_defenses": {
+      "description": "Current defences including temporary grants. Merges CORE.permanent_defenses with active-effect grants (e.g. Protection from Energy -> resistance).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resistances": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "immunities": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "vulnerabilities": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "condition_immunities": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "save_advantages": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "condition_advantages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["condition", "effect"],
+            "additionalProperties": false,
+            "properties": {
+              "condition": { "type": "string" },
+              "effect": { "type": "string", "enum": ["avoid_or_end", "end"] }
+            }
+          }
+        }
+      }
+    },
+    "effective_size": {
+      "type": "string",
+      "description": "Current size catalog identifier. May differ from CORE.identity.size due to size-changing effects, shape-change features, or transformation states."
+    },
+    "effective_abilities": {
+      "description": "Current effective ability scores after set-item effects. Key = ability catalog ID -> score. The deriver computes: max(CORE.final - reduction, set_effect_value).",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 30
+      }
+    },
+    "armor_class": {
+      "type": "integer",
+      "description": "Current effective AC."
+    },
+    "armor_class_detail": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": ["string", "null"],
+          "description": "Catalog identifier for the AC formula in use (worn armour, unarmoured-defence feature, spell)."
+        },
+        "base": {
+          "type": "integer",
+          "description": "Flat base before Dexterity contribution and bonuses."
+        },
+        "dex_bonus": {
+          "type": "integer",
+          "description": "Dexterity contribution actually applied (after any armour cap)."
+        },
+        "bonuses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["value", "source"],
+            "additionalProperties": false,
+            "properties": {
+              "value": { "type": "integer" },
+              "source": { "type": "string" }
+            }
+          }
+        },
+        "floor": {
+          "type": ["integer", "null"],
+          "description": "AC floor (e.g. AC-floor effect: AC becomes X if lower). null = no floor."
+        }
+      }
+    },
+    "initiative": {
+      "type": "integer",
+      "description": "Initiative modifier added to the d20 (Dex modifier + bonuses)."
+    },
+    "speed": {
+      "description": "Effective current movement speeds. Key = mode catalog ID -> feet. Includes conditional bonuses (spell-granted speed modifiers, class-feature speed bonuses).",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "speed_detail": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "base": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Base walking speed before modifiers."
+        },
+        "base_source": {
+          "type": ["string", "null"],
+          "description": "What grants the base walking speed."
+        },
+        "base_mode": {
+          "type": ["string", "null"],
+          "description": "The speed-map mode identifier that base applies to."
+        },
+        "modifiers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["mode", "source"],
+            "additionalProperties": false,
+            "oneOf": [
+              { "required": ["value"] },
+              { "required": ["relative"] }
+            ],
+            "properties": {
+              "mode": { "type": "string" },
+              "source": { "type": "string" },
+              "value": { "type": "integer" },
+              "relative": {
+                "type": "object",
+                "required": ["of"],
+                "additionalProperties": false,
+                "properties": {
+                  "of": { "type": "string" },
+                  "factor": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "default": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "attacks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "attack_bonus": {
+            "type": ["string", "integer", "null"]
+          },
+          "damage": {
+            "type": ["string", "null"]
+          },
+          "damage_type": {
+            "type": ["string", "null"]
+          },
+          "weapon_mastery": {
+            "type": ["string", "null"]
+          },
+          "properties": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "character_states": {
+      "description": "Unified state tracker. Replaces the old top-level conditions, exhaustion, heroic_inspiration, active_concentration, and active_effects. NON-OVERWRITABLE — the deriver never assigns or modifies states. Empty array [] for a fresh unmodified character.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/characterState"
+      }
+    },
+    "item_states": {
+      "description": "Live-play state for each INVENTORY item. Linked by inventory_ref. Tracks grip, attunement, charges, consumable state, and evaluated conditional grants.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/itemState"
+      }
+    },
+    "features": {
+      "description": "ALL CORE features always appear here, matched by name. Those without limited uses carry max: null, remaining: null.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/featureModifier"
+      }
+    },
+    "feats": {
+      "description": "ALL CORE feats always appear here, matched by name. Those without limited uses carry max: null, remaining: null.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/featModifier"
+      }
+    },
+    "prepared_spells": {
+      "description": "For spellbook casters: which GRIMOIRE spells with bucket='known' are currently prepared. Each entry is a (name, source) composite key. Absent/empty for non-spellbook casters. NON-OVERWRITABLE — deriver never fills, only validates.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "characterState": {
+      "description": "One active state affecting the character. Every state is a catalog ID. source_type discriminates by origin.",
+      "type": "object",
+      "required": ["state", "source", "source_type"],
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "type": "string",
+          "description": "State catalog ID. References a state from the catalog: conditions (blinded, charmed, etc.), class-feature states, spell-effect states, action states (Dodge, Hide, Ready), or item-powered states. The set of valid state identifiers is catalog-defined, not enumerated here."
+        },
+        "source": {
+          "type": "string",
+          "description": "What caused this state: a spell name, feature name, item name, or 'environment'."
+        },
+        "source_type": {
+          "type": "string",
+          "enum": ["feature", "spell", "feat", "item", "condition", "effect", "action", "species", "class_resource"],
+          "description": "The type of source that produced this state."
+        },
+        "duration": {
+          "type": ["string", "null"],
+          "description": "Remaining duration. E.g. '1 minute', '10 minutes', 'until long rest', 'concentration', 'permanent'. Null if indefinite."
+        },
+        "level": {
+          "type": ["integer", "null"],
+          "description": "For leveled states (exhaustion level 3). Null for binary states."
+        },
+        "detail": {
+          "type": "object",
+          "description": "State-specific context. E.g. concentrating: {on: spell_id}, shape-changed: {into: creature_id}, hidden: {stealth_check: 23}."
+        }
+      }
+    },
+    "itemState": {
+      "description": "Live-play state for one INVENTORY item. References the item by its sheet-local id. NON-OVERWRITABLE fields: attuned, consumed, charges.remaining, cumulative_seconds_used.",
+      "type": "object",
+      "required": ["inventory_ref"],
+      "additionalProperties": false,
+      "properties": {
+        "inventory_ref": {
+          "type": "string",
+          "description": "References an INVENTORY item by its unique id."
+        },
+        "grip": {
+          "type": ["string", "null"],
+          "description": "For weapons: '1h' or '2h'. Derivable from slot assignments + weapon properties. Null for non-weapons."
+        },
+        "attuned": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the item is currently attuned. NON-OVERWRITABLE."
+        },
+        "charges": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Max charges. Derivable from INVENTORY + DB."
+            },
+            "remaining": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Charges remaining. NON-OVERWRITABLE."
+            }
+          }
+        },
+        "consumed": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the item has been consumed (potion drunk, scroll used). NON-OVERWRITABLE."
+        },
+        "cumulative_seconds_used": {
+          "type": ["integer", "null"],
+          "description": "Cumulative seconds this item has been active. For items with per-day time limits (Boots of Speed: 600s/day). NON-OVERWRITABLE."
+        },
+        "evaluated_grants": {
+          "type": "array",
+          "description": "Evaluated conditional grants for this item. Recalculated by the deriver from CORE grant_* rows x MODIFIER gates. Output of gate evaluation — not protected.",
+          "items": {
+            "type": "object",
+            "required": ["grant_ref", "active"],
+            "additionalProperties": false,
+            "properties": {
+              "grant_ref": {
+                "type": "string",
+                "description": "References a grant_* row in the DB."
+              },
+              "active": {
+                "type": "boolean",
+                "description": "Whether all gates for this grant are met."
+              },
+              "gates": {
+                "type": "array",
+                "description": "Per-gate evaluation results for inspectability.",
+                "items": {
+                  "type": "object",
+                  "required": ["type", "met"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": ["attunement", "equipped", "environment", "condition"],
+                      "description": "The kind of gate being checked."
+                    },
+                    "met": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "featureModifier": {
+      "description": "MODIFIER entry for a CORE feature. Always present, matched by name. Uses is derivable (max + recharge from DB) with remaining NON-OVERWRITABLE.",
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Feature catalog identifier. Matches CORE.features[].name."
+        },
+        "uses": {
+          "type": "object",
+          "required": ["max", "remaining"],
+          "additionalProperties": false,
+          "properties": {
+            "max": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "description": "Max uses. null = unlimited (no expendable pool). Derivable from DB."
+            },
+            "remaining": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "description": "Remaining uses. NON-OVERWRITABLE. null when max is null (unlimited)."
+            },
+            "recharge": {
+              "description": "Recharge trigger(s). Derivable from DB.",
+              "oneOf": [
+                { "type": ["string", "null"] },
+                { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+              ]
+            },
+            "recharge_amount": {
+              "type": ["integer", "string", "null"],
+              "description": "How much is regained on recharge. Derivable from DB."
+            }
+          }
+        }
+      }
+    },
+    "featModifier": {
+      "description": "MODIFIER entry for a CORE feat. Always present, matched by name. Uses is derivable (max + recharge from DB) with remaining NON-OVERWRITABLE.",
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Feat catalog identifier. Matches CORE.feats[].name."
+        },
+        "uses": {
+          "type": "object",
+          "required": ["max", "remaining"],
+          "additionalProperties": false,
+          "properties": {
+            "max": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "description": "Max uses. null = unlimited (no expendable pool). Derivable from DB."
+            },
+            "remaining": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "description": "Remaining uses. NON-OVERWRITABLE. null when max is null (unlimited)."
+            },
+            "recharge": {
+              "description": "Recharge trigger(s). Derivable from DB.",
+              "oneOf": [
+                { "type": ["string", "null"] },
+                { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+              ]
+            },
+            "recharge_amount": {
+              "type": ["integer", "string", "null"],
+              "description": "How much is regained on recharge. Derivable from DB."
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:arcane:contract:inventory:1",
+  "title": "Inventory",
+  "description": "Standalone item records — equipped and carried. Items carry catalog-ref facts + quantity + charges.max (reference only). Live-play state (attunement, grip, charges.remaining, ammunition, effects) lives in MODIFIER. Content-neutral: catalog-driven.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "character_id",
+    "character_name",
+    "equipped",
+    "backpack"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "character_id": {
+      "type": "string"
+    },
+    "character_name": {
+      "type": "string"
+    },
+    "derived_from_core": {
+      "type": ["string", "null"],
+      "description": "Hash of the CORE sheet this inventory was derived from. Null when hand-built."
+    },
+    "equipped": {
+      "description": "Items currently worn/wielded, keyed by body-slot identifier (catalog). Slot vocabulary is catalog-driven, not enumerated here.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/inventoryItem"
+      }
+    },
+    "backpack": {
+      "description": "Carried-but-not-equipped items — mundane and magic — with quantity. Includes slotless items (Ioun Stones: backpack + MODIFIER attunement).",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/inventoryItem"
+      }
+    }
+  },
+  "$defs": {
+    "inventoryItem": {
+      "description": "A self-describing item with a sheet-local unique id. Minimum: id + name + category. The DB catalog fills in missing properties. Excludes attunement, grip, ammunition, charges.remaining, effects — those live in MODIFIER item_states[].",
+      "type": "object",
+      "required": ["id", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Sheet-local unique identifier for this item. All consumers reference items by this id."
+        },
+        "name": {
+          "type": "string",
+          "description": "Item catalog identifier."
+        },
+        "category": {
+          "type": ["string", "null"],
+          "description": "Item category (weapon, armor, shield, gear, potion, scroll, wondrous, etc.)."
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "How many the character holds. Used for ammunition stacks, torches, potions."
+        },
+        "weight": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "description": {
+          "type": ["string", "null"]
+        },
+        "magic": {
+          "type": "boolean",
+          "default": false
+        },
+        "rarity": {
+          "type": ["string", "null"]
+        },
+        "properties": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Item/weapon property identifiers (two-handed, versatile, light, finesse, etc.)."
+        },
+        "damage_dice": {
+          "type": ["string", "null"],
+          "description": "Weapon: base damage dice, e.g. '1d8'."
+        },
+        "versatile_damage": {
+          "type": ["string", "null"],
+          "description": "Weapon: damage dice when wielded two-handed, e.g. '1d10'."
+        },
+        "damage_type": {
+          "type": ["string", "null"],
+          "description": "Weapon: damage type catalog identifier."
+        },
+        "mastery": {
+          "type": ["string", "null"],
+          "description": "Weapon: mastery property catalog identifier."
+        },
+        "range": {
+          "type": ["string", "null"],
+          "description": "Weapon: range string, e.g. '30/120'."
+        },
+        "armor_category": {
+          "type": ["string", "null"],
+          "description": "Armour: category (light, medium, heavy)."
+        },
+        "base_ac": {
+          "type": ["integer", "null"],
+          "description": "Armour: base AC before Dexterity modifier."
+        },
+        "dex_cap": {
+          "type": ["integer", "null"],
+          "description": "Armour: max Dex bonus to AC. null = uncapped (light). 0 = heavy armour adds no Dexterity."
+        },
+        "stealth_disadvantage": {
+          "type": "boolean",
+          "default": false,
+          "description": "Armour: imposes Disadvantage on Stealth."
+        },
+        "strength_req": {
+          "type": ["integer", "null"],
+          "description": "Armour: minimum Strength to wear."
+        },
+        "ac_bonus": {
+          "type": ["integer", "null"],
+          "description": "Shield or AC-granting item: bonus to AC."
+        },
+        "spell_id": {
+          "type": ["string", "null"],
+          "description": "For spell scrolls: the spell catalog identifier on this scroll."
+        },
+        "template_item": {
+          "type": ["string", "null"],
+          "description": "For templated items (+1 Weapon): the template catalog identifier (e.g. 'weapon-1')."
+        },
+        "base_item": {
+          "type": ["string", "null"],
+          "description": "For templated items: the base item catalog identifier."
+        },
+        "charges": {
+          "description": "Maximum charges for reference only. Remaining lives in MODIFIER item_states[].",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum charges this item holds (e.g. Wand of Magic Missiles = 7). Reference only — the deriver reads this when populating MODIFIER item_states[]."
+            }
+          }
+        }
+      }
+    }
+  }
+}

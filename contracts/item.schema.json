@@ -2,6 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:arcane:contract:item:3",
   "title": "Item",
+  "deprecated": true,
+  "$comment": "DEPRECATED. Superseded by the 5-schema split — INVENTORY gets catalog-ref fields (inventory:1), MODIFIER gets live-play state (item_states[] in modifier-sheet:1). Retained for transition; TODO: remove after Phase D migration.",
   "description": "A self-describing item \u2014 a superset of every property an item MIGHT have. Only `name` is required; a torch has no damage dice, a sword has no AC, so most fields are simply absent. The same contract is used for equipped items (by slot on the sheet) and for backpack lines (with a quantity). Content-neutral: item/category/property/type names are catalog-driven, never enumerated here. Magic-item effects are deliberately NOT modelled yet \u2014 they will slot in later via a new `effects` field without restructuring.",
   "type": "object",
   "required": [

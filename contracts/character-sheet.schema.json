@@ -2,6 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:arcane:contract:character-sheet:10",
   "title": "CharacterSheet",
+  "deprecated": true,
+  "$comment": "DEPRECATED. Superseded by the 5-schema split (core-sheet:1, inventory:1, grimoire:1, modifier-sheet:1, companion-modifier:1). Retained for transition; TODO: remove after Phase D migration.",
   "description": "Canonical, versioned contract for a complete character sheet. Contract-first: this document is the source of truth; the generator, validator and decoder are made to conform to it. Structural only \u2014 game vocabulary (ability/skill/class/species/spell/background/resource/condition names) is catalog-driven and never hard-coded here, so this file is content-neutral.",
   "type": "object",
   "required": [
