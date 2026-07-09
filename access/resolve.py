@@ -15,6 +15,7 @@ _DIMS = {
     "catalog_item", "class_feature", "subclass_feature", "class_option", "class_resource", "creature",
     "weapon_tier",
     "detail_option", "hazard", "mastery_property", "magic_item", "power", "species_trait",
+    "item_slot", "state",
 }
 
 

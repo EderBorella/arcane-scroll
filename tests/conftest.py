@@ -318,11 +318,11 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE point_buy_cost (score INT PRIMARY KEY, cost INT)")
     cur.execute("CREATE TABLE rules_constant (id TEXT PRIMARY KEY, value_int INTEGER, note TEXT)")
     cur.execute("CREATE TABLE grant_ability_increase (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
-                "gained_at_level INT, points INT, max_per_ability INT, cap INT, from_any INT)")
+                "gained_at_level INT, points INT, max_per_ability INT, cap INT, from_any INT, condition_kind TEXT)")
     cur.execute("CREATE TABLE grant_ability_set (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
-                "gained_at_level INT, ability_id TEXT, score INT, mode TEXT)")
+                "gained_at_level INT, ability_id TEXT, score INT, mode TEXT, condition_kind TEXT)")
     cur.execute("CREATE TABLE grant_hp (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
-                "gained_at_level INT, flat INT, per_level INT)")
+                "gained_at_level INT, flat INT, per_level INT, condition_kind TEXT)")
     cur.execute("INSERT INTO class VALUES ('class-a','Class A',8,3,'full','all',2,0,'')")
     cur.execute("INSERT INTO class VALUES ('class-b','Class B',10,3,'none','any',2,0,'')")
     cur.execute("INSERT INTO subclass VALUES ('sub-a','class-a','Sub A',1,'')")
@@ -354,7 +354,7 @@ def _build_rules_db(path: str) -> None:
         cur.execute("INSERT INTO point_buy_cost VALUES (?,?)", (score, cost))
     cur.execute("INSERT INTO rules_constant VALUES ('point-buy-budget',27,'')")
     cur.execute("INSERT INTO grant_ability_increase VALUES "
-                "('gai-asi','feat','ability-score-improvement',NULL,2,2,20,1)")
+                "('gai-asi','feat','ability-score-improvement',NULL,2,2,20,1,NULL)")
 
     # proficiencies domain: skills catalog + class/background skill pools + skill/expertise grants
     cur.execute("CREATE TABLE skill (id TEXT PRIMARY KEY, name TEXT, ability_id TEXT)")
@@ -362,7 +362,7 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE background_skill (background_id TEXT, skill_id TEXT)")
     cur.execute("CREATE TABLE grant_proficiency (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
                 "gained_at_level INT, target_kind TEXT, mode TEXT, from_any INT, choose_n INT, "
-                "multiclass_only INT)")
+                "multiclass_only INT, condition_kind TEXT)")
     cur.execute("CREATE TABLE grant_proficiency_value (grant_id TEXT, target_id TEXT)")
     # children_of() fans out over the whole grant_proficiency child list (access/primitives.py's
     # GRANT_TABLES); these two are unused by the skills fixture but must exist for the query.
@@ -380,12 +380,12 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO background_skill VALUES ('bg-a','sk4')")
     # species-a grants a fixed skill proficiency (sk5) -- exercises grant-sourced skills
     cur.execute("INSERT INTO grant_proficiency VALUES "
-                "('gp-species-a-skill','species','species-a',NULL,'skill','fixed',0,NULL,0)")
+                "('gp-species-a-skill','species','species-a',NULL,'skill','fixed',0,NULL,0,NULL)")
     cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-species-a-skill','sk5')")
     # class-b grants a reduced multiclass-only skill (sk6) -- what a secondary (non-first) class
     # confers, per grant_proficiency.multiclass_only=1
     cur.execute("INSERT INTO grant_proficiency VALUES "
-                "('gp-class-b-multiclass-skill','class','class-b',NULL,'skill','fixed',0,NULL,1)")
+                "('gp-class-b-multiclass-skill','class','class-b',NULL,'skill','fixed',0,NULL,1,NULL)")
     cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-class-b-multiclass-skill','sk6')")
     # class-r (a rogue-analogue secondary class): its multiclass-only skill grant is CHOOSE-mode
     # with choose_n=1 and NO explicit value pool -- mirrors the real DB fact for rogue's multiclass
@@ -397,12 +397,12 @@ def _build_rules_db(path: str) -> None:
     # budget cost, not the pool-resolution mechanism (out of scope for this fix).
     cur.execute("INSERT INTO class VALUES ('class-r','Class R',8,3,'none','all',4,0,'')")
     cur.execute("INSERT INTO grant_proficiency VALUES "
-                "('gp-class-r-multiclass-skill','class','class-r',NULL,'skill','choose',0,1,1)")
+                "('gp-class-r-multiclass-skill','class','class-r',NULL,'skill','choose',0,1,1,NULL)")
     # sub-skills (class-a's subclass): a College-of-Lore-style grant -- choose 3 skills of your
     # choice (mode='choose', from_any=1, choose_n=3, no restricted value pool) via the
     # owner_kind='subclass' proficiency grant spine -- the subclass-skill-grant fix's fixture.
     cur.execute("INSERT INTO grant_proficiency VALUES "
-                "('gp-subclass-skills','subclass','sub-skills',NULL,'skill','choose',1,3,0)")
+                "('gp-subclass-skills','subclass','sub-skills',NULL,'skill','choose',1,3,0,NULL)")
     # class-a grants 1 expertise pick at level 1, from already-proficient skills (unrestricted pool)
     cur.execute("INSERT INTO grant_expertise VALUES "
                 "('gex-a','class','class-a',1,1,'choose_from_proficient',NULL)")
@@ -466,19 +466,19 @@ def _build_rules_db(path: str) -> None:
     # feat-save (e.g. Resilient) grants saving-throw proficiency in ability a3 via the proficiency
     # grant spine (target_kind='saving_throw') -- the saving-throws domain's feat-granted-save fix
     cur.execute("INSERT INTO grant_proficiency VALUES "
-                "('gp-featsave','feat','feat-save',NULL,'saving_throw','fixed',0,NULL,0)")
+                "('gp-featsave','feat','feat-save',NULL,'saving_throw','fixed',0,NULL,0,NULL)")
     cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-featsave','a3')")
     # sub-save (class-a's subclass) grants saving-throw proficiency in a3 (like Gloom Stalker's
     # Wisdom save) via the same proficiency grant spine, owner_kind='subclass' -- the
     # subclass-granted-save fix's fixture.
     cur.execute("INSERT INTO grant_proficiency VALUES "
-                "('gp-subclass-save','subclass','sub-save',NULL,'saving_throw','fixed',0,NULL,0)")
+                "('gp-subclass-save','subclass','sub-save',NULL,'saving_throw','fixed',0,NULL,0,NULL)")
     cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-subclass-save','a3')")
     # sub-save-late grants the same a3 save proficiency, but only from class level 7 onward
     # (gained_at_level=7) -- the gained_at_level gating fix's fixture (Gloom Stalker's Wisdom
     # save is a real DB fact granted at level 7, not level 1).
     cur.execute("INSERT INTO grant_proficiency VALUES "
-                "('gp-subclass-save-late','subclass','sub-save-late',7,'saving_throw','fixed',0,NULL,0)")
+                "('gp-subclass-save-late','subclass','sub-save-late',7,'saving_throw','fixed',0,NULL,0,NULL)")
     cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-subclass-save-late','a3')")
     # feat-pre needs total_level>=4 (group 1) AND ability a1>=13 (group 2) -- AND across groups,
     # OR within a group (single row per group here, so each group's one row must hold)
@@ -499,17 +499,18 @@ def _build_rules_db(path: str) -> None:
         cur.execute("INSERT INTO movement_mode VALUES (?,?,0)", (mid, mname))
     cur.execute("CREATE TABLE grant_speed (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
                 "gained_at_level INTEGER, movement_mode_id TEXT, feet INTEGER, "
-                "equals_walk INTEGER DEFAULT 0, sets_total INTEGER DEFAULT 0, additive INTEGER DEFAULT 0, note TEXT)")
+                "equals_walk INTEGER DEFAULT 0, sets_total INTEGER DEFAULT 0, additive INTEGER DEFAULT 0, "
+                "note TEXT, condition_kind TEXT)")
     cur.execute("INSERT INTO grant_speed VALUES "
-                "('gsd-feat','feat','feat-gen',NULL,'walk',10,0,0,1,NULL)")
+                "('gsd-feat','feat','feat-gen',NULL,'walk',10,0,0,1,NULL,NULL)")
     cur.execute("INSERT INTO grant_speed VALUES "
-                "('gsd-sub-swim','subclass','sub-a',3,'swim',NULL,1,0,0,NULL)")
+                "('gsd-sub-swim','subclass','sub-a',3,'swim',NULL,1,0,0,NULL,NULL)")
     cur.execute("INSERT INTO grant_speed VALUES "
-                "('gsd-feat-fly','feat','feat-rep',NULL,'fly',NULL,1,0,0,NULL)")
+                "('gsd-feat-fly','feat','feat-rep',NULL,'fly',NULL,1,0,0,NULL,NULL)")
 
     cur.execute("INSERT INTO feat VALUES ('feat-over','Feat Over','general',0)")
     cur.execute("INSERT INTO grant_speed VALUES "
-                "('gsd-feat-over','feat','feat-over',NULL,'climb',20,0,1,0,NULL)")
+                "('gsd-feat-over','feat','feat-over',NULL,'climb',20,0,1,0,NULL,NULL)")
 
     cur.execute("CREATE TABLE class_resource (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, name TEXT)")
     cur.execute("CREATE TABLE class_resource_level (resource_id TEXT, level INTEGER, count INTEGER, "
@@ -582,21 +583,21 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE sense (id TEXT PRIMARY KEY, name TEXT, description TEXT)")
     cur.execute("CREATE TABLE grant_sense (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
                 "gained_at_level INTEGER, sense_id TEXT, range_ft INTEGER, "
-                "extends_existing INTEGER NOT NULL DEFAULT 0, note TEXT)")
+                "extends_existing INTEGER NOT NULL DEFAULT 0, note TEXT, condition_kind TEXT)")
     for sid, sname in [("darkvision", "Darkvision"), ("blindsight", "Blindsight")]:
         cur.execute("INSERT INTO sense VALUES (?,?,?)", (sid, sname, ""))
     # species-a grants darkvision 60 (non-extending base)
     cur.execute("INSERT INTO grant_sense VALUES "
-                "('gs-species-a','species','species-a',NULL,'darkvision',60,0,NULL)")
+                "('gs-species-a','species','species-a',NULL,'darkvision',60,0,NULL,NULL)")
     # subclass sub-a grants darkvision 120 (also non-extending — should be max, not sum)
     cur.execute("INSERT INTO grant_sense VALUES "
-                "('gs-sub-a','subclass','sub-a',3,'darkvision',120,0,NULL)")
+                "('gs-sub-a','subclass','sub-a',3,'darkvision',120,0,NULL,NULL)")
     # a feat that extends existing darkvision by 30
     cur.execute("INSERT INTO grant_sense VALUES "
-                "('gs-feat-extend','feat','feat-gen',NULL,'darkvision',30,1,'if you already have it')")
+                "('gs-feat-extend','feat','feat-gen',NULL,'darkvision',30,1,'if you already have it',NULL)")
     # a feat that grants blindsight 10
     cur.execute("INSERT INTO grant_sense VALUES "
-                "('gs-feat-blind','feat','feat-rep',NULL,'blindsight',10,0,NULL)")
+                "('gs-feat-blind','feat','feat-rep',NULL,'blindsight',10,0,NULL,NULL)")
 
     # defenses domain: damage types, conditions, resistance/condition/save-advantage grants
     cur.execute("CREATE TABLE damage_type (id TEXT PRIMARY KEY, name TEXT)")
@@ -609,7 +610,8 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE grant_resistance (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
                 "gained_at_level INTEGER, damage_type_id TEXT, variant_axis TEXT, "
                 "mode TEXT NOT NULL DEFAULT 'fixed', choose_n INTEGER NOT NULL DEFAULT 1, "
-                "rechoose TEXT, source_filter TEXT, via_aura INTEGER NOT NULL DEFAULT 0)")
+                "rechoose TEXT, source_filter TEXT, via_aura INTEGER NOT NULL DEFAULT 0, "
+                "condition_kind TEXT)")
     cur.execute("CREATE TABLE grant_resistance_option (grant_id TEXT, damage_type_id TEXT)")
 
     cur.execute("CREATE TABLE grant_condition (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
@@ -617,14 +619,15 @@ def _build_rules_db(path: str) -> None:
                 "via_aura INTEGER NOT NULL DEFAULT 0)")
 
     cur.execute("CREATE TABLE grant_save_advantage (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
-                "gained_at_level INTEGER, scope_kind TEXT, ability_id TEXT, note TEXT)")
+                "gained_at_level INTEGER, scope_kind TEXT, ability_id TEXT, note TEXT, "
+                "condition_kind TEXT)")
 
     # species-a grants poison resistance
     cur.execute("INSERT INTO grant_resistance VALUES "
-                "('gre-species-a','species','species-a',NULL,'poison',NULL,'fixed',1,NULL,NULL,0)")
+                "('gre-species-a','species','species-a',NULL,'poison',NULL,'fixed',1,NULL,NULL,0,NULL)")
     # feat-gen grants fire resistance
     cur.execute("INSERT INTO grant_resistance VALUES "
-                "('gre-feat-gen','feat','feat-gen',NULL,'fire',NULL,'fixed',1,NULL,NULL,0)")
+                "('gre-feat-gen','feat','feat-gen',NULL,'fire',NULL,'fixed',1,NULL,NULL,0,NULL)")
     # sub-a at L3 grants charmed immunity
     cur.execute("INSERT INTO grant_condition VALUES "
                 "('gcn-sub-a','subclass','sub-a',3,'charmed','immunity',0)")
@@ -671,6 +674,58 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT OR IGNORE INTO weapon VALUES ('handaxe','simple','melee',1,6,NULL,'slashing','vex')")
     cur.execute("INSERT OR IGNORE INTO weapon VALUES ('club','simple','melee',1,4,NULL,'bludgeoning','slow')")
     cur.execute("INSERT OR IGNORE INTO weapon VALUES ('net','martial','ranged',NULL,NULL,NULL,NULL,NULL)")
+
+    # B5: item_slot dimension table — all body slots for equipping items
+    cur.execute("CREATE TABLE item_slot (id TEXT PRIMARY KEY, name TEXT)")
+    for sid, sname in [
+        ("armor", "Armor"), ("shield", "Shield"),
+        ("main_hand", "Main Hand"), ("off_hand", "Off Hand"),
+        ("finger_1", "Finger 1"), ("finger_2", "Finger 2"),
+        ("head", "Head"), ("neck", "Neck"), ("back", "Back"),
+        ("waist", "Waist"), ("hands", "Hands"), ("wrists", "Wrists"),
+        ("feet", "Feet"),
+    ]:
+        cur.execute("INSERT INTO item_slot VALUES (?,?)", (sid, sname))
+
+    # B9: state dimension table + state_compatibility junction table
+    cur.execute("CREATE TABLE state (id TEXT PRIMARY KEY, name TEXT)")
+    state_ids = [
+        # 15 conditions from the condition table
+        "blinded", "charmed", "deafened", "exhausted", "frightened",
+        "grappled", "incapacitated", "invisible", "paralyzed", "petrified",
+        "poisoned", "prone", "restrained", "stunned", "unconscious",
+        # NEW states beyond conditions (T29 § "15 conditions + NEW states")
+        "raging", "wild_shaped", "starry_form", "hasted", "blessed",
+        "polymorphed", "enlarged", "reduced", "hidden", "dodging",
+        "readying", "concentrating", "inspired", "stabilized",
+        "boots_of_speed_active", "shield_of_faith",
+    ]
+    for sid in state_ids:
+        cur.execute("INSERT INTO state VALUES (?,?)", (sid, sid.title().replace("_", " ")))
+
+    cur.execute("CREATE TABLE state_compatibility ("
+                "blocking_state_id TEXT NOT NULL REFERENCES state(id), "
+                "blocked_state_id TEXT NOT NULL REFERENCES state(id), "
+                "kind TEXT NOT NULL CHECK(kind IN ('blocks', 'implies')), "
+                "PRIMARY KEY (blocking_state_id, blocked_state_id, kind))")
+    # 14 rows per T29 (5 implies + 9 blocks)
+    implies = [
+        ("unconscious", "incapacitated"), ("unconscious", "prone"),
+        ("petrified", "incapacitated"), ("paralyzed", "incapacitated"),
+        ("stunned", "incapacitated"),
+    ]
+    blocks = [
+        ("incapacitated", "raging"), ("incapacitated", "concentrating"),
+        ("incapacitated", "dodging"), ("incapacitated", "readying"),
+        ("incapacitated", "wild_shaped"),
+        ("raging", "concentrating"),
+        ("petrified", "poisoned"),
+        ("polymorphed", "raging"), ("polymorphed", "wild_shaped"),
+    ]
+    for blk, bd in implies:
+        cur.execute("INSERT INTO state_compatibility VALUES (?,?,'implies')", (blk, bd))
+    for blk, bd in blocks:
+        cur.execute("INSERT INTO state_compatibility VALUES (?,?,'blocks')", (blk, bd))
 
     con.commit()
     con.close()
