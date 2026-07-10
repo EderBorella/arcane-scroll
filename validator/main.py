@@ -8,6 +8,7 @@ from fastapi import Body, FastAPI
 from access.validator import ValidatorAccess
 from validator.validate import validate
 from validator.validate_core import validate_core
+from validator.validate_grimoire import validate_grimoire
 
 _state: dict = {}
 
@@ -33,3 +34,8 @@ async def validate_sheet(sheet: dict = Body(...)) -> dict:
 @app.post("/validate-core")
 async def validate_core_sheet(sheet: dict = Body(...)) -> dict:
     return validate_core(sheet, _state["access"])
+
+
+@app.post("/validate-grimoire")
+async def validate_grimoire_sheet(body: dict = Body(...)) -> dict:
+    return validate_grimoire(body["core"], body["grimoire"], _state["access"])
