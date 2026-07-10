@@ -729,7 +729,6 @@ def _build_rules_db(path: str) -> None:
     for blk, bd in blocks:
         cur.execute("INSERT INTO state_compatibility VALUES (?,?,'blocks')", (blk, bd))
 
-<<<<<<< HEAD
     # B3: condition_effect table — representative subset for test coverage
     cur.execute("CREATE TABLE condition_effect ("
                 "id INTEGER PRIMARY KEY, "
@@ -763,8 +762,37 @@ def _build_rules_db(path: str) -> None:
     cur.execute("DROP TABLE grant_spell")
     cur.execute("ALTER TABLE grant_spell_new_t RENAME TO grant_spell")
 
-=======
->>>>>>> origin/main
+    # B1: representative spell_effect tables for MODIFIER deriver tests
+    cur.execute("""CREATE TABLE spell_effect_ac (
+        id INTEGER PRIMARY KEY, spell_id TEXT,
+        modifier_kind TEXT, value INTEGER, die_count INTEGER,
+        die_faces INTEGER, ability_id TEXT, scope_note TEXT)""")
+    cur.execute("INSERT INTO spell_effect_ac VALUES (1,'sp3','bonus',2,NULL,NULL,NULL,'test')")
+
+    cur.execute("""CREATE TABLE spell_effect_d20 (
+        id INTEGER PRIMARY KEY, spell_id TEXT,
+        target_kind TEXT, ability_id TEXT, modifier_kind TEXT,
+        die_count INTEGER, die_faces INTEGER, value INTEGER,
+        source_scope TEXT, scope_note TEXT)""")
+    cur.execute("INSERT INTO spell_effect_d20 VALUES (1,'sp3','attack',NULL,'bonus_dice',1,4,NULL,'self_vs_others','test')")
+
+    cur.execute("""CREATE TABLE spell_effect_resistance (
+        id INTEGER PRIMARY KEY, spell_id TEXT,
+        damage_type_id TEXT, effect_kind TEXT, choose INTEGER, scope_note TEXT)""")
+    cur.execute("INSERT INTO spell_effect_resistance VALUES (1,'sp3','fire','resistance',0,'test')")
+
+    cur.execute("""CREATE TABLE d20_modifier (
+        id TEXT PRIMARY KEY, name TEXT,
+        kind TEXT CHECK(kind IN ('advantage','disadvantage')))""")
+    cur.execute("INSERT INTO d20_modifier VALUES ('advantage','Advantage','advantage')")
+    cur.execute("INSERT INTO d20_modifier VALUES ('disadvantage','Disadvantage','disadvantage')")
+
+    # grant_bonus.source_name column
+    try:
+        cur.execute("ALTER TABLE grant_bonus ADD COLUMN source_name TEXT")
+    except sqlite3.OperationalError:
+        pass
+
     con.commit()
     con.close()
 
