@@ -628,7 +628,7 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE grant_resistance_option (grant_id TEXT, damage_type_id TEXT)")
 
     cur.execute("CREATE TABLE grant_condition (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
-                "gained_at_level INTEGER, condition_id TEXT, effect TEXT, "
+                "gained_at_level INTEGER, condition_kind TEXT, condition_id TEXT, effect TEXT, "
                 "via_aura INTEGER NOT NULL DEFAULT 0)")
 
     cur.execute("CREATE TABLE grant_save_advantage (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
@@ -643,7 +643,7 @@ def _build_rules_db(path: str) -> None:
                 "('gre-feat-gen','feat','feat-gen',NULL,'fire',NULL,'fixed',1,NULL,NULL,0,NULL)")
     # sub-a at L3 grants charmed immunity
     cur.execute("INSERT INTO grant_condition VALUES "
-                "('gcn-sub-a','subclass','sub-a',3,'charmed','immunity',0)")
+                "('gcn-sub-a','subclass','sub-a',3,NULL,'charmed','immunity',0)")
 
     # features domain: subclass_feature, species_trait, detail_option + additional class_feature rows
     # (class_feature table already exists from the feats domain section above)
@@ -752,6 +752,51 @@ def _build_rules_db(path: str) -> None:
                 "book_class TEXT, family TEXT, subtype TEXT)")
     for icid, ickind in [("weapon","gear"),("scroll","gear"),("armor","gear"),("shield","gear")]:
         cur.execute("INSERT INTO item_category (id,kind) VALUES (?,?)", (icid, ickind))
+
+    # T36a: derivation-engine infrastructure tables
+    cur.execute("CREATE TABLE grant_bonus (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
+                "gained_at_level INT, condition_kind TEXT, target_kind TEXT, target_id TEXT, value INT, "
+                "die_count INT, die_faces INT, damage_type_id TEXT, scope_note TEXT, source_name TEXT)")
+    # AC bonus from feat, initiative bonus, save bonus from subclass, AC from spell, save from spell
+    for gbid, okind, oid, tkind, val, sn in [
+        ("gb-ac-feat","feat","feat-gen","ac",1,"feat-gen"),
+        ("gb-init-feat","feat","feat-gen","initiative_bonus",2,"feat-gen"),
+        ("gb-save-sub","subclass","sub-a","saving_throw",1,"sub-a"),
+        ("gb-ac-spell","spell","sp1","ac",2,"shield-of-faith"),
+        ("gb-save-spell","spell","sp2","saving_throw",None,"bless"),
+        ("gb-ac-spell2","spell","sp1","ac",1,"shield-of-faith"),
+        ("gb-wpn-atk","spell","sp3","weapon_attack",1,"magic-weapon"),
+        ("gb-wpn-dmg","spell","sp3","weapon_damage",1,"magic-weapon"),
+    ]:
+        cur.execute("INSERT INTO grant_bonus (id,owner_kind,owner_id,target_kind,value,source_name) "
+                    "VALUES (?,?,?,?,?,?)", (gbid, okind, oid, tkind, val, sn))
+
+    cur.execute("CREATE TABLE grant_d20_modifier (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "owner_kind TEXT, owner_id TEXT, target_kind TEXT, ability_id TEXT, modifier_id TEXT, "
+                "source_name TEXT, scope_note TEXT)")
+    cur.execute("INSERT INTO grant_d20_modifier (owner_kind,owner_id,target_kind,modifier_id,source_name) "
+                "VALUES ('feat','feat-gen','initiative','advantage','feat-gen')")
+
+    cur.execute("CREATE TABLE armor (id TEXT PRIMARY KEY REFERENCES catalog_item(id), "
+                "category_id TEXT, base_ac INT, dex_cap INT, ac_bonus INT, strength_req INT, "
+                "stealth_disadvantage INT DEFAULT 0)")
+    cur.execute("INSERT INTO catalog_item VALUES ('chain-mail-armor','Chain Mail','armor','armor')")
+    cur.execute("INSERT INTO armor VALUES ('chain-mail-armor','heavy',16,0,NULL,13,1)")
+    cur.execute("INSERT INTO catalog_item VALUES ('leather-armor-item','Leather Armor','armor','armor')")
+    cur.execute("INSERT INTO armor VALUES ('leather-armor-item','light',11,NULL,NULL,NULL,0)")
+    cur.execute("INSERT INTO catalog_item VALUES ('shield-item','Shield','armor','shield')")
+    cur.execute("INSERT INTO armor VALUES ('shield-item','shield',NULL,NULL,2,NULL,0)")
+
+    cur.execute("CREATE TABLE ac_formula (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
+                "gained_at_level INT, base INT DEFAULT 10, allows_shield INT)")
+    cur.execute("INSERT INTO ac_formula VALUES ('acf-a','class','class-a',NULL,10,0)")
+    cur.execute("CREATE TABLE ac_formula_ability (formula_id TEXT, ability_id TEXT)")
+    cur.execute("INSERT INTO ac_formula_ability VALUES ('acf-a','a2')")
+
+    cur.execute("CREATE TABLE grant_resource (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
+                "gained_at_level INT, name TEXT, uses_kind TEXT, uses_num INT, uses_ability_id TEXT)")
+    cur.execute("INSERT INTO grant_resource VALUES ('gr-a1','class','class-a',NULL,'Class Resource A',"
+                "'per_long_rest',2,NULL)")
 
     # B9: state dimension table + state_compatibility junction table
     cur.execute("CREATE TABLE state (id TEXT PRIMARY KEY, name TEXT)")
