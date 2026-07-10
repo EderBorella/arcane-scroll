@@ -17,3 +17,7 @@ env/
 # Local-only working files
 CLAUDE.md
 /AGENTS.md
+
+# OpenCode config
+.opencode/
+opencode.json
