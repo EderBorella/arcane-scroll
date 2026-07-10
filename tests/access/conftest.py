@@ -14,6 +14,7 @@ _HEADERS = {
     "grant_ability_set": "ability_id TEXT, score INTEGER, mode TEXT",
     "grant_bonus": "target_kind TEXT, target_id TEXT, value INTEGER",
     "grant_condition": "condition_id TEXT, effect TEXT",
+    "grant_d20_modifier": "target_kind TEXT, ability_id TEXT, modifier_id TEXT, source_name TEXT, scope_note TEXT",
     "grant_expertise": "choose_n INTEGER, mode TEXT",
     "grant_feat": "choose_n INTEGER, from_category TEXT",
     "grant_hp": "flat INTEGER, per_level INTEGER",
