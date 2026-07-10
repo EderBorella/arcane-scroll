@@ -573,7 +573,7 @@
         },
         "cumulative_seconds_used": {
           "type": ["integer", "null"],
-          "description": "Cumulative seconds this item has been active. For items with per-day time limits (Boots of Speed: 600s/day). NON-OVERWRITABLE."
+          "description": "Cumulative seconds this item has been active. For items with per-day time limits (e.g., speed-enhancing footwear: 600s/day). NON-OVERWRITABLE."
         },
         "evaluated_grants": {
           "type": "array",
