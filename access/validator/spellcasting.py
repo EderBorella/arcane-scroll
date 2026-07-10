@@ -67,15 +67,16 @@ def spell_on_class_list(access: ValidatorAccess, spell_id: str, class_id: str) -
         "SELECT 1 FROM spell_class WHERE spell_id=? AND class_id=?", spell_id, class_id) is not None
 
 
-def list_widening_classes(access: ValidatorAccess, class_id: str, at_level: int) -> list[str]:
-    """Class ids whose spell list is ADDITIONALLY legal for `class_id` at `at_level`, via a
-    Magical-Secrets-style grant: a grant_spell row (owner_kind='class', owner_id=class_id) gained at
-    or below `at_level`, that carries a grant_spell_choice with from_kind='class_list' -- the
-    widened list ids live in that grant's grant_spell_choice_value.value_id rows. DB fact: Bard's
-    Magical Secrets (row l10-gsp-0010) is a grant_spell(class, bard, gained_at_level=10) +
-    grant_spell_choice(from_kind='class_list') widening to {bard, cleric, druid, wizard}."""
+def list_widening_classes(access: ValidatorAccess, owner_kind: str, owner_id: str,
+                         at_level: int | None = None) -> list[str]:
+    """Class ids whose spell list is ADDITIONALLY legal for an owner at `at_level`, via a
+    Magical-Secrets-style grant: a grant_spell row gained at or below `at_level` that carries a
+    grant_spell_choice with from_kind='class_list' -- the widened list ids live in that grant's
+    grant_spell_choice_value.value_id rows. DB fact: Bard's Magical Secrets (row l10-gsp-0010) is a
+    grant_spell(class, bard, gained_at_level=10) + grant_spell_choice(from_kind='class_list')
+    widening to {bard, cleric, druid, wizard}."""
     widened: set[str] = set()
-    for header in primitives.grants_for(access.db, "grant_spell", "class", class_id, at_level):
+    for header in primitives.grants_for(access.db, "grant_spell", owner_kind, owner_id, at_level):
         children = primitives.children_of(access.db, "grant_spell", header["id"])
         choices = children.get("grant_spell_choice", [])
         if not any(c["from_kind"] == "class_list" for c in choices):
@@ -94,3 +95,28 @@ def granted_spell_ids(access: ValidatorAccess, owner_kind: str, owner_id: str) -
         for row in children.get("grant_spell_fixed", []):
             ids.add(row["spell_id"])
     return ids
+
+
+def class_list_spell_choices(access: ValidatorAccess, owner_kind: str,
+                             owner_id: str) -> list[dict]:
+    """Return class_list-choice grants for an owner.
+
+    Each result: {class_list_ids: [str], spell_level_min: int|None, spell_level_max: int|None,
+                  choose_n: int|None}
+    """
+    results: list[dict] = []
+    for header in primitives.grants_for(access.db, "grant_spell", owner_kind, owner_id):
+        children = primitives.children_of(access.db, "grant_spell", header["id"])
+        for ch in children.get("grant_spell_choice", []):
+            if ch["from_kind"] != "class_list":
+                continue
+            value_ids = [r["value_id"] for r in children.get("grant_spell_choice_value", [])]
+            if not value_ids:
+                continue
+            results.append({
+                "class_list_ids": value_ids,
+                "spell_level_min": ch["spell_level_min"],
+                "spell_level_max": ch["spell_level_max"],
+                "choose_n": ch["choose_n"],
+            })
+    return results

@@ -283,3 +283,52 @@ def test_non_widened_class_off_list_non_granted_spell_is_still_illegal(access):
     # pre-existing off-list case explicitly against the widening change.)
     spells = _clean_spells() + [{"name": "Sp4", "level": 1, "bucket": "prepared", "source": "Class A"}]
     assert "spell-not-on-list" in _codes(_sheet(spells=spells, species=None), access)
+
+
+# ── T34: list_widening_classes generalization tests ──────────────────────────
+
+from access.validator import spellcasting as q
+
+
+def test_list_widening_subclass(access):
+    result = q.list_widening_classes(access, "subclass", "sub-widen")
+    assert "class-b" in result
+
+
+def test_list_widening_at_level(access):
+    below = q.list_widening_classes(access, "class", "class-a", at_level=3)
+    assert len(below) == 0
+    at = q.list_widening_classes(access, "class", "class-a", at_level=10)
+    assert "class-b" in at
+
+
+def test_list_widening_class_detail(access):
+    result = q.list_widening_classes(access, "class_detail", "detail-widen")
+    assert "class-b" in result
+
+
+def test_list_widening_class_option(access):
+    result = q.list_widening_classes(access, "class_option", "class-opt-widen")
+    assert "class-b" in result
+
+
+def test_class_detail_widening_in_list_check(access):
+    sources = {"Class A": {"kind": "class", "ability": "Ability 1", "modifier": 2}}
+    classes = [{"class": "Class A", "level": 3, "class_detail": "Detail A"}]
+    spells = [{"name": "Sp5", "level": 1, "bucket": "cantrip", "source": "Class A"}]
+    sheet = _sheet(sources=sources, spells=spells, spell_slots={}, classes=classes, species=None)
+    assert "spell-not-on-list" not in _codes(sheet, access)
+
+
+def test_class_option_widening_in_list_check(access):
+    sources = {"Class A": {"kind": "class", "ability": "Ability 1", "modifier": 2}}
+    classes = [{"class": "Class A", "level": 3}]
+    spells = [{"name": "Sp5", "level": 1, "bucket": "cantrip", "source": "Class A"}]
+    sheet = _sheet(sources=sources, spells=spells, spell_slots={}, classes=classes, species=None)
+    sheet["features"] = [{"name": "Class Opt A"}]
+    assert "spell-not-on-list" not in _codes(sheet, access)
+
+    features = sheet.get("features", [])
+    fname = features[0].get("name") if isinstance(features[0], dict) else features[0]
+    oid = access.resolve("class_option", fname)
+    assert oid is not None

@@ -171,6 +171,34 @@ class TestDeriveSpells:
         pairs = [(s["name"], s.get("source")) for s in g2]
         assert len(pairs) == len(set(pairs))
 
+    def test_preserve_class_list_bucket(self, access):
+        core = _core_sheet()
+        sources = derive_sources(core, access)
+        g1 = derive_spells(core, None, sources, access)
+        g1.append({
+            "name": "Sp1", "level": 0, "source": "class:class-a",
+            "bucket": "class_list", "recovery": "pact_slot",
+            "ritual_castable": False, "concentration": False,
+        })
+        g1_dict = {"spells": g1}
+        g2 = derive_spells(core, g1_dict, sources, access)
+        class_list_spells = [s for s in g2 if s.get("bucket") == "class_list" and s.get("source") == "class:class-a"]
+        assert len(class_list_spells) >= 1
+
+    def test_drop_class_list_bucket_without_source(self, access):
+        core = _core_sheet()
+        sources = derive_sources(core, access)
+        g1 = derive_spells(core, None, sources, access)
+        g1.append({
+            "name": "Sp1", "level": 1, "source": "class:nonexistent",
+            "bucket": "class_list", "recovery": "pact_slot",
+            "ritual_castable": False, "concentration": False,
+        })
+        g1_dict = {"spells": g1}
+        g2 = derive_spells(core, g1_dict, sources, access)
+        class_list_spells = [s for s in g2 if s.get("bucket") == "class_list" and s.get("source") == "class:nonexistent"]
+        assert len(class_list_spells) == 0
+
 
 class TestDeriveGrimoire:
     def test_full_derivation(self, access):

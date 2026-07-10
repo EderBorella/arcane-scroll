@@ -346,7 +346,7 @@ def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access)
         for ps in prev_spells:
             src = ps.get("source")
             # Only carry forward non-deterministic spells
-            if ps.get("bucket") in ("cantrip", "prepared", "known"):
+            if ps.get("bucket") in ("cantrip", "prepared", "known", "class_list"):
                 # Check if source still exists
                 if src not in sources:
                     continue

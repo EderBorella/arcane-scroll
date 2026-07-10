@@ -519,6 +519,14 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO class_resource_level VALUES ('unarmored-movement',2,NULL,NULL,NULL,10)")
     cur.execute("INSERT INTO class_resource_level VALUES ('unarmored-movement',6,NULL,NULL,NULL,15)")
 
+    # recharge_cadence — referenced by grant_spell.recharge_id (e.g. short-rest)
+    cur.execute("CREATE TABLE recharge_cadence (id TEXT PRIMARY KEY, name TEXT)")
+
+    # class_option — needed for grant_spell owner_kind='class_option' (Pact of the Tome analog)
+    cur.execute("CREATE TABLE class_option (id TEXT PRIMARY KEY, catalog TEXT, owner_kind TEXT, "
+                "owner_id TEXT, name TEXT, resource_kind TEXT, resource_id TEXT, resource_cost INTEGER, "
+                "repeatable INTEGER DEFAULT 0, description TEXT)")
+
     # spellcasting domain: slot tables (single-class/multiclass/pact), cantrip+prepared counts,
     # third-caster subclass slots, spell catalog + class-list membership, and the always-granted
     # spell spine (grant_spell -> grant_spell_fixed; grant_spell_choice(_value) unused here but must
@@ -534,7 +542,10 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE spell_class (spell_id TEXT, class_id TEXT)")
     cur.execute("CREATE TABLE grant_spell (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, gained_at_level INT)")
     cur.execute("CREATE TABLE grant_spell_fixed (grant_id TEXT, spell_id TEXT)")
-    cur.execute("CREATE TABLE grant_spell_choice (grant_id TEXT, choose_n INT, from_kind TEXT)")
+    cur.execute("CREATE TABLE grant_spell_choice (grant_id TEXT, choose_n INT, "
+                "choose_n_kind TEXT DEFAULT 'int', from_kind TEXT, "
+                "spell_level_min INT, spell_level_max INT, class_list_id TEXT, "
+                "recurrence TEXT DEFAULT 'once')")
     cur.execute("CREATE TABLE grant_spell_choice_value (grant_id TEXT, value_id TEXT)")
 
     # class-a (already 'full') L3: 2 cantrips known, 3 prepared; slots {1:4, 2:2}
@@ -575,7 +586,7 @@ def _build_rules_db(path: str) -> None:
     # wizard}. Here it widens class-a's legal list to include class-b's list once the character has
     # reached level 10 in class-a, so a prepared sp5 (class-b only) becomes legal from that level on.
     cur.execute("INSERT INTO grant_spell VALUES ('gsp-classa-widen','class','class-a',10)")
-    cur.execute("INSERT INTO grant_spell_choice VALUES ('gsp-classa-widen',NULL,'class_list')")
+    cur.execute("INSERT INTO grant_spell_choice (grant_id,choose_n,from_kind) VALUES ('gsp-classa-widen',NULL,'class_list')")
     cur.execute("INSERT INTO grant_spell_choice_value VALUES ('gsp-classa-widen','class-a')")
     cur.execute("INSERT INTO grant_spell_choice_value VALUES ('gsp-classa-widen','class-b')")
 
@@ -761,6 +772,49 @@ def _build_rules_db(path: str) -> None:
                 "SELECT id, owner_kind, owner_id, gained_at_level FROM grant_spell")
     cur.execute("DROP TABLE grant_spell")
     cur.execute("ALTER TABLE grant_spell_new_t RENAME TO grant_spell")
+
+    # ── T34 isolated test data: new entities + grant rows (IDs NOT referenced by existing tests) ──
+
+    cur.execute("INSERT INTO recharge_cadence VALUES ('short-rest','Short Rest')")
+
+    cur.execute("INSERT INTO subclass VALUES ('sub-widen','class-a','Sub Widen',0,'')")
+
+    cur.execute("INSERT INTO species VALUES ('species-slotless','Species Slotless','type-a',30,'')")
+
+    cur.execute("INSERT INTO detail_option VALUES ('detail-widen','class','class-a','axis-test','Detail A',NULL)")
+
+    cur.execute("INSERT INTO class_option VALUES ('class-opt-widen','test-catalog','class','class-a',"
+                "'Class Opt A',NULL,NULL,NULL,0,'')")
+
+    cur.execute("INSERT INTO spell VALUES ('sp1-ritual','Sp1 Ritual',1,1)")
+
+    # subclass grant_spell with class_list choice (Magical Secrets analog on a subclass)
+    cur.execute("INSERT INTO grant_spell (id,owner_kind,owner_id,bucket,recovery) "
+                "VALUES ('gsp-sub-list','subclass','sub-widen','always','spell_slot')")
+    cur.execute("INSERT INTO grant_spell_choice (grant_id,from_kind) VALUES ('gsp-sub-list','class_list')")
+    cur.execute("INSERT INTO grant_spell_choice_value VALUES ('gsp-sub-list','class-b')")
+
+    # ritual-only spell grant on same subclass
+    cur.execute("INSERT INTO grant_spell (id,owner_kind,owner_id,bucket,recovery) "
+                "VALUES ('gsp-ritual','subclass','sub-widen','always','ritual_only')")
+    cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-ritual','sp1-ritual')")
+
+    # slotless-per-rest grant with uses on species-slotless
+    cur.execute("INSERT INTO grant_spell (id,owner_kind,owner_id,bucket,recovery,uses_num,recharge_id) "
+                "VALUES ('gsp-slotless','species','species-slotless','always','slotless_per_rest',3,'short-rest')")
+    cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-slotless','sp2')")
+
+    # class_detail grant_spell with class_list choice (Thaumaturge analog)
+    cur.execute("INSERT INTO grant_spell (id,owner_kind,owner_id,bucket,recovery) "
+                "VALUES ('gsp-cls-det','class_detail','detail-widen','cantrip','at_will')")
+    cur.execute("INSERT INTO grant_spell_choice (grant_id,from_kind) VALUES ('gsp-cls-det','class_list')")
+    cur.execute("INSERT INTO grant_spell_choice_value VALUES ('gsp-cls-det','class-b')")
+
+    # class_option grant_spell with class_list choice (Pact of the Tome analog)
+    cur.execute("INSERT INTO grant_spell (id,owner_kind,owner_id,bucket,recovery) "
+                "VALUES ('gsp-cls-opt','class_option','class-opt-widen','cantrip','at_will')")
+    cur.execute("INSERT INTO grant_spell_choice (grant_id,from_kind) VALUES ('gsp-cls-opt','class_list')")
+    cur.execute("INSERT INTO grant_spell_choice_value VALUES ('gsp-cls-opt','class-b')")
 
     con.commit()
     con.close()

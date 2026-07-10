@@ -1,22 +1,20 @@
-"""Spellcasting domain (V6 contract shape): per-source DC/attack math, class-source budget
-truthfulness (a class source may not claim more than the class grants), spell counts vs. each
-source's own declared budget, leveled/pact slot tables, spell-list membership, and (name, source)
-uniqueness. OUT of scope for this cluster (deferred, see F05-T20): recovery<->bucket coupling and
-ritual-castability.
+"""Grimoire domain (grimoire:1 shape): validates a merged CORE+GRIMOIRE dict against the DB.
+Ports the 11 violations from spellcasting.py (adapted paths) and adds 5 new grimoire-specific
+violations for a total of 16.
 
-Contract: `spellcasting` is `None` (no findings) or `{sources: {<id>: castingSource}, spell_slots?,
-pact_slots?, spells: [{name, level, bucket, source, ...}]}`. `castingSource` carries its OWN
-`modifier` (no ability-score lookup needed here) plus `save_dc`/`attack_bonus` and optional
-`cantrips_known`/`prepared_limit` budgets. Combined caster level (multiclass rule): full classes
-contribute their level, half classes contribute `(level+1)//2` (round up), third-caster subclasses
-contribute `level//3` (round down). Pact magic is always a separate slot pool. Slot comparisons
-check `max` only (`remaining` is play state, not a legality one). Cantrip/prepared counts are
-ceilings -- being under is fine, a sheet may be mid-build. Every expectation is derived from the DB;
-malformed sheet data becomes a structured finding (or is silently skipped) rather than a raise."""
+The check reads top-level keys ``sources``, ``spells``, ``spell_slots``, ``pact_slots`` (merged by
+the adapter) and CORE fields ``identity``, ``feats``, ``proficiency_bonus``. Violation paths point
+directly into the grimoire:1 shape (e.g. ``sources.class-a.save_dc``, ``spells[3]``).
+
+Source-key format: ``{kind}:{db_id}`` (e.g. ``class:wizard``)."""
 from access.validator import spellcasting as q
 from validator.report import Violation
 
-DOMAIN = "spellcasting"
+DOMAIN = "grimoire"
+
+VALID_OWNER_KINDS = {"class", "subclass", "feat", "species", "lineage"}
+VALID_RECOVERY = {"at_will", "spell_slot", "pact_slot", "slotless_per_rest", "ritual_only"}
+VALID_SECONDARY_RESOURCES = {"spell_slot", "slotless_per_rest"}
 
 
 def _int(x) -> bool:
@@ -44,10 +42,16 @@ def _level_for_class(classes: list, cid: str, access) -> int | None:
     return None
 
 
+def _subclass_for_class(classes: list, cid: str, access) -> str | None:
+    for c in classes:
+        if not isinstance(c, dict):
+            continue
+        if access.resolve("class", c.get("class")) == cid:
+            return c.get("subclass")
+    return None
+
+
 def _classify_casters(classes: list, access) -> tuple[list[dict], tuple[str, int] | None]:
-    """(leveled, pact) -- `leveled` is [{"kind": "class"|"third", "cid"|"sid", "level", "prog"}, ...]
-    for full/half classes and third-caster subclasses; `pact` is (class_id, level) for a pact class,
-    or None. Unresolvable/malformed entries contribute nothing (never raise)."""
     leveled: list[dict] = []
     pact: tuple[str, int] | None = None
     for c in classes:
@@ -78,13 +82,12 @@ def _combined_level(leveled: list[dict]) -> int:
             total += entry["level"] // 3
         elif entry["prog"] == "full":
             total += entry["level"]
-        else:  # half
+        else:
             total += (entry["level"] + 1) // 2
     return total
 
 
 def _slot_table(raw) -> dict[int, int] | None:
-    """{slot_level: max} from a sheet slotTable, or None if absent/malformed."""
     if not isinstance(raw, dict):
         return None
     out: dict[int, int] = {}
@@ -101,6 +104,18 @@ def _slot_table(raw) -> dict[int, int] | None:
     return out
 
 
+def _parse_source_key(key: str) -> tuple[str, str] | None:
+    if not isinstance(key, str) or ":" not in key:
+        return None
+    kind, oid = key.split(":", 1)
+    if kind not in VALID_OWNER_KINDS:
+        return None
+    return kind, oid
+
+
+# ── ported checks ────────────────────────────────────────────────────────────
+
+
 def _check_dc_attack(sources: dict, pb, v: list[Violation]) -> None:
     if not _int(pb):
         return
@@ -108,16 +123,20 @@ def _check_dc_attack(sources: dict, pb, v: list[Violation]) -> None:
         if not isinstance(src, dict):
             continue
         mod = src.get("modifier")
+        ability_mode = src.get("ability_mode")
+        if ability_mode in ("fixed", "none"):
+            mod = None
         if not _int(mod):
             continue
-        path = f"spellcasting.sources.{sid}"
+        path = f"sources.{sid}"
 
         save_dc = src.get("save_dc")
         if _int(save_dc):
             expected = 8 + pb + mod
             if save_dc != expected:
                 v.append(Violation(DOMAIN, "spell-save-dc-mismatch", "illegal",
-                                   f"{sid}: save_dc {save_dc} != expected {expected}", f"{path}.save_dc"))
+                                   f"{sid}: save_dc {save_dc} != expected {expected}",
+                                   f"{path}.save_dc"))
 
         attack_bonus = src.get("attack_bonus")
         if _int(attack_bonus):
@@ -130,29 +149,32 @@ def _check_dc_attack(sources: dict, pb, v: list[Violation]) -> None:
 
 def _check_source_budget_truthfulness(sources: dict, classes: list, access,
                                       v: list[Violation]) -> None:
-    for sid, src in sources.items():
+    for source_key, src in sources.items():
         if not isinstance(src, dict):
             continue
-        cid = access.resolve("class", sid)
-        if cid is None:
-            continue  # not a class source -- a feat/species/item grants a fixed set, no DB budget
+        parsed = _parse_source_key(source_key)
+        if parsed is None or parsed[0] != "class":
+            continue
+        cid = parsed[1]
         level = _level_for_class(classes, cid, access)
         if level is None:
             continue
         known, prepped = q.cantrips_prepared(access, cid, level)
-        path = f"spellcasting.sources.{sid}"
+        path = f"sources.{source_key}"
 
         declared_known = src.get("cantrips_known")
         if known is not None and _int(declared_known) and declared_known > known:
             v.append(Violation(DOMAIN, "source-budget-too-high", "illegal",
-                               f"{sid}: declares {declared_known} cantrips_known but the class grants "
-                               f"only {known} at level {level}", f"{path}.cantrips_known"))
+                               f"{source_key}: declares {declared_known} cantrips_known but the "
+                               f"class grants only {known} at level {level}",
+                               f"{path}.cantrips_known"))
 
         declared_prepped = src.get("prepared_limit")
         if prepped is not None and _int(declared_prepped) and declared_prepped > prepped:
             v.append(Violation(DOMAIN, "source-budget-too-high", "illegal",
-                               f"{sid}: declares {declared_prepped} prepared_limit but the class grants "
-                               f"only {prepped} at level {level}", f"{path}.prepared_limit"))
+                               f"{source_key}: declares {declared_prepped} prepared_limit but the "
+                               f"class grants only {prepped} at level {level}",
+                               f"{path}.prepared_limit"))
 
 
 def _check_spell_counts(sources: dict, spells: list, v: list[Violation]) -> None:
@@ -171,7 +193,7 @@ def _check_spell_counts(sources: dict, spells: list, v: list[Violation]) -> None
     for sid, src in sources.items():
         if not isinstance(src, dict):
             continue
-        path = f"spellcasting.sources.{sid}"
+        path = f"sources.{sid}"
 
         budget = src.get("cantrips_known")
         count = cantrip_counts.get(sid, 0)
@@ -199,23 +221,24 @@ def _check_slots(sc: dict, leveled: list[dict], pact: tuple[str, int] | None, ac
             for lvl in sorted(set(actual) | set(expected)):
                 if actual.get(lvl) != expected.get(lvl):
                     v.append(Violation(DOMAIN, "spell-slots-mismatch", "illegal",
-                                       f"slot level {lvl}: expected max {expected.get(lvl)}, got {actual.get(lvl)}",
-                                       f"spellcasting.spell_slots.{lvl}"))
+                                       f"slot level {lvl}: expected max {expected.get(lvl)}, "
+                                       f"got {actual.get(lvl)}",
+                                       f"spell_slots.{lvl}"))
         elif len(leveled) > 1:
             expected = q.multiclass_slots(access, _combined_level(leveled))
             for lvl in sorted(set(actual) | set(expected)):
                 if actual.get(lvl) != expected.get(lvl):
                     v.append(Violation(DOMAIN, "spell-slots-mismatch", "illegal",
-                                       f"slot level {lvl}: expected max {expected.get(lvl)}, got {actual.get(lvl)}",
-                                       f"spellcasting.spell_slots.{lvl}"))
-        # len(leveled) == 0: no leveled-caster baseline to compare against -- never raise/flag
+                                       f"slot level {lvl}: expected max {expected.get(lvl)}, "
+                                       f"got {actual.get(lvl)}",
+                                       f"spell_slots.{lvl}"))
 
     pact_sheet = _slot_table(sc.get("pact_slots"))
     if pact is None:
         if pact_sheet is not None:
             v.append(Violation(DOMAIN, "unexpected-pact-slots", "illegal",
                                "pact_slots present but no pact-caster class on this sheet",
-                               "spellcasting.pact_slots"))
+                               "pact_slots"))
         return
     if pact_sheet is None:
         return
@@ -224,8 +247,9 @@ def _check_slots(sc: dict, leveled: list[dict], pact: tuple[str, int] | None, ac
     for lvl in sorted(set(pact_sheet) | set(expected)):
         if pact_sheet.get(lvl) != expected.get(lvl):
             v.append(Violation(DOMAIN, "pact-slots-mismatch", "illegal",
-                               f"pact slot level {lvl}: expected max {expected.get(lvl)}, got {pact_sheet.get(lvl)}",
-                               f"spellcasting.pact_slots.{lvl}"))
+                               f"pact slot level {lvl}: expected max {expected.get(lvl)}, "
+                               f"got {pact_sheet.get(lvl)}",
+                               f"pact_slots.{lvl}"))
 
 
 def _granted_spell_ids(sheet: dict, ident: dict, classes: list, access) -> set[str]:
@@ -263,20 +287,7 @@ def _granted_spell_ids(sheet: dict, ident: dict, classes: list, access) -> set[s
     return granted
 
 
-def _subclass_for_class(classes: list, cid: str, access) -> str | None:
-    """The subclass name from a class entry for `cid`, or None if the class has no subclass."""
-    for c in classes:
-        if not isinstance(c, dict):
-            continue
-        if access.resolve("class", c.get("class")) == cid:
-            return c.get("subclass")
-    return None
-
-
 def _effective_list_class(cid: str, classes: list, access) -> str:
-    """The class id whose spell list actually governs `cid`'s spells: normally `cid` itself, but a
-    third-caster subclass (Eldritch Knight, Arcane Trickster, ...) has no list of its own -- it casts
-    from another class's list, per subclass_spellcasting.spell_list_class_id."""
     for c in classes:
         if not isinstance(c, dict):
             continue
@@ -294,15 +305,15 @@ def _effective_list_class(cid: str, classes: list, access) -> str:
     return cid
 
 
-def _check_spell_list_and_uniqueness(sheet: dict, ident: dict, classes: list, spells: list,
-                                     access, v: list[Violation]) -> None:
+def _check_spell_list_and_uniqueness(sheet: dict, sources: dict, ident: dict, classes: list,
+                                     spells: list, access, v: list[Violation]) -> None:
     granted = _granted_spell_ids(sheet, ident, classes, access)
     seen: set[tuple] = set()
 
     for i, entry in enumerate(spells):
         if not isinstance(entry, dict):
             continue
-        path = f"spellcasting.spells[{i}]"
+        path = f"spells[{i}]"
         name = entry.get("name")
         source = entry.get("source")
         bucket = entry.get("bucket")
@@ -320,56 +331,192 @@ def _check_spell_list_and_uniqueness(sheet: dict, ident: dict, classes: list, sp
             continue
 
         if bucket == "always":
-            continue  # a grant -- no class-list check
+            continue
 
-        cid = access.resolve("class", source)
-        if cid is None:
-            continue  # not a class source (feat/species/subclass/item) -- treat as granted, no list check
-        list_cid = _effective_list_class(cid, classes, access)
+        if bucket == "class_list":
+            continue
+
+        parsed = _parse_source_key(source)
+        if parsed is None:
+            continue
+        kind, oid = parsed
+        if kind != "class":
+            continue
+
+        list_cid = _effective_list_class(oid, classes, access)
         legal_lists = {list_cid}
-        # Magical-Secrets-style widening (e.g. Bard L10): a class_list grant on the source's OWN
-        # class (not the effective/third-caster list) additionally legalises other class lists, but
-        # only once the character has reached the grant's gained_at_level for that class.
-        own_level = _level_for_class(classes, cid, access)
+
+        own_level = _level_for_class(classes, oid, access)
         if own_level is not None:
-            legal_lists |= set(q.list_widening_classes(access, "class", cid, own_level))
-        # 4a: subclass widening (e.g. College of Lore)
-        sub_name = _subclass_for_class(classes, cid, access)
+            legal_lists |= set(q.list_widening_classes(access, "class", oid, own_level))
+        sub_name = _subclass_for_class(classes, oid, access)
         if sub_name:
             sid = access.resolve("subclass", sub_name)
             if sid:
                 legal_lists |= set(q.list_widening_classes(access, "subclass", sid, own_level))
-        # 4b: class_detail widening (e.g. Thaumaturge)
         for c in classes:
             detail_name = c.get("class_detail") if isinstance(c, dict) else None
             if detail_name:
                 did = access.resolve("detail_option", detail_name)
                 if did:
                     legal_lists |= set(q.list_widening_classes(access, "class_detail", did))
-        # 4c: class_option widening (e.g. Pact of the Tome)
         for feat_entry in sheet.get("features", []) or []:
             fname = feat_entry.get("name") if isinstance(feat_entry, dict) else feat_entry
-            oid = access.resolve("class_option", fname)
-            if oid:
-                legal_lists |= set(q.list_widening_classes(access, "class_option", oid))
+            oid_opt = access.resolve("class_option", fname)
+            if oid_opt:
+                legal_lists |= set(q.list_widening_classes(access, "class_option", oid_opt))
+
         on_a_list = any(q.spell_on_class_list(access, sid_spell, lc) for lc in legal_lists)
         if not on_a_list and sid_spell not in granted:
             v.append(Violation(DOMAIN, "spell-not-on-list", "illegal",
                                f"{name}: not on {source}'s spell list and not otherwise granted", path))
 
 
+# ── new grimoire-specific checks ─────────────────────────────────────────────
+
+
+def _check_class_list_legitimacy(sources: dict, spells: list, access,
+                                 v: list[Violation]) -> None:
+    for i, entry in enumerate(spells):
+        if not isinstance(entry, dict):
+            continue
+        bucket = entry.get("bucket")
+        if bucket != "class_list":
+            continue
+
+        path = f"spells[{i}]"
+        name = entry.get("name")
+        source = entry.get("source")
+        parsed = _parse_source_key(source)
+        if parsed is None:
+            v.append(Violation(DOMAIN, "class-list-not-granted", "illegal",
+                               f"{name}: invalid source key {source!r}", path))
+            continue
+
+        kind, oid = parsed
+        choices = q.class_list_spell_choices(access, kind, oid)
+        if not choices:
+            v.append(Violation(DOMAIN, "class-list-not-granted", "illegal",
+                               f"{name}: source {source!r} has no class_list grants", path))
+            continue
+
+        sid_spell = access.resolve("spell", name)
+        if sid_spell is None:
+            continue
+
+        spell_level = entry.get("level")
+        if not _int(spell_level):
+            spell_level = 0
+
+        valid = False
+        for ch in choices:
+            lmin = ch.get("spell_level_min")
+            lmax = ch.get("spell_level_max")
+            if lmin is not None and spell_level < lmin:
+                continue
+            if lmax is not None and spell_level > lmax:
+                continue
+            for lc in ch["class_list_ids"]:
+                if q.spell_on_class_list(access, sid_spell, lc):
+                    valid = True
+                    break
+            if valid:
+                break
+
+        if not valid:
+            v.append(Violation(DOMAIN, "class-list-not-granted", "illegal",
+                               f"{name}: not a valid class_list choice from {source!r}", path))
+
+
+def _check_recovery_validity(spells: list, access, v: list[Violation]) -> None:
+    for i, entry in enumerate(spells):
+        if not isinstance(entry, dict):
+            continue
+        path = f"spells[{i}]"
+        name = entry.get("name")
+        spell_level = entry.get("level")
+        recovery = entry.get("recovery")
+
+        if spell_level == 0 and recovery not in (None, "at_will", "slotless_per_rest"):
+            v.append(Violation(DOMAIN, "invalid-recovery", "illegal",
+                               f"{name}: cantrip must have at_will recovery, got {recovery!r}", path))
+
+        if recovery == "ritual_only":
+            if not entry.get("ritual_castable"):
+                v.append(Violation(DOMAIN, "invalid-recovery", "illegal",
+                                   f"{name}: ritual_only recovery but ritual_castable is not true", path))
+            sid_spell = access.resolve("spell", name)
+            if sid_spell is not None:
+                is_ritual = access.db.scalar("SELECT is_ritual FROM spell WHERE id=?", sid_spell)
+                if not is_ritual:
+                    v.append(Violation(DOMAIN, "invalid-recovery", "illegal",
+                                       f"{name}: ritual_only recovery but DB is_ritual=0", path))
+
+        if recovery == "slotless_per_rest":
+            uses = entry.get("uses")
+            if not isinstance(uses, dict) or not _int(uses.get("max")) or uses["max"] <= 0:
+                v.append(Violation(DOMAIN, "invalid-recovery", "illegal",
+                                   f"{name}: slotless_per_rest requires uses.max > 0", path))
+
+
+def _check_ritual_tag(spells: list, access, v: list[Violation]) -> None:
+    for i, entry in enumerate(spells):
+        if not isinstance(entry, dict):
+            continue
+        path = f"spells[{i}]"
+        name = entry.get("name")
+        ritual_castable = entry.get("ritual_castable")
+        sid_spell = access.resolve("spell", name)
+        if sid_spell is None:
+            continue
+
+        is_ritual = access.db.scalar("SELECT is_ritual FROM spell WHERE id=?", sid_spell)
+        sheet_ritual = bool(ritual_castable) if ritual_castable is not None else False
+        if sheet_ritual != bool(is_ritual):
+            v.append(Violation(DOMAIN, "ritual-tag-mismatch", "illegal",
+                               f"{name}: ritual_castable={sheet_ritual} but DB is_ritual={is_ritual}",
+                               path))
+
+
+def _check_secondary_cast(spells: list, v: list[Violation]) -> None:
+    for i, entry in enumerate(spells):
+        if not isinstance(entry, dict):
+            continue
+        sc = entry.get("secondary_cast")
+        if sc is None:
+            continue
+        if not isinstance(sc, dict):
+            v.append(Violation(DOMAIN, "invalid-secondary-cast", "illegal",
+                               f"{entry.get('name')}: secondary_cast must be a dict", f"spells[{i}]"))
+            continue
+
+        path = f"spells[{i}].secondary_cast"
+        resource = sc.get("resource")
+        if resource not in VALID_SECONDARY_RESOURCES:
+            v.append(Violation(DOMAIN, "invalid-secondary-cast", "illegal",
+                               f"{entry.get('name')}: invalid secondary_cast resource {resource!r}", path))
+            continue
+
+        if resource == "slotless_per_rest" and (not _int(sc.get("uses")) or sc.get("uses", 0) <= 0):
+            v.append(Violation(DOMAIN, "invalid-secondary-cast", "illegal",
+                               f"{entry.get('name')}: slotless_per_rest secondary_cast "
+                               f"requires uses > 0", path))
+
+
+# ── dispatcher ───────────────────────────────────────────────────────────────
+
+
 def check(sheet: dict, access) -> list[Violation]:
     v: list[Violation] = []
-    sc = sheet.get("spellcasting")
-    if sc is None or not isinstance(sc, dict):
+
+    sources = sheet.get("sources")
+    if sources is None or not isinstance(sources, dict):
         return v
 
-    pb = sheet.get("proficiency_bonus")
-    sources = sc.get("sources", {})
-    sources = sources if isinstance(sources, dict) else {}
-    spells = sc.get("spells", [])
+    spells = sheet.get("spells", [])
     spells = spells if isinstance(spells, list) else []
 
+    pb = sheet.get("proficiency_bonus")
     ident = _ident(sheet)
     classes = _classes(ident)
     leveled, pact = _classify_casters(classes, access)
@@ -377,7 +524,11 @@ def check(sheet: dict, access) -> list[Violation]:
     _check_dc_attack(sources, pb, v)
     _check_source_budget_truthfulness(sources, classes, access, v)
     _check_spell_counts(sources, spells, v)
-    _check_slots(sc, leveled, pact, access, v)
-    _check_spell_list_and_uniqueness(sheet, ident, classes, spells, access, v)
+    _check_slots(sheet, leveled, pact, access, v)
+    _check_spell_list_and_uniqueness(sheet, sources, ident, classes, spells, access, v)
+    _check_class_list_legitimacy(sources, spells, access, v)
+    _check_recovery_validity(spells, access, v)
+    _check_ritual_tag(spells, access, v)
+    _check_secondary_cast(spells, v)
 
     return v
