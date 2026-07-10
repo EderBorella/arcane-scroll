@@ -675,11 +675,17 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT OR IGNORE INTO mastery_property VALUES ('vex','Vex')")
     cur.execute("INSERT OR IGNORE INTO mastery_property VALUES ('slow','Slow')")
     cur.execute("INSERT OR IGNORE INTO mastery_property VALUES ('nick','Nick')")
-    cur.execute("CREATE TABLE IF NOT EXISTS catalog_item (id TEXT PRIMARY KEY, name TEXT)")
-    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('greataxe','Greataxe')")
-    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('handaxe','Handaxe')")
-    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('club','Club')")
-    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('net','Net')")
+    cur.execute("CREATE TABLE IF NOT EXISTS catalog_item (id TEXT PRIMARY KEY, name TEXT, kind TEXT, "
+                "category_id TEXT)")
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('greataxe','Greataxe','weapon',NULL)")
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('handaxe','Handaxe','weapon',NULL)")
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('club','Club','weapon',NULL)")
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('net','Net','weapon',NULL)")
+    # T35: catalog_item entries for equipment used in inventory tests
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('chain-mail','Chain Mail','armor','armor')")
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('leather-armor','Leather Armor','armor','armor')")
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('half-plate','Half Plate Armor','armor','armor')")
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('shield','Shield','armor','shield')")
     cur.execute("CREATE TABLE IF NOT EXISTS weapon (id TEXT PRIMARY KEY REFERENCES catalog_item(id), "
                 "tier_id TEXT, range_class_id TEXT, dmg_dice_count INT, dmg_die_faces INT, "
                 "dmg_flat INT, damage_type_id TEXT, mastery_id TEXT REFERENCES mastery_property(id))")
@@ -699,6 +705,53 @@ def _build_rules_db(path: str) -> None:
         ("feet", "Feet"),
     ]:
         cur.execute("INSERT INTO item_slot VALUES (?,?)", (sid, sname))
+
+    # T35: inventory-validator test infrastructure
+    cur.execute("CREATE TABLE rarity (id TEXT PRIMARY KEY, name TEXT, ordinal INT)")
+    for rid, rname, rord in [("common","Common",1),("uncommon","Uncommon",2),
+                               ("rare","Rare",3),("varies","Varies",4)]:
+        cur.execute("INSERT INTO rarity VALUES (?,?,?)", (rid, rname, rord))
+
+    cur.execute("CREATE TABLE weapon_property_vocab (id TEXT PRIMARY KEY, name TEXT, "
+                "takes_param INT DEFAULT 0, param_kind TEXT, description TEXT)")
+    for pid, pname in [("two-handed","Two-Handed"),("versatile","Versatile"),
+                       ("finesse","Finesse"),("light","Light")]:
+        cur.execute("INSERT INTO weapon_property_vocab (id,name) VALUES (?,?)", (pid, pname))
+
+    cur.execute("CREATE TABLE weapon_property_map (weapon_id TEXT, property_id TEXT, "
+                "range_normal INT, range_long INT, param_die_faces INT, ammunition_type_id TEXT, "
+                "note TEXT)")
+    # greataxe: two-handed | handaxe: light | pike: two-handed + versatile
+    for wid, pid in [("greataxe","two-handed"),("pike","two-handed"),
+                     ("pike","versatile"),("handaxe","light")]:
+        cur.execute("INSERT INTO weapon_property_map (weapon_id,property_id) VALUES (?,?)",
+                    (wid, pid))
+
+    cur.execute("CREATE TABLE magic_item (id TEXT PRIMARY KEY REFERENCES catalog_item(id), "
+                "rarity_id TEXT, requires_attunement INT DEFAULT 0, attune_req_kind TEXT, "
+                "attune_req_value TEXT, consumable INT DEFAULT 0, effect_duration TEXT, "
+                "description TEXT, cumulative_max_seconds INT)")
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-scroll','Magic Scroll','wondrous','scroll')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,consumable,description) "
+                "VALUES ('mi-scroll','common',1,'Spell Scroll')")
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-sword','Magic Sword','weapon',NULL)")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) "
+                "VALUES ('mi-sword','rare',1)")
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-shield','Magic Shield','armor','shield')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) "
+                "VALUES ('mi-shield','uncommon',1)")
+
+    cur.execute("CREATE TABLE magic_item_template (id INTEGER PRIMARY KEY, template_id TEXT, "
+                "base_kind TEXT, tier_id TEXT, range_class_id TEXT, base_item_id TEXT)")
+    cur.execute("INSERT INTO magic_item_template (template_id,base_kind,base_item_id) "
+                "VALUES ('tpl-weapon-1','weapon','greataxe')")
+    cur.execute("INSERT INTO magic_item_template (template_id,base_kind,base_item_id) "
+                "VALUES ('tpl-shield','shield','mi-shield')")
+
+    cur.execute("CREATE TABLE item_category (id TEXT PRIMARY KEY, kind TEXT, book_tier TEXT, "
+                "book_class TEXT, family TEXT, subtype TEXT)")
+    for icid, ickind in [("weapon","gear"),("scroll","gear"),("armor","gear"),("shield","gear")]:
+        cur.execute("INSERT INTO item_category (id,kind) VALUES (?,?)", (icid, ickind))
 
     # B9: state dimension table + state_compatibility junction table
     cur.execute("CREATE TABLE state (id TEXT PRIMARY KEY, name TEXT)")

@@ -9,6 +9,7 @@ from access.validator import ValidatorAccess
 from validator.validate import validate
 from validator.validate_core import validate_core
 from validator.validate_grimoire import validate_grimoire
+from validator.validate_inventory import validate_inventory
 
 _state: dict = {}
 
@@ -39,3 +40,9 @@ async def validate_core_sheet(sheet: dict = Body(...)) -> dict:
 @app.post("/validate-grimoire")
 async def validate_grimoire_sheet(body: dict = Body(...)) -> dict:
     return validate_grimoire(body["core"], body["grimoire"], _state["access"])
+
+
+@app.post("/validate-inventory")
+async def validate_inventory_sheet(body: dict = Body(...)) -> dict:
+    return validate_inventory(body["core"], body["inventory"],
+                              body.get("modifier"), _state["access"])
