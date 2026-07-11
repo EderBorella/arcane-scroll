@@ -258,6 +258,65 @@ class TestDeriveSpells:
         assert len(class_list_spells) == 0
 
 
+class TestCantripRecovery:
+    def test_cantrip_forced_at_will(self, access):
+        """A level-0 grant whose stated recovery is 'spell_slot' is forced at_will."""
+        core = _core_sheet(feats=[{"name": "feat-cantrip"}])
+        sources = derive_sources(core, access)
+        spells = derive_spells(core, None, sources, access)
+        cantrips = [s for s in spells if s["name"] == "Spc0"]
+        assert cantrips, "cantrip grant should be derived"
+        assert cantrips[0]["level"] == 0
+        assert cantrips[0]["recovery"] == "at_will"
+
+
+class TestDynamicUses:
+    def test_uses_proficiency_bonus(self, access):
+        core = _core_sheet(feats=[{"name": "feat-dyn-pb"}], proficiency_bonus=3)
+        sources = derive_sources(core, access)
+        spells = derive_spells(core, None, sources, access)
+        s = [x for x in spells if x["name"] == "Spd1"]
+        assert s and s[0].get("uses", {}).get("max") == 3
+
+    def test_uses_ability_modifier(self, access):
+        core = _core_sheet(feats=[{"name": "feat-dyn-am"}],
+                           abilities={"a4": {"final": 16}})
+        sources = derive_sources(core, access)
+        spells = derive_spells(core, None, sources, access)
+        s = [x for x in spells if x["name"] == "Spd2"]
+        assert s and s[0].get("uses", {}).get("max") == 3   # (16-10)//2
+
+    def test_uses_ability_modifier_floor(self, access):
+        """A dynamic ability_modifier grant floors at 1 use even when the ability
+        modifier is <= 0 — slotless_per_rest requires uses.max > 0."""
+        core = _core_sheet(feats=[{"name": "feat-dyn-am"}],
+                           abilities={"a4": {"final": 8}})  # mod (8-10)//2 = -1
+        sources = derive_sources(core, access)
+        spells = derive_spells(core, None, sources, access)
+        s = [x for x in spells if x["name"] == "Spd2"]
+        assert s and s[0].get("uses", {}).get("max") >= 1
+
+    def test_uses_ability_modifier_maps_abbrev(self, access):
+        """The grant names the full ability id ('a4'); CORE keys abilities by the
+        short code (the ability's lowercased abbrev). The deriver maps id -> code
+        so the modifier resolves instead of silently falling through to the floor."""
+        # ability a4 has abbrev 'x4' in the synthetic DB; CORE is keyed by that code.
+        core = _core_sheet(feats=[{"name": "feat-dyn-am"}],
+                           abilities={"x4": {"final": 18}})  # mod (18-10)//2 = 4
+        sources = derive_sources(core, access)
+        spells = derive_spells(core, None, sources, access)
+        s = [x for x in spells if x["name"] == "Spd2"]
+        assert s and s[0].get("uses", {}).get("max") == 4
+
+    def test_uses_class_resource(self, access):
+        # class-a level 3; cr-dyn ladder has count 4 at level 1 (highest <= 3)
+        core = _core_sheet(feats=[{"name": "feat-dyn-cr"}])
+        sources = derive_sources(core, access)
+        spells = derive_spells(core, None, sources, access)
+        s = [x for x in spells if x["name"] == "Spd3"]
+        assert s and s[0].get("uses", {}).get("max") == 4
+
+
 class TestDeriveGrimoire:
     def test_full_derivation(self, access):
         core = _core_sheet()

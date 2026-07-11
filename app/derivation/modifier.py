@@ -37,7 +37,8 @@ def resolve_active_effects(core: dict, inventory: dict | None,
     """Resolve all active effects from character_states[] and item_states[]. Returns
     ActiveEffects with accumulated bonuses, resistances, etc. Empty states → empty effects."""
     effects = ActiveEffects()
-    if not states and not item_states:
+    has_equipped = isinstance(inventory, dict) and bool(inventory.get("equipped"))
+    if not states and not item_states and not has_equipped:
         return effects
 
     for state in states:
@@ -130,36 +131,68 @@ def _accumulate_senses(effects: ActiveEffects, access, owner_kind, owner_id):
         effects.sense_grants.append(dict(row))
 
 
-def _accumulate_item_effects(effects: ActiveEffects, access, inventory, item_states):
-    if not isinstance(item_states, list):
-        return
+def _item_name_for_ref(inventory, inv_ref):
+    """Resolve an item's name from an inventory_ref (equipped slot or backpack)."""
+    if not inv_ref:
+        return None
     equipped = inventory.get("equipped", {}) or {}
-    for istate in item_states:
-        if not isinstance(istate, dict):
-            continue
-        if not istate.get("attuned"):
-            continue
-        inv_ref = istate.get("inventory_ref")
-        if not inv_ref:
-            continue
-        item_name = None
-        if isinstance(equipped, dict):
-            for slot_item in equipped.values():
-                if isinstance(slot_item, dict) and slot_item.get("id") == inv_ref:
-                    item_name = slot_item.get("name")
-                    break
-        if not item_name:
-            backpack = inventory.get("backpack", [])
-            for bi in (backpack if isinstance(backpack, list) else []):
-                if isinstance(bi, dict) and bi.get("id") == inv_ref:
-                    item_name = bi.get("name")
-                    break
-        if not item_name:
-            continue
-        mid = access.resolve("magic_item", item_name)
-        if mid:
+    if isinstance(equipped, dict):
+        for slot_item in equipped.values():
+            if isinstance(slot_item, dict) and slot_item.get("id") == inv_ref:
+                return slot_item.get("name")
+    backpack = inventory.get("backpack", [])
+    for bi in (backpack if isinstance(backpack, list) else []):
+        if isinstance(bi, dict) and bi.get("id") == inv_ref:
+            return bi.get("name")
+    return None
+
+
+def _accumulate_item_effects(effects: ActiveEffects, access, inventory, item_states):
+    # 1) Attuned items (from item_states): full effects — bonuses, resistances,
+    #    senses and speeds all materialise here.
+    attuned_refs: set = set()
+    if isinstance(item_states, list):
+        for istate in item_states:
+            if not isinstance(istate, dict) or not istate.get("attuned"):
+                continue
+            inv_ref = istate.get("inventory_ref")
+            item_name = _item_name_for_ref(inventory, inv_ref)
+            if not item_name:
+                continue
+            mid = access.resolve("magic_item", item_name)
+            if not mid:
+                continue
+            if inv_ref:
+                attuned_refs.add(inv_ref)
             _accumulate_bonuses(effects, access, "magic_item", mid)
             _accumulate_resistances(effects, access, "magic_item", mid)
+            _accumulate_senses(effects, access, "magic_item", mid)
+            _accumulate_speeds(effects, access, "magic_item", mid)
+
+    # 2) Passive-on-equip items: a magic item that does NOT require attunement
+    #    confers its sense/speed grants while equipped (no attunement needed).
+    #    Attunement-gated items are handled solely by branch (1) above. An item
+    #    already consumed as attuned in branch (1) must be skipped here too, or a
+    #    non-attunement item flagged attuned would double-count its senses/speeds.
+    equipped = inventory.get("equipped", {}) or {}
+    if isinstance(equipped, dict):
+        for slot_item in equipped.values():
+            if not isinstance(slot_item, dict):
+                continue
+            if slot_item.get("id") in attuned_refs:
+                continue
+            item_name = slot_item.get("name")
+            if not item_name:
+                continue
+            mid = access.resolve("magic_item", item_name)
+            if not mid:
+                continue
+            requires = access.db.scalar(
+                "SELECT requires_attunement FROM magic_item WHERE id=?", mid)
+            if requires:
+                continue
+            _accumulate_senses(effects, access, "magic_item", mid)
+            _accumulate_speeds(effects, access, "magic_item", mid)
 
 
 # ── C2: Derivation helpers ───────────────────────────────────────────────────
@@ -295,10 +328,16 @@ def derive_speed(core: dict, effects: ActiveEffects, access) -> tuple[dict, dict
         "modifiers": [],
     }
     for g in effects.speed_grants:
+        mode = g["movement_mode_id"]
+        # equals_walk grants carry a NULL feet — report the resolved effective speed
+        # for that mode instead of the raw (missing) value.
+        value = g["feet"]
+        if not _int(value):
+            value = speeds.get(mode, 0)
         detail["modifiers"].append({
-            "mode": g["movement_mode_id"],
+            "mode": mode,
             "source": g.get("owner_id", ""),
-            "value": g["feet"],
+            "value": value,
         })
     return speeds, detail
 
@@ -346,7 +385,11 @@ def derive_saving_throws(core: dict, abilities: dict, pb, effects: ActiveEffects
             mod += pb
         for b in effects.bonuses:
             if b["target_kind"] == "saving_throw":
-                if not b.get("ability_id") or b["ability_id"] == aid:
+                # grant_bonus splits per-ability via target_id (NULL = every save;
+                # set = that one ability's save), mirroring the validator. There is
+                # no ability_id column.
+                tid = b.get("target_id")
+                if not tid or tid == aid:
                     if b["value"]:
                         mod += b["value"]
         result[aid] = {"modifier": mod}

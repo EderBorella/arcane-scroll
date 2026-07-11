@@ -134,6 +134,89 @@ def test_save_modifier_mismatch(access):
     assert "save-modifier-mismatch" in _codes(sheet, access)
 
 
+def test_save_item_bonus_stacks(access):
+    """Two attuned all-saves items stack (+1 each = +2) into the expected save."""
+    sheet = _sheet()
+    sheet["inventory"] = {"equipped": {
+        "finger_1": {"id": "item-finger_1", "name": "Ring Alpha"},
+        "back": {"id": "item-back", "name": "Cloak Alpha"},
+    }}
+    sheet["modifier"]["item_states"] = [
+        {"inventory_ref": "item-finger_1", "attuned": True},
+        {"inventory_ref": "item-back", "attuned": True},
+    ]
+    sheet["modifier"]["saving_throws"]["a1"]["modifier"] = 4 + 2
+    sheet["modifier"]["saving_throws"]["a2"]["modifier"] = 3 + 2
+    sheet["modifier"]["saving_throws"]["a3"]["modifier"] = 3 + 2
+    assert "save-modifier-mismatch" not in _codes(sheet, access)
+
+
+def test_save_item_bonus_missing_flagged(access):
+    """An attuned save-bonus item that is not reflected in the save is a mismatch."""
+    sheet = _sheet()
+    sheet["inventory"] = {"equipped": {
+        "finger_1": {"id": "item-finger_1", "name": "Ring Alpha"},
+    }}
+    sheet["modifier"]["item_states"] = [
+        {"inventory_ref": "item-finger_1", "attuned": True},
+    ]
+    # saves left unchanged despite the +1 item bonus -> mismatch
+    assert "save-modifier-mismatch" in _codes(sheet, access)
+
+
+def test_save_item_bonus_per_ability(access):
+    """A per-ability (target_id set) item save bonus applies to that ability only."""
+    sheet = _sheet()
+    sheet["inventory"] = {"equipped": {
+        "neck": {"id": "item-neck", "name": "Amulet Alpha"},
+    }}
+    sheet["modifier"]["item_states"] = [
+        {"inventory_ref": "item-neck", "attuned": True},
+    ]
+    sheet["modifier"]["saving_throws"]["a1"]["modifier"] = 4 + 2  # +2 on a1 only
+    # a2 (3) and a3 (3) unchanged — the bonus does NOT apply to them
+    assert "save-modifier-mismatch" not in _codes(sheet, access)
+
+
+def test_save_item_bonus_per_ability_wrong_target(access):
+    """The per-ability bonus applied to the wrong save is flagged."""
+    sheet = _sheet()
+    sheet["inventory"] = {"equipped": {
+        "neck": {"id": "item-neck", "name": "Amulet Alpha"},
+    }}
+    sheet["modifier"]["item_states"] = [
+        {"inventory_ref": "item-neck", "attuned": True},
+    ]
+    sheet["modifier"]["saving_throws"]["a1"]["modifier"] = 4 + 2  # a1 correct
+    sheet["modifier"]["saving_throws"]["a2"]["modifier"] = 3 + 2  # bonus wrongly on a2
+    assert "save-modifier-mismatch" in _codes(sheet, access)
+
+
+def test_deriver_validator_agree_per_ability_save(access):
+    """End-to-end: derive the MODIFIER with a per-ability item save bonus, then
+    validate it. Deriver and validator must agree (no save-modifier-mismatch), and
+    the bonus must land on the targeted ability only."""
+    from app.derivation.modifier_orchestrator import derive_modifier
+    core = {
+        "character_id": "t", "character_name": "T",
+        "identity": {"size": "medium", "species": "Species A", "lineage": None,
+                     "classes": [{"class": "Class A", "level": 3, "subclass": None}]},
+        "abilities": {"a1": {"final": 14}, "a2": {"final": 16}, "a3": {"final": 12}},
+        "proficiency_bonus": 2,
+        "saving_throws": {"a1": {"proficient": True}, "a2": {"proficient": False},
+                          "a3": {"proficient": True}},
+        "skills": {}, "features": [], "feats": [],
+        "hit_points": {"max": 22}, "hit_dice": {},
+    }
+    inventory = {"equipped": {"neck": {"id": "item-neck", "name": "Amulet Alpha"}}}
+    existing = {"item_states": [{"inventory_ref": "item-neck", "attuned": True}]}
+    modifier, _ = derive_modifier(core, inventory, None, existing, "fill", access)
+    sheet = {"core": core, "inventory": inventory, "grimoire": {}, "modifier": modifier}
+    assert "save-modifier-mismatch" not in _codes(sheet, access)
+    assert modifier["saving_throws"]["a1"]["modifier"] == 6   # 2 + PB(2) + 2 item (a1)
+    assert modifier["saving_throws"]["a2"]["modifier"] == 3   # no per-ability bonus
+
+
 # ── skills ───────────────────────────────────────────────────────────────────
 
 

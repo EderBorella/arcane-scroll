@@ -62,7 +62,61 @@ def _check_ac_bonus_dedup(sheet: dict, v: list[Violation]) -> None:
 # ── saving throws ────────────────────────────────────────────────────────────
 
 
-def _check_saves(sheet: dict, v: list[Violation]) -> None:
+def _item_name_for_ref(inventory: dict, inv_ref) -> str | None:
+    """Resolve an item's name from an inventory_ref (equipped slot or backpack)."""
+    if not inv_ref:
+        return None
+    equipped = inventory.get("equipped", {}) or {}
+    if isinstance(equipped, dict):
+        for slot_item in equipped.values():
+            if isinstance(slot_item, dict) and slot_item.get("id") == inv_ref:
+                return slot_item.get("name")
+    backpack = inventory.get("backpack", [])
+    for bi in (backpack if isinstance(backpack, list) else []):
+        if isinstance(bi, dict) and bi.get("id") == inv_ref:
+            return bi.get("name")
+    return None
+
+
+def _item_save_bonuses(sheet: dict, access) -> tuple[int, dict]:
+    """Save bonuses granted by attuned magic items, read straight from the DB.
+
+    Returns ``(all_saves_bonus, per_ability_bonus)``.  A ``grant_bonus`` row with
+    ``target_kind='saving_throw'`` and a NULL ``target_id`` applies to every save
+    (two such items stack — +1 and +1 give +2); a row with an ability-specific
+    ``target_id`` applies only to that ability's save."""
+    all_bonus = 0
+    per: dict[str, int] = {}
+    mod = sheet.get("modifier", {}) or {}
+    inventory = sheet.get("inventory", {}) or {}
+    if not isinstance(inventory, dict):
+        inventory = {}
+    item_states = mod.get("item_states", []) or []
+    if not isinstance(item_states, list):
+        return 0, {}
+
+    for istate in item_states:
+        if not isinstance(istate, dict) or not istate.get("attuned"):
+            continue
+        name = _item_name_for_ref(inventory, istate.get("inventory_ref"))
+        if not name:
+            continue
+        mid = access.resolve("magic_item", name)
+        if not mid:
+            continue
+        rows = access.db.q(
+            "SELECT target_id, value FROM grant_bonus "
+            "WHERE owner_kind='magic_item' AND owner_id=? AND target_kind='saving_throw'", mid)
+        for r in rows:
+            val = r["value"] or 0
+            if r["target_id"]:
+                per[r["target_id"]] = per.get(r["target_id"], 0) + val
+            else:
+                all_bonus += val
+    return all_bonus, per
+
+
+def _check_saves(sheet: dict, access, v: list[Violation]) -> None:
     core = sheet.get("core", {})
     mod = sheet.get("modifier", {})
     core_saves = core.get("saving_throws", {}) or {}
@@ -72,6 +126,8 @@ def _check_saves(sheet: dict, v: list[Violation]) -> None:
     mod_abilities = mod.get("abilities", {}) or {}
     if not isinstance(core_saves, dict) or not isinstance(mod_saves, dict):
         return
+
+    item_all_bonus, item_per_ability = _item_save_bonuses(sheet, access)
 
     for aid, save_obj in mod_saves.items():
         if not isinstance(save_obj, dict):
@@ -91,6 +147,7 @@ def _check_saves(sheet: dict, v: list[Violation]) -> None:
         expected = ab_mod
         if proficient and _int(pb):
             expected += pb
+        expected += item_all_bonus + item_per_ability.get(aid, 0)
 
         if actual != expected:
             v.append(Violation(DOMAIN, "save-modifier-mismatch", "illegal",
@@ -325,7 +382,7 @@ def check(sheet: dict, access) -> list[Violation]:
 
     _check_ac(sheet, v)
     _check_ac_bonus_dedup(sheet, v)
-    _check_saves(sheet, v)
+    _check_saves(sheet, access, v)
     _check_skills(sheet, v)
     _check_effective_abilities(sheet, v)
     _check_defenses(sheet, v)

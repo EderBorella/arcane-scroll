@@ -12,7 +12,7 @@ from collections import defaultdict
 import hashlib
 import json
 
-from access.primitives import grants_for
+from access.primitives import grants_for, resource_at
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -293,6 +293,10 @@ def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access)
             "ritual_castable": bool(spell_row["is_ritual"]) if spell_row else False,
             "concentration": bool(spell_row["concentration"]) if spell_row else False,
         }
+        # Cantrips are always at-will regardless of the grant's stated recovery
+        # (single choke-point covering every grant path into the spellbook).
+        if entry["level"] == 0:
+            entry["recovery"] = "at_will"
         # Full DB metadata
         if spell_row:
             entry["school"] = spell_row.get("school_id")
@@ -333,7 +337,7 @@ def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access)
                     srow = _spell_row(access, sid)
                     if not srow:
                         continue
-                    uses = _uses_block(g)
+                    uses = _uses_block(g, core, access)
                     add_spell(srow["name"], source_key, bucket, recovery,
                               spell_row=srow, uses=uses,
                               secondary_cast=_secondary_cast(g, sources))
@@ -355,7 +359,7 @@ def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access)
                     if not srow:
                         continue
                     add_spell(srow["name"], source_key, bucket, recovery,
-                              spell_row=srow, uses=_uses_block(g),
+                              spell_row=srow, uses=_uses_block(g, core, access),
                               secondary_cast=_secondary_cast(g, sources))
 
     # ── species / lineage grants ──
@@ -378,7 +382,7 @@ def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access)
                     if not srow:
                         continue
                     add_spell(srow["name"], source_key, bucket, recovery,
-                              spell_row=srow, uses=_uses_block(g),
+                              spell_row=srow, uses=_uses_block(g, core, access),
                               secondary_cast=_secondary_cast(g, sources))
 
     # ── player-chosen spells (preserved from previous GRIMOIRE) ──
@@ -475,22 +479,126 @@ def _source_key_for_kind(kind, owner_id, sources) -> str | None:
     return key if key in sources else None
 
 
-def _uses_block(grant_row) -> dict | None:
-    """Extract uses block from a grant_spell row."""
+def _grant_field(grant_row, field):
+    """Read a named column from a grant row, tolerating minimal test rows."""
     try:
-        un = grant_row["uses_num"]
+        return grant_row[field]
     except (KeyError, IndexError):
         return None
-    if un is not None:
-        uses = {"max": un}
-        try:
-            rid = grant_row["recharge_id"]
-        except (KeyError, IndexError):
-            rid = None
-        if rid:
-            uses["recharge"] = rid
-        return uses
+
+
+def _uses_block(grant_row, core, access) -> dict | None:
+    """Extract a uses block from a grant_spell row.
+
+    A static ``uses_num`` is used verbatim.  When ``uses_num`` is NULL the
+    maximum is derived from ``uses_kind`` and grounded in the build:
+    ``proficiency_bonus`` → the sheet's proficiency bonus; ``ability_modifier``
+    → the modifier of the named ability's final score; ``class_resource`` → the
+    named resource's maximum at the owning class's level.
+    """
+    un = _grant_field(grant_row, "uses_num")
+    max_val = un
+    if max_val is None:
+        max_val = _dynamic_uses_max(grant_row, core, access)
+    if max_val is None:
+        return None
+    uses = {"max": max_val}
+    rid = _grant_field(grant_row, "recharge_id")
+    if rid:
+        uses["recharge"] = rid
+    return uses
+
+
+def _dynamic_uses_max(grant_row, core, access) -> int | None:
+    """Compute a dynamic per-rest use maximum from the grant's ``uses_kind``.
+
+    Returns ``None`` when the kind is absent/static or cannot be grounded.
+    Per-rest use counts have a floor of one use ("a minimum of once")."""
+    kind = _grant_field(grant_row, "uses_kind")
+    if not kind:
+        return None
+
+    if kind == "proficiency_bonus":
+        pb = core.get("proficiency_bonus")
+        return max(1, pb) if _is_int(pb) else None
+
+    if kind == "ability_modifier":
+        aid = _grant_field(grant_row, "uses_ability_id")
+        mod = _core_ability_mod(aid, core, access)
+        # A per-rest ability_modifier grant always yields at least one use: apply
+        # the floor even when the ability can't be grounded, so a valid dynamic
+        # grant never produces uses.max < 1 (slotless_per_rest requires > 0).
+        if mod is None:
+            return 1
+        return max(1, mod)
+
+    if kind == "class_resource":
+        rid = _grant_field(grant_row, "uses_resource_id")
+        if not rid:
+            return None
+        return _class_resource_max(rid, core, access)
+
     return None
+
+
+def _is_int(x) -> bool:
+    return isinstance(x, int) and not isinstance(x, bool)
+
+
+def _core_ability_mod(aid, core, access) -> int | None:
+    """Modifier of the CORE ability named by a DB ability id, or None if it can't
+    be grounded. A grant references the full DB ability id (e.g. the long-form id),
+    whereas CORE keys abilities by their short code; map the id to that short code
+    via the ability table's abbrev before reading the final score."""
+    if not aid:
+        return None
+    abilities = core.get("abilities", {}) or {}
+    ab = abilities.get(aid)
+    if not isinstance(ab, dict):
+        abbrev = access.db.scalar("SELECT abbrev FROM ability WHERE id=?", aid)
+        if abbrev:
+            ab = abilities.get(abbrev.lower())
+    if not isinstance(ab, dict):
+        return None
+    final = ab.get("final")
+    if not _is_int(final):
+        return None
+    return (final - 10) // 2
+
+
+def _class_resource_max(resource_id: str, core, access) -> int | None:
+    """Maximum count of a class resource at the owning class's level, grounded in
+    the resource ladder (``class_resource_level``), falling back to the CORE
+    resource budgets by name."""
+    owner = access.db.one(
+        "SELECT owner_kind, owner_id, name FROM class_resource WHERE id=?", resource_id)
+    level = 0
+    res_name = None
+    if owner is not None:
+        res_name = owner["name"] if hasattr(owner, "keys") else owner[2]
+        okind = owner["owner_kind"] if hasattr(owner, "keys") else owner[0]
+        oid = owner["owner_id"] if hasattr(owner, "keys") else owner[1]
+        if okind == "class" and oid:
+            level = _class_level_for(oid, core, access)
+    row = resource_at(access.db, resource_id, level)
+    if row is not None:
+        count = row["count"] if hasattr(row, "keys") else None
+        if count is not None:
+            return count
+    # Fallback: the CORE resource budget keyed by the resource's display name.
+    if res_name:
+        budget = (core.get("resource_budgets", {}) or {}).get(res_name)
+        if isinstance(budget, dict) and _is_int(budget.get("max")):
+            return budget["max"]
+    return None
+
+
+def _class_level_for(class_id: str, core, access) -> int:
+    """The character's level in a given class id (0 if not taken)."""
+    for c in (core.get("identity", {}) or {}).get("classes", []) or []:
+        if _class_id(c, access) == class_id:
+            return c.get("level") or 0
+    return 0
 
 
 def _secondary_cast(grant_row, sources) -> dict | None:

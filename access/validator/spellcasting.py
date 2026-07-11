@@ -53,14 +53,15 @@ def subclass_cantrips_prepared(access: ValidatorAccess, subclass_id: str,
 
 
 def subclass_is_third_caster(access: ValidatorAccess, subclass_id: str) -> bool:
-    """True if a subclass grants third-caster spellcasting (Eldritch Knight / Arcane Trickster-style)."""
+    """True for subclasses with a third-caster spell progression (i.e. that carry a
+    subclass_spellcasting row of their own)."""
     return access.db.one(
         "SELECT 1 FROM subclass_spellcasting WHERE subclass_id=?", subclass_id) is not None
 
 
 def subclass_caster_list(access: ValidatorAccess, subclass_id: str) -> str | None:
-    """The class id whose spell list a third-caster subclass casts from (e.g. Eldritch Knight ->
-    wizard), or None if the subclass has no third-caster spellcasting row of its own."""
+    """The class id whose spell list a third-caster subclass casts from, or None if the
+    subclass has no third-caster spellcasting row of its own."""
     return access.db.scalar(
         "SELECT spell_list_class_id FROM subclass_spellcasting WHERE subclass_id=?", subclass_id)
 
@@ -81,11 +82,11 @@ def spell_on_class_list(access: ValidatorAccess, spell_id: str, class_id: str) -
 def list_widening_classes(access: ValidatorAccess, owner_kind: str, owner_id: str,
                          at_level: int | None = None) -> list[str]:
     """Class ids whose spell list is ADDITIONALLY legal for an owner at `at_level`, via a
-    Magical-Secrets-style grant: a grant_spell row gained at or below `at_level` that carries a
+    list-widening grant: a grant_spell row gained at or below `at_level` that carries a
     grant_spell_choice with from_kind='class_list' -- the widened list ids live in that grant's
-    grant_spell_choice_value.value_id rows. DB fact: Bard's Magical Secrets (row l10-gsp-0010) is a
-    grant_spell(class, bard, gained_at_level=10) + grant_spell_choice(from_kind='class_list')
-    widening to {bard, cleric, druid, wizard}."""
+    grant_spell_choice_value.value_id rows. DB fact: a full-caster list-widening feature
+    (row l10-gsp-0010) is a grant_spell(class, <owner class>, gained_at_level=10) +
+    grant_spell_choice(from_kind='class_list') widening to a set of caster class lists."""
     widened: set[str] = set()
     for header in primitives.grants_for(access.db, "grant_spell", owner_kind, owner_id, at_level):
         children = primitives.children_of(access.db, "grant_spell", header["id"])

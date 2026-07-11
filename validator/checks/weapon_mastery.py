@@ -1,45 +1,54 @@
-"""Weapon Mastery domain: validate that "Weapon Mastery" feature choices are valid weapon IDs
-that have mastery properties in the weapon table."""
+"""Weapon Mastery domain: when a "Weapon Mastery" feature is present, validate the
+populated top-level ``weapon_masteries`` list against the masterable-weapon set.
+
+The chosen weapons live on the sheet's own ``weapon_masteries`` field (not buried
+in a feature's ``choices``): ``mastery-choices-missing`` fires only when that field
+is empty while the feature is present, and ``mastery-choice-invalid`` fires for any
+entry that is not a masterable weapon."""
 from access.validator import proficiencies as q
 from validator.report import Violation
 
 DOMAIN = "weapon_mastery"
 
 
-def check(sheet: dict, access) -> list[Violation]:
-    v: list[Violation] = []
-    masterable = q.masterable_weapon_ids(access)
-
-    features = sheet.get("features")
+def _has_weapon_mastery_feature(features) -> bool:
     if not isinstance(features, list):
-        return v
-
-    for i, feat in enumerate(features):
+        return False
+    for feat in features:
         if not isinstance(feat, dict):
             continue
         name = feat.get("name")
-        if not isinstance(name, str) or name.strip().lower() != "weapon mastery":
-            continue
+        if isinstance(name, str) and name.strip().lower() == "weapon mastery":
+            return True
+    return False
 
-        choices = feat.get("choices")
-        if not isinstance(choices, list) or len(choices) == 0:
+
+def check(sheet: dict, access) -> list[Violation]:
+    v: list[Violation] = []
+
+    if not _has_weapon_mastery_feature(sheet.get("features")):
+        return v
+
+    masteries = sheet.get("weapon_masteries")
+    if not isinstance(masteries, list) or len(masteries) == 0:
+        v.append(Violation(
+            DOMAIN, "mastery-choices-missing", "incomplete",
+            "'Weapon Mastery' feature present but weapon_masteries is empty",
+            "weapon_masteries"))
+        return v
+
+    masterable = q.masterable_weapon_ids(access)
+    for j, choice in enumerate(masteries):
+        if not isinstance(choice, str) or not choice.strip():
             v.append(Violation(
-                DOMAIN, "mastery-choices-missing", "incomplete",
-                "'Weapon Mastery' feature present but has no choices",
-                f"features[{i}].choices"))
+                DOMAIN, "mastery-choice-invalid", "illegal",
+                f"invalid mastery choice: {choice!r}",
+                f"weapon_masteries[{j}]"))
             continue
-
-        for j, choice in enumerate(choices):
-            if not isinstance(choice, str) or not choice.strip():
-                v.append(Violation(
-                    DOMAIN, "mastery-choice-invalid", "illegal",
-                    f"invalid mastery choice: {choice!r}",
-                    f"features[{i}].choices[{j}]"))
-                continue
-            if choice.strip().lower() not in masterable:
-                v.append(Violation(
-                    DOMAIN, "mastery-choice-invalid", "illegal",
-                    f"'{choice}' is not a valid masterable weapon",
-                    f"features[{i}].choices[{j}]"))
+        if choice.strip().lower() not in masterable:
+            v.append(Violation(
+                DOMAIN, "mastery-choice-invalid", "illegal",
+                f"'{choice}' is not a valid masterable weapon",
+                f"weapon_masteries[{j}]"))
 
     return v
