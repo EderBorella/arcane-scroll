@@ -73,6 +73,47 @@ def derive_sources(core: dict, access) -> dict:
             continue
         prog = q.caster_progression(access, cid)
         if prog is None or prog == "none":
+            sub_id = _subclass_id(c, access)
+            if not sub_id:
+                continue
+            level = c.get("level") or 0
+
+            # Category 1: third-caster subclass
+            if q.subclass_is_third_caster(access, sub_id):
+                ck, prep = q.subclass_cantrips_prepared(access, sub_id, level)
+                ability = _class_spellcasting_ability(access, cid, c)
+                key = f"class:{cid}"
+                sources[key] = {
+                    "kind": "class",
+                    "ability": ability or "",
+                    "cantrips_known": ck or 0,
+                    "prepared_limit": prep,
+                    "ability_mode": None,
+                }
+                continue
+
+            # Category 2: grant-only subclass (spells without spellcasting)
+            grants = grants_for(access.db, "grant_spell", "subclass", sub_id)
+            if not grants:
+                continue
+            ability = None
+            mode = None
+            for g in grants:
+                if g["ability_id"] and not ability:
+                    ability = g["ability_id"]
+                am = g["ability_mode"]
+                if am and not mode:
+                    mode = am
+            if not ability:
+                continue
+            key = f"subclass:{sub_id}"
+            sources[key] = {
+                "kind": "subclass",
+                "ability": ability or "",
+                "cantrips_known": sum(1 for g in grants if (g["bucket"] or "") == "cantrip"),
+                "prepared_limit": None,
+                "ability_mode": mode,
+            }
             continue
         level = c.get("level") or 0
         ck, prep = q.cantrips_prepared(access, cid, level)
@@ -83,7 +124,7 @@ def derive_sources(core: dict, access) -> dict:
         key = f"class:{cid}"
         sources[key] = {
             "kind": "class",
-            "ability": ability,
+            "ability": ability or "",
             "cantrips_known": ck or 0,
             "prepared_limit": None if prog == "pact" else prep,
             "ability_mode": None,
@@ -107,7 +148,7 @@ def derive_sources(core: dict, access) -> dict:
         mode = _feat_ability_mode(grants)
         sources[key] = {
             "kind": "feat",
-            "ability": ability,
+            "ability": ability or "",
             "cantrips_known": cantrip_count,
             "prepared_limit": None,
             "ability_mode": mode,
@@ -125,7 +166,7 @@ def derive_sources(core: dict, access) -> dict:
             if ability or ck or grants:
                 sources[key] = {
                     "kind": "species",
-                    "ability": ability,
+                    "ability": ability or "",
                     "cantrips_known": ck,
                     "prepared_limit": None,
                     "ability_mode": mode,
@@ -142,7 +183,7 @@ def derive_sources(core: dict, access) -> dict:
                 key = f"lineage:{lid}"
                 sources[key] = {
                     "kind": "lineage",
-                    "ability": ability,
+                    "ability": ability or "",
                     "cantrips_known": ck,
                     "prepared_limit": None,
                     "ability_mode": mode,
@@ -501,11 +542,22 @@ def _format_range(row) -> dict | None:
     return result
 
 
+DURATION_KIND_MAP = {
+    "time-span": None,  # uses duration_unit_id instead
+    "concentration": None,  # uses duration_unit_id instead (concentration flag already set)
+    "until-dispelled-or-triggered": "until_dispelled",
+}
+DURATION_UNIT_KIND = {"round": "round", "minute": "minute", "hour": "hour", "day": "day"}
+
+
 def _format_duration(row) -> dict | None:
     dt = row.get("duration_type_id")
     if not dt:
         return None
-    result = {"kind": dt}
+    kind = DURATION_KIND_MAP.get(dt, dt)
+    if kind is None:  # time-span — resolve from duration_unit_id
+        kind = DURATION_UNIT_KIND.get(row.get("duration_unit_id"), "special")
+    result = {"kind": kind}
     if row.get("duration_amount"):
         result["value"] = row["duration_amount"]
     if row.get("concentration"):
@@ -526,6 +578,7 @@ def derive_slots(core: dict, access) -> tuple[dict, dict]:
     ident = core.get("identity", {}) or {}
     leveled_level = 0
     pact_levels: list[tuple[str, int]] = []
+    has_other_casters = False
 
     for c in ident.get("classes", []) or []:
         cid = _class_id(c, access)
@@ -536,23 +589,37 @@ def derive_slots(core: dict, access) -> tuple[dict, dict]:
 
         if prog == "full":
             leveled_level += level
+            has_other_casters = True
         elif prog == "half":
             leveled_level += (level + 1) // 2  # ceil(level/2)
+            has_other_casters = True
         elif prog == "pact":
             pact_levels.append((cid, level))
         # Check for third-caster subclass
         sub_id = _subclass_id(c, access)
         if sub_id and prog in ("none",):
-            from access.validator import spellcasting
-            if spellcasting.subclass_is_third_caster(access, sub_id):
+            if q.subclass_is_third_caster(access, sub_id):
                 leveled_level += level // 3
 
     # Leveled slots
     spell_slots = {}
     if leveled_level > 0:
-        slots = q.multiclass_slots(access, leveled_level)
-        for sl, count in slots.items():
-            spell_slots[str(sl)] = {"max": count}
+        if not has_other_casters:
+            # Solo third-caster: use subclass slot table directly
+            for c in ident.get("classes", []) or []:
+                cid = _class_id(c, access)
+                if not cid:
+                    continue
+                level = c.get("level") or 0
+                sub_id = _subclass_id(c, access)
+                if sub_id and q.subclass_is_third_caster(access, sub_id):
+                    slots = q.subclass_slots(access, sub_id, level)
+                    for sl, count in slots.items():
+                        spell_slots[str(sl)] = {"max": count}
+        else:
+            slots = q.multiclass_slots(access, leveled_level)
+            for sl, count in slots.items():
+                spell_slots[str(sl)] = {"max": count}
 
     # Pact slots
     pact_slots = {}
