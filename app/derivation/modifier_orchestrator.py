@@ -148,14 +148,19 @@ def _dedup_spell_bonuses(effects: ActiveEffects) -> ActiveEffects:
 # ── helper: build default slot dict ──────────────────────────────────────────
 
 
+DEFAULT_EMPTY_SLOTS = {"1": {"remaining": 0}}
+
+
 def _default_slots(grimoire: dict | None, key: str) -> dict:
     if grimoire is None:
-        return {}
+        return DEFAULT_EMPTY_SLOTS
     slots = grimoire.get(key, {}) or {}
     result = {}
     for lvl, entry in slots.items():
         if isinstance(entry, dict) and _int(entry.get("max")):
             result[lvl] = {"remaining": entry["max"]}
+    if not result:
+        return DEFAULT_EMPTY_SLOTS
     return result
 
 

@@ -41,6 +41,17 @@ def cantrips_prepared(access: ValidatorAccess, class_id: str, level: int) -> tup
     return row["cantrips_known"], row["prepared_spells"]
 
 
+def subclass_cantrips_prepared(access: ValidatorAccess, subclass_id: str,
+                              class_level: int) -> tuple[int | None, int | None]:
+    """(cantrips_known, prepared_spells) for a third-caster subclass at a class level."""
+    row = access.db.one(
+        "SELECT cantrips_known, prepared_spells FROM subclass_cantrips_prepared "
+        "WHERE subclass_id=? AND class_level=?", subclass_id, class_level)
+    if row is None:
+        return None, None
+    return row["cantrips_known"], row["prepared_spells"]
+
+
 def subclass_is_third_caster(access: ValidatorAccess, subclass_id: str) -> bool:
     """True if a subclass grants third-caster spellcasting (Eldritch Knight / Arcane Trickster-style)."""
     return access.db.one(

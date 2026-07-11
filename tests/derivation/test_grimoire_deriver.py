@@ -90,6 +90,43 @@ class TestDeriveSources:
         # Just check no crash
         assert isinstance(sources, dict)
 
+    def test_third_caster_source(self, access):
+        """Non-caster class with third-caster subclass produces a class source."""
+        core = _core_sheet()
+        core["identity"]["classes"] = [
+            {"class": "Class M", "level": 3, "subclass": "Sub EK",
+             "subclass_detail": None, "class_detail": None}]
+        core["identity"]["total_level"] = 3
+        core["identity"]["species"] = "Species A"
+        sources = derive_sources(core, access)
+        assert "class:class-m" in sources
+        s = sources["class:class-m"]
+        assert s["kind"] == "class"
+        assert s["cantrips_known"] == 2
+        assert s["prepared_limit"] == 3
+
+    def test_third_caster_below_level_no_source(self, access):
+        """Before subclass level 3, no source should be created."""
+        core = _core_sheet()
+        core["identity"]["classes"] = [
+            {"class": "Class M", "level": 2, "subclass": None}]
+        core["identity"]["total_level"] = 2
+        core["identity"]["species"] = None
+        sources = derive_sources(core, access)
+        assert "class:class-m" not in sources
+
+    def test_grant_only_subclass_source(self, access):
+        """Grant-only subclass produces a subclass source."""
+        core = _core_sheet()
+        core["identity"]["classes"] = [
+            {"class": "Class M", "level": 3, "subclass": "Sub Shadow"}]
+        core["identity"]["total_level"] = 3
+        sources = derive_sources(core, access)
+        assert "subclass:sub-shadow" in sources
+        s = sources["subclass:sub-shadow"]
+        assert s["kind"] == "subclass"
+        assert s["ability"] is not None
+
 
 class TestDeriveSlots:
     def test_full_caster_slots(self, access):
@@ -118,6 +155,27 @@ class TestDeriveSlots:
         slots, pact = derive_slots(core, access)
         assert len(slots) == 0
         assert len(pact) == 0
+
+    def test_solo_third_caster_slots(self, access):
+        """Solo third-caster uses subclass_spell_slot directly."""
+        core = _core_sheet()
+        core["identity"]["classes"] = [
+            {"class": "Class M", "level": 3, "subclass": "Sub EK"}]
+        core["identity"]["total_level"] = 3
+        slots, pact = derive_slots(core, access)
+        assert slots == {"1": {"max": 2}}
+
+    def test_third_caster_mixed_uses_multiclass(self, access):
+        """Third-caster + full caster: combined multiclass table."""
+        core = _core_sheet()
+        core["identity"]["classes"] = [
+            {"class": "Class A", "level": 3, "subclass": None},
+            {"class": "Class M", "level": 3, "subclass": "Sub EK"}]
+        core["identity"]["total_level"] = 6
+        slots, pact = derive_slots(core, access)
+        # caster_level = 3 (full) + 1 (third) = 4 → {1:4, 2:3}
+        assert slots["1"]["max"] == 4
+        assert slots["2"]["max"] == 3
 
 
 class TestDeriveSpells:
