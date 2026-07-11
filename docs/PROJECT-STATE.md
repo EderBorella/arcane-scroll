@@ -3,7 +3,7 @@
 > **Master state doc (public, high-level).** One source of truth for what we're building, what
 > works, what's decided, and what's next.
 >
-> Last updated: **2026-07-09**. **Recent:** Phase A of the 5-schema contract split (F05-T29) + CORE validator (C0) + partial Phase B (B4/B5/B9 — condition_kind on grants, item_slot table, state_compatibility table). 474 passed + 8 xfail.
+> Last updated: **2026-07-11**. **Recent:** 5-schema split **Phases A–C complete** — CORE (C0), GRIMOIRE (deriver + validator), INVENTORY (validator), and MODIFIER (derivation engine + orchestrator/validator), plus a DB-audit integrity pass (F05-T38). **Phase D** — migrating the gold corpus to the 5 schemas (F05-T39) — is **executing now**. **631 tests collected** (up from 482).
 
 ---
 
@@ -68,21 +68,30 @@ What's left is derivation-side + the service:**
 | Flavour bundle (physical/traits/backstory) | ✅ done (one structured call) |
 | Strict validator + reference data (by-construction, generator-side) | ✅ working |
 | **Reference rulebook DB (`rules.db`) + data-access layer (`access/`)** | ✅ **landed (F05-S01)** — relational DB read via a read-only handle + retrieval primitives + a name→id resolver + per-domain feature-access query modules |
-| **Validation micro-service (independent post-hoc gate)** | 🔄 **rebuilding on `access/`** (F05-S12) — foundation + **7 of ~13 domains** (identity, abilities, saving-throws, vitals, feats, proficiencies, spellcasting) with a resilient orchestrator + typed report; remaining: features, movement, defenses, equipment, items, companions. Contract split (F05-T29) adds CORE validator (`validate_core`) for 12-domain subset. |
+| **Validation micro-service (independent post-hoc gate)** | ✅ **rebuilt on `access/`** (F05-S12) — resilient orchestrator + typed report + **15 registered domain checks**. Per-sub-schema validators live: **CORE** (`/validate-core`, 12 checks), **GRIMOIRE** (`/validate-grimoire`, 15 violation types), **INVENTORY** (`/validate-inventory`, 7 types), **MODIFIER** (`/validate-modifier`, 12 checks). Remaining: companions (Phase E). |
+| **5-schema derivation (CORE → GRIMOIRE → MODIFIER)** | ✅ GRIMOIRE deriver (T33) + MODIFIER derivation engine (T36, 17 functions) + orchestrator (T37, 3 modes, 17 non-overwritable player/DM paths, same-source dedup) |
 | **Generation (all model choices)** | ✅ **complete & valid by construction** |
 | **Service stack (Docker: model + app)** | ✅ scaffolded — skeleton serving |
 | **Shared resource catalog (load-time)** | ✅ loaded in memory at startup |
 | **Character sheet generator** | ✅ base contract + feature/feat/equipment choices |
 | **Backstory generator** | ✅ physical + personality + backstory |
 | **HTTP API** (`POST /v1/characters`, `/v1/backstory`) | ✅ live — `/v1/characters` now returns choices **+ derived sheet** |
-| **Test suite** (per-layer, synthetic fixtures) | ✅ **474 passed + 8 xfail (482 total)** — generator + data-access (`access/`) + validator (7 v10 domains + CORE validator) + state_compatibility access tests (8); xfail = generator-conformance gaps |
+| **Test suite** (per-layer, synthetic fixtures) | ✅ **631 tests collected** — generator + data-access (`access/`) + the four sub-schema validators (CORE/GRIMOIRE/INVENTORY/MODIFIER) + MODIFIER derivation; xfail = generator-conformance gaps (fixed last, never by bending the validator) |
 | **Derivation engine (compute side)** | ✅ render-ready sheet + armour-based AC + inventory assembly + **starting treasure**; two-pass next (T42/T46) |
 | Arcane Desk integration | ⬜ later |
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
 
+- **Phase D — gold-corpus migration, in progress (F05-T39).** Migrating the 218-sheet gold corpus (168 full + 50 item-heavy) from the monolithic v10 shape into the five sub-schemas, producing a `gold-v12/` corpus with a multi-schema harness + migration script and 15 live-state test sheets — the end-to-end exercise of the 5-schema architecture. Execution underway on a feature branch; surfacing and fixing migration issues (subclass source handling in the GRIMOIRE deriver, spellcasting-focus catalog, gold item-name fixups). Not yet merged.
+
+- **DB audit integrity pass (F05-T38).** A data-integrity sweep over the reference DB corrected condition-gating on grant rows (`condition_kind`), level-gating (`gained_at_level`) inconsistencies, and initiative handling — clearing blockers for the 5-schema validators. PR #79.
+
+- **MODIFIER orchestrator + validator (F05-T37).** A three-mode orchestrator (fill-from-scratch / fill-gaps / skip) assembles the live-play MODIFIER sub-sheet from CORE + INVENTORY + GRIMOIRE, deep-merging while preserving **17 non-overwritable field paths** that belong to the player/DM (current & temporary HP, death saves, remaining slots/uses/charges, item states, prepared spells, treasure, xp). Same-source effects are deduplicated by `(source_name, target_kind, target_id)` (effects of the same source never combine). Adds a **12-check** MODIFIER validator (AC, save/skill/effective-ability/passive-score mismatches, defense-subset, feature/feat presence, prepared-spell validity, state-incompatibility). 33 tests. PR #78.
+
 - **MODIFIER derivation engine (F05-T36).** A 17-function pure derivation module (`app/derivation/modifier.py`) computes MODIFIER's derived fields from CORE, INVENTORY, GRIMOIRE, character_states, and item_states. Covers ActiveEffects resolution (state→grant lookup across character and item states), abilities (with set-item overrides), AC (armor/unarmored/shield/bonus/floor, driven by armor/ac_formula tables), speed (reuses _resolve_speeds from validator), defenses (resistances/immunities/vulnerabilities/condition-immunities/save-advantages), size, saving throws, skills, passive scores, initiative, HP effects, resource state, prepared spells, attacks (melee/ranged/finesse/versatile/dual-wielding with proficiency gating and weapon mastery), senses, features, and feats. C4 (default state→CORE baseline) is embedded as the first branch in every helper. 6 test DB tables expanded. 34 derivation tests + full suite green + gold harness pass. PR #77.
+
+- **INVENTORY sub-schema validator (F05-T35).** A validator for the independently versioned INVENTORY sub-schema (equipped slots + backpack, pure catalog references). **7 violation types** with a DB-driven slot vocabulary (queries the `item_slot` dimension at runtime, never hardcoded), two-handed/shield conflict resolution via the weapon-property map, and template gating (a template's `base_kind` must match the resolved catalog item's kind). Adapter takes MODIFIER as an optional third input. 22 tests. PR #76.
 
 - **GRIMOIRE sub-schema validator + deriver fix (F05-T34).** A new validator check module for the independently versioned GRIMOIRE sub-schema adds 16 violation types (11 ported from spellcasting, 5 grimoire-specific) spanning DC/attack math, source budgets, spell counts, slot/pact slot validation, spell list membership with generalized list-widening (subclass, class_detail, class_option), class_list legitimacy, recovery validity, ritual tag matching, and secondary cast metadata. The list_widening_classes access function was generalized from hardcoded class to accept any owner_kind; subclass/class_detail/class_option widening was added in both the existing spellcasting check and the new grimoire check. A one-line deriver fix preserves class_list-bucket spells on re-derivation. 38 tests across validator, deriver, and access layers. PR #75.
 
@@ -383,7 +392,8 @@ seconds. Stable at q4 (0 parse failures / 0 loops across 149).
 **Done:**
 - ✅ **Service stack scaffolded** (Docker: model + app, self-contained; app skeleton serving) — see Changelog.
 - ✅ **Reference rulebook DB + data-access layer (F05-S01)** — the 2024 ruleset as a fully-typed **relational DB** (`rules.db`, built outside the repo by the reference-DB pipeline), read via the repo's read-only **data-access layer** (`access/`: connection handle + retrieval primitives + a boilerplate validator feature file). Replaces the regex `build_rules.py` / flat-file approach.
-- 🔄 **Validation micro-service — rebuilding on the DAL (F05-S12).** The contract-first shared schema landed (now **v6**); the flat-file micro-service was removed 2026-07-05 and is being rebuilt over `rules.db` via `access/`. **Part 1 landed**: foundation + 7 domains (identity, abilities, saving-throws, vitals, feats, proficiencies, spellcasting) + resilient orchestrator + typed report. Remaining: features, movement, defenses, equipment, items, companions. Principles (independent, book-grounded) carry over. *(Prior backlog folds into the rebuild: **S18** spell-metadata, **S19** attunement, **S20** passive-scores, the **S11** conformance-corpus capstone; deferred/carded **F02-SRC**, **F02-GEN**, **F02-HYGIENE**.)*
+- ✅ **Validation micro-service — rebuilt on the DAL (F05-S12).** The flat-file micro-service was removed 2026-07-05 and rebuilt over `rules.db` via `access/`, keeping the independent, book-grounded principles. **15 registered domain checks** run under a resilient orchestrator + typed report. The 5-schema split (T29) then split validation into four per-sub-schema validators — **CORE** (12 checks), **GRIMOIRE** (15 violation types), **INVENTORY** (7 types), **MODIFIER** (12 checks) — with the GRIMOIRE/MODIFIER derivers alongside. Remaining: **companions** (Phase E). *(Prior backlog folded into the rebuild: **S18** spell-metadata, **S19** attunement, **S20** passive-scores, the **S11** conformance-corpus capstone; deferred/carded **F02-SRC**, **F02-GEN**, **F02-HYGIENE**.)*
+- 🔄 **Phase D — gold-corpus migration to the 5 schemas (F05-T39).** In progress: split 218 gold sheets into CORE/INVENTORY/GRIMOIRE/MODIFIER, build the `gold-v12/` corpus + multi-schema harness + 15 state test sheets. The end-to-end proof of the architecture.
 
 **Now (highest leverage):**
 1. **Generator** (base contract) is in — catalog-driven grammar/prompt → model → repaired choices.
