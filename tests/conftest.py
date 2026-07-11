@@ -538,6 +538,8 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE subclass_spellcasting (subclass_id TEXT PRIMARY KEY, "
                 "ability_id TEXT, spell_list_class_id TEXT)")
     cur.execute("CREATE TABLE subclass_spell_slot (subclass_id TEXT, class_level INT, slot_level INT, slot_count INT)")
+    cur.execute("CREATE TABLE subclass_cantrips_prepared (subclass_id TEXT, class_level INT, "
+                "cantrips_known INT, prepared_spells INT)")
     cur.execute("CREATE TABLE spell (id TEXT PRIMARY KEY, name TEXT, level INT, is_ritual INT)")
     cur.execute("CREATE TABLE spell_class (spell_id TEXT, class_id TEXT)")
     cur.execute("CREATE TABLE grant_spell (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, gained_at_level INT)")
@@ -556,6 +558,7 @@ def _build_rules_db(path: str) -> None:
     # so a test can tell the multiclass path was actually used)
     cur.execute("INSERT INTO multiclass_slot VALUES (4,1,4)")
     cur.execute("INSERT INTO multiclass_slot VALUES (4,2,3)")
+    cur.execute("INSERT INTO multiclass_slot VALUES (1,1,2)")
     # sub-b (class-b's subclass) is a third-caster subclass -- combined with class-a L3 (full, +3)
     # it contributes floor(3/3)=1, reaching combined caster level 4. Its own spell_list_class_id is
     # unused by the multiclass-slots tests, so it's left NULL here.
@@ -566,6 +569,9 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO class VALUES ('class-m','Class M',10,3,'none','all',2,0,'')")
     cur.execute("INSERT INTO subclass VALUES ('sub-ek','class-m','Sub EK',1,'')")
     cur.execute("INSERT INTO subclass_spellcasting VALUES ('sub-ek','a1','class-a')")
+    cur.execute("INSERT INTO subclass_cantrips_prepared VALUES ('sub-ek',3,2,3)")
+    cur.execute("INSERT INTO subclass_spell_slot VALUES ('sub-ek',3,1,2)")
+    cur.execute("INSERT INTO subclass_spell_slot VALUES ('sub-ek',4,1,3)")
     # a pact caster class + its pact slot table (2 slots at slot-level 1, for class-p level 2)
     cur.execute("INSERT INTO class VALUES ('class-p','Class P',8,3,'pact','all',2,0,'')")
     cur.execute("INSERT INTO pact_slot VALUES ('class-p',2,2,1)")
@@ -872,6 +878,12 @@ def _build_rules_db(path: str) -> None:
                 "SELECT id, owner_kind, owner_id, gained_at_level FROM grant_spell")
     cur.execute("DROP TABLE grant_spell")
     cur.execute("ALTER TABLE grant_spell_new_t RENAME TO grant_spell")
+
+    # ── grant-only subclass test data ──
+    cur.execute("INSERT INTO subclass VALUES ('sub-shadow','class-m','Sub Shadow',0,'')")
+    cur.execute("INSERT INTO grant_spell (id,owner_kind,owner_id,bucket,recovery,ability_mode,ability_id) "
+                "VALUES ('gsp-sub-shadow','subclass','sub-shadow','cantrip','at_will','fixed','a1')")
+    cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-sub-shadow','sp1')")
 
     # ── T34 isolated test data: new entities + grant rows (IDs NOT referenced by existing tests) ──
 
