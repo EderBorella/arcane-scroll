@@ -415,23 +415,6 @@ def derive_resource_state(core: dict, effects: ActiveEffects, access) -> dict:
     return result
 
 
-def derive_prepared_spells(grimoire: dict | None, access) -> list[str]:
-    """Returns prepared_spells: list of composite key strings from GRIMOIRE."""
-    if grimoire is None:
-        return []
-    spells = grimoire.get("spells", []) or []
-    result = []
-    for s in spells:
-        if not isinstance(s, dict):
-            continue
-        if s.get("bucket") == "prepared":
-            name = s.get("name", "")
-            source = s.get("source", "")
-            if name:
-                result.append(f"{name}|{source}")
-    return result
-
-
 def derive_attacks(core: dict, inventory: dict | None, abilities: dict,
                    item_states: list, effects: ActiveEffects, access) -> list[dict]:
     """Returns attacks: list of attack row dicts for each equipped weapon."""

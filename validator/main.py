@@ -10,6 +10,7 @@ from validator.validate import validate
 from validator.validate_core import validate_core
 from validator.validate_grimoire import validate_grimoire
 from validator.validate_inventory import validate_inventory
+from validator.validate_modifier import validate_modifier
 
 _state: dict = {}
 
@@ -46,3 +47,10 @@ async def validate_grimoire_sheet(body: dict = Body(...)) -> dict:
 async def validate_inventory_sheet(body: dict = Body(...)) -> dict:
     return validate_inventory(body["core"], body["inventory"],
                               body.get("modifier"), _state["access"])
+
+
+@app.post("/validate-modifier")
+async def validate_modifier_sheet(body: dict = Body(...)) -> dict:
+    return validate_modifier(body["core"], body["inventory"],
+                              body["grimoire"], body["modifier"],
+                              _state["access"])

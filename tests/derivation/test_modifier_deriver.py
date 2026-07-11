@@ -4,7 +4,7 @@ from app.derivation.modifier import (
     derive_abilities, derive_ac, derive_speed, derive_defenses, derive_size,
     derive_saving_throws, derive_skills, derive_passive_scores,
     derive_initiative, derive_hp_effects, derive_resource_state,
-    derive_prepared_spells, derive_attacks, derive_senses,
+    derive_attacks, derive_senses,
     derive_features, derive_feats,
 )
 
@@ -239,25 +239,6 @@ def test_derive_resource_state(access):
     assert state["rage"]["max"] == 3
 
 
-# ── derive_prepared_spells ───────────────────────────────────────────────────
-
-
-def test_derive_prepared_spells(access):
-    grimoire = {
-        "spells": [
-            {"name": "Sp3", "source": "class:class-a", "bucket": "prepared"},
-            {"name": "Sp1", "source": "class:class-a", "bucket": "cantrip"},
-        ]
-    }
-    result = derive_prepared_spells(grimoire, access)
-    assert len(result) == 1
-    assert "Sp3|class:class-a" in result
-
-
-def test_derive_prepared_spells_none(access):
-    assert derive_prepared_spells(None, access) == []
-
-
 # ── derive_attacks ───────────────────────────────────────────────────────────
 
 
@@ -361,7 +342,6 @@ def test_empty_state_defaults(access):
     init = derive_initiative(core, mods, 2, effects, access)
     hp = derive_hp_effects(core, effects, access)
     res = derive_resource_state(core, effects, access)
-    spells = derive_prepared_spells(None, access)
     senses = derive_senses(core, effects, access)
     feat_uses = derive_features(core, access)
     feat_list_uses = derive_feats(core, access)
