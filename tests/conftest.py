@@ -926,6 +926,74 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO grant_spell_choice (grant_id,from_kind) VALUES ('gsp-cls-opt','class_list')")
     cur.execute("INSERT INTO grant_spell_choice_value VALUES ('gsp-cls-opt','class-b')")
 
+    # ── F05-T39 fixtures ──────────────────────────────────────────────────────
+    # T34 (GRIMOIRE deriver): cantrip-recovery force + dynamic per-rest use counts.
+    # S12 (validators) + MODIFIER deriver: item-sourced senses/speeds/save bonuses.
+    # All IDs are new and unreferenced by existing tests.
+
+    # spells: one cantrip (level 0) + three level-1 spells for the dynamic-uses grants
+    for _sid, _sname, _slvl in [("spc0", "Spc0", 0), ("spd1", "Spd1", 1),
+                                ("spd2", "Spd2", 1), ("spd3", "Spd3", 1)]:
+        cur.execute("INSERT INTO spell VALUES (?,?,?,0)", (_sid, _sname, _slvl))
+
+    # feats that own the new grants (resolved by id in the tests)
+    for _fid, _fname in [("feat-cantrip", "Feat Cantrip"), ("feat-dyn-pb", "Feat Dyn PB"),
+                         ("feat-dyn-am", "Feat Dyn AM"), ("feat-dyn-cr", "Feat Dyn CR")]:
+        cur.execute("INSERT INTO feat VALUES (?,?,'general',0)", (_fid, _fname))
+
+    # a class resource with a count ladder (for the class_resource dynamic-uses kind),
+    # owned by class-a so the level is taken from the character's class-a level
+    cur.execute("INSERT INTO class_resource VALUES ('cr-dyn','class','class-a','Dyn Resource')")
+    cur.execute("INSERT INTO class_resource_level VALUES ('cr-dyn',1,4,NULL,NULL,NULL)")
+
+    # step 1: a cantrip grant whose stated recovery is 'spell_slot' — the deriver must
+    # force it to 'at_will' because the granted spell is level 0
+    cur.execute("INSERT INTO grant_spell (id,owner_kind,owner_id,bucket,recovery) "
+                "VALUES ('gsp-cantrip-slot','feat','feat-cantrip','cantrip','spell_slot')")
+    cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-cantrip-slot','spc0')")
+
+    # step 2: dynamic-uses grants (uses_num NULL), one per dynamic uses_kind. ability_id
+    # is set so derive_sources creates a feat spellcasting source for each grant.
+    cur.execute("INSERT INTO grant_spell (id,owner_kind,owner_id,bucket,recovery,uses_kind,ability_id) "
+                "VALUES ('gsp-dyn-pb','feat','feat-dyn-pb','always','slotless_per_rest','proficiency_bonus','a1')")
+    cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-dyn-pb','spd1')")
+    cur.execute("INSERT INTO grant_spell (id,owner_kind,owner_id,bucket,recovery,uses_kind,uses_ability_id,ability_id) "
+                "VALUES ('gsp-dyn-am','feat','feat-dyn-am','always','slotless_per_rest','ability_modifier','a4','a4')")
+    cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-dyn-am','spd2')")
+    cur.execute("INSERT INTO grant_spell (id,owner_kind,owner_id,bucket,recovery,uses_kind,uses_resource_id,ability_id) "
+                "VALUES ('gsp-dyn-cr','feat','feat-dyn-cr','always','slotless_per_rest','class_resource','cr-dyn','a1')")
+    cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-dyn-cr','spd3')")
+
+    # step 3/4: magic items conferring senses/speeds/save bonuses.
+    # attuned item — darkvision 60 + fly 30 (materialise at MODIFIER only when attuned)
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-boots','Boots Alpha','wondrous','feet')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-boots','rare',1)")
+    cur.execute("INSERT INTO grant_sense VALUES ('gs-mi-boots','magic_item','mi-boots',NULL,'darkvision',60,0,NULL,NULL)")
+    cur.execute("INSERT INTO grant_speed VALUES ('gsp-mi-boots','magic_item','mi-boots',NULL,'fly',30,0,1,0,NULL,NULL)")
+    # passive-on-equip item (no attunement) — blindsight 10 while equipped
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-goggles','Goggles Alpha','wondrous','head')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-goggles','uncommon',0)")
+    cur.execute("INSERT INTO grant_sense VALUES ('gs-mi-goggles','magic_item','mi-goggles',NULL,'blindsight',10,0,NULL,NULL)")
+    # two attuned items, each granting +1 to all saves (they stack to +2)
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-ring','Ring Alpha','wondrous','finger_1')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-ring','rare',1)")
+    cur.execute("INSERT INTO grant_bonus (id,owner_kind,owner_id,target_kind,target_id,value,source_name) "
+                "VALUES ('gb-mi-ring','magic_item','mi-ring','saving_throw',NULL,1,'Ring Alpha')")
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-cloak','Cloak Alpha','wondrous','back')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-cloak','rare',1)")
+    cur.execute("INSERT INTO grant_bonus (id,owner_kind,owner_id,target_kind,target_id,value,source_name) "
+                "VALUES ('gb-mi-cloak','magic_item','mi-cloak','saving_throw',NULL,1,'Cloak Alpha')")
+    # attuned item granting +2 to ONE ability's save (target_id set = per-ability)
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-amulet','Amulet Alpha','wondrous','neck')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-amulet','rare',1)")
+    cur.execute("INSERT INTO grant_bonus (id,owner_kind,owner_id,target_kind,target_id,value,source_name) "
+                "VALUES ('gb-mi-amulet','magic_item','mi-amulet','saving_throw','a1',2,'Amulet Alpha')")
+    # non-attunement item with an ADDITIVE walk speed (+10) while equipped — used to
+    # prove a spuriously-attuned equipped item isn't double-counted (branch 1 + 2)
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-anklet','Anklet Alpha','wondrous','feet')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-anklet','uncommon',0)")
+    cur.execute("INSERT INTO grant_speed VALUES ('gsp-mi-anklet','magic_item','mi-anklet',NULL,'walk',10,0,0,1,NULL,NULL)")
+
     con.commit()
     con.close()
 
