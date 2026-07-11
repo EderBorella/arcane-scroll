@@ -183,10 +183,24 @@ def test_derive_saving_throws_bonus(access):
     core = _core()
     abilities = {"a1": 2}
     effects = ActiveEffects()
-    effects.bonuses.append({"target_kind": "saving_throw", "value": 1, "ability_id": None,
+    # NULL target_id (all-saves bonus): applies to every save
+    effects.bonuses.append({"target_kind": "saving_throw", "value": 1, "target_id": None,
                             "source_name": "bless"})
     saves = derive_saving_throws(core, abilities, 2, effects, access)
     assert saves["a1"]["modifier"] == 5  # 2 + PB(2) + 1 bonus
+
+
+def test_derive_saving_throws_per_ability_bonus(access):
+    """A grant_bonus with a set target_id applies to that one ability's save only —
+    the deriver keys on target_id (there is no ability_id column)."""
+    core = _core()
+    abilities = {"a1": 2, "a2": 3}
+    effects = ActiveEffects()
+    effects.bonuses.append({"target_kind": "saving_throw", "value": 2, "target_id": "a1",
+                            "source_name": "Amulet Alpha"})
+    saves = derive_saving_throws(core, abilities, 2, effects, access)
+    assert saves["a1"]["modifier"] == 6  # 2 + PB(2) proficient + 2 item (a1 only)
+    assert saves["a2"]["modifier"] == 3  # 3 + 0, no per-ability bonus for a2
 
 
 # ── derive_skills ────────────────────────────────────────────────────────────
@@ -290,6 +304,48 @@ def test_derive_senses_baseline(access):
     core = _core()
     senses = derive_senses(core, _empty_effects(), access)
     assert senses["darkvision"] == 60
+
+
+# ── item-sourced senses / speeds (attuned + passive-on-equip) ────────────────
+
+
+def test_item_attuned_sense_and_speed(access):
+    core = _core()
+    inventory = {"equipped": {"feet": {"id": "item-feet", "name": "Boots Alpha"}}}
+    item_states = [{"inventory_ref": "item-feet", "attuned": True}]
+    effects = resolve_active_effects(core, inventory, [], item_states, access)
+    senses = derive_senses(core, effects, access)
+    speeds, _ = derive_speed(core, effects, access)
+    assert senses.get("darkvision") == 60   # item darkvision (== core, max keeps 60)
+    assert speeds.get("fly") == 30           # item fly materialises at MODIFIER
+
+
+def test_item_attunement_gated_when_not_attuned(access):
+    core = _core()
+    inventory = {"equipped": {"feet": {"id": "item-feet", "name": "Boots Alpha"}}}
+    effects = resolve_active_effects(core, inventory, [], [], access)  # not attuned
+    speeds, _ = derive_speed(core, effects, access)
+    assert "fly" not in speeds   # attunement-gated item confers nothing unattuned
+
+
+def test_item_passive_on_equip_sense(access):
+    core = _core()
+    inventory = {"equipped": {"head": {"id": "item-head", "name": "Goggles Alpha"}}}
+    effects = resolve_active_effects(core, inventory, [], [], access)  # no attunement
+    senses = derive_senses(core, effects, access)
+    assert senses.get("blindsight") == 10   # passive-on-equip, no attunement needed
+
+
+def test_item_equipped_and_spuriously_attuned_counts_once(access):
+    """A non-attunement item that is both equipped AND (spuriously) flagged attuned
+    must contribute its additive speed once, not once per branch (attuned branch +
+    passive-on-equip branch)."""
+    core = _core()
+    inventory = {"equipped": {"feet": {"id": "item-ankle", "name": "Anklet Alpha"}}}
+    item_states = [{"inventory_ref": "item-ankle", "attuned": True}]
+    effects = resolve_active_effects(core, inventory, [], item_states, access)
+    speeds, _ = derive_speed(core, effects, access)
+    assert speeds.get("walk") == 40   # base 30 + one +10 additive (not +20)
 
 
 # ── derive_features / derive_feats ───────────────────────────────────────────
