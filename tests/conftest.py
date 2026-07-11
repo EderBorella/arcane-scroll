@@ -454,7 +454,7 @@ def _build_rules_db(path: str) -> None:
                 "min_level INT, ability_id TEXT, min_score INT, armor_category_id TEXT, note TEXT)")
     cur.execute("CREATE TABLE class_feature (id TEXT PRIMARY KEY, class_id TEXT, level INT, name TEXT)")
     cur.execute("CREATE TABLE grant_feat (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
-                "gained_at_level INT, choose_n INT, from_category TEXT)")
+                "gained_at_level INT, condition_kind TEXT, choose_n INT, from_category TEXT)")
     for row in [
         ("feat-gen", "Feat Gen", "general", 0),
         ("feat-rep", "Feat Rep", "general", 1),
@@ -760,7 +760,7 @@ def _build_rules_db(path: str) -> None:
     # AC bonus from feat, initiative bonus, save bonus from subclass, AC from spell, save from spell
     for gbid, okind, oid, tkind, val, sn in [
         ("gb-ac-feat","feat","feat-gen","ac",1,"feat-gen"),
-        ("gb-init-feat","feat","feat-gen","initiative_bonus",2,"feat-gen"),
+        ("gb-init-feat","feat","feat-gen","initiative",2,"feat-gen"),
         ("gb-save-sub","subclass","sub-a","saving_throw",1,"sub-a"),
         ("gb-ac-spell","spell","sp1","ac",2,"shield-of-faith"),
         ("gb-save-spell","spell","sp2","saving_throw",None,"bless"),
@@ -772,7 +772,8 @@ def _build_rules_db(path: str) -> None:
                     "VALUES (?,?,?,?,?,?)", (gbid, okind, oid, tkind, val, sn))
 
     cur.execute("CREATE TABLE grant_d20_modifier (id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                "owner_kind TEXT, owner_id TEXT, target_kind TEXT, ability_id TEXT, modifier_id TEXT, "
+                "owner_kind TEXT, owner_id TEXT, gained_at_level INT, condition_kind TEXT, "
+                "target_kind TEXT, ability_id TEXT, modifier_id TEXT, "
                 "source_name TEXT, scope_note TEXT)")
     cur.execute("INSERT INTO grant_d20_modifier (owner_kind,owner_id,target_kind,modifier_id,source_name) "
                 "VALUES ('feat','feat-gen','initiative','advantage','feat-gen')")
@@ -794,8 +795,9 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO ac_formula_ability VALUES ('acf-a','a2')")
 
     cur.execute("CREATE TABLE grant_resource (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
-                "gained_at_level INT, name TEXT, uses_kind TEXT, uses_num INT, uses_ability_id TEXT)")
-    cur.execute("INSERT INTO grant_resource VALUES ('gr-a1','class','class-a',NULL,'Class Resource A',"
+                "gained_at_level INT, condition_kind TEXT, name TEXT, uses_kind TEXT, uses_num INT, "
+                "uses_ability_id TEXT)")
+    cur.execute("INSERT INTO grant_resource VALUES ('gr-a1','class','class-a',NULL,NULL,'Class Resource A',"
                 "'per_long_rest',2,NULL)")
 
     # B9: state dimension table + state_compatibility junction table

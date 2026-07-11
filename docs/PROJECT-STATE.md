@@ -3,7 +3,7 @@
 > **Master state doc (public, high-level).** One source of truth for what we're building, what
 > works, what's decided, and what's next.
 >
-> Last updated: **2026-07-09**. **Recent:** Phase A of the 5-schema contract split (F05-T29) + CORE validator (C0) + partial Phase B (B4/B5/B9 — condition_kind on grants, item_slot table, state_compatibility table). 474 passed + 8 xfail.
+> Last updated: **2026-07-11**. **Recent:** Phase C of the 5-schema contract split (F05-T29) complete — all 5 deriver/validator tasks landed (GRIMOIRE deriver+validator, INVENTORY validator, MODIFIER derivation engine+orchestrator+validator). Phase D (gold migration + testing) is next.. 474 passed + 8 xfail.
 
 ---
 
@@ -81,6 +81,8 @@ What's left is derivation-side + the service:**
 | Off-disk backup | ⬜ TODO |
 
 ### Changelog (newest first)
+
+- **MODIFIER orchestrator + validator — Phase C complete (F05-T37, PR #78).** A 3-mode orchestrator drives the C-M1 derivation engine (mode A: fill from scratch, mode B: fill gaps with path-aware deep-merge protecting 17 non-overwritable field paths, mode C: skip) and applies source-name dedup on spell-granted bonuses (same-spell → highest wins). The companion validator adds 12 checks: AC math, save/skill modifiers, effective abilities (max-not-sum), defense subset enforcement, passive scores, feature/feat presence, prepared spell integrity, and state compatibility (14-row DB table with transitive closure). The adapter passes CORE/INVENTORY/GRIMOIRE/MODIFIER as separate top-level keys rather than merging schemas. New /validate-modifier endpoint. 33 tests + full suite green + gold harness pass. Closes Phase C of the 5-schema split — all 5 deriver/validator tasks (GRIMOIRE deriver+validator, INVENTORY validator, MODIFIER derivation engine+orchestrator+validator) now landed. Phase D (gold migration + testing) is next.
 
 - **MODIFIER derivation engine (F05-T36).** A 17-function pure derivation module (`app/derivation/modifier.py`) computes MODIFIER's derived fields from CORE, INVENTORY, GRIMOIRE, character_states, and item_states. Covers ActiveEffects resolution (state→grant lookup across character and item states), abilities (with set-item overrides), AC (armor/unarmored/shield/bonus/floor, driven by armor/ac_formula tables), speed (reuses _resolve_speeds from validator), defenses (resistances/immunities/vulnerabilities/condition-immunities/save-advantages), size, saving throws, skills, passive scores, initiative, HP effects, resource state, prepared spells, attacks (melee/ranged/finesse/versatile/dual-wielding with proficiency gating and weapon mastery), senses, features, and feats. C4 (default state→CORE baseline) is embedded as the first branch in every helper. 6 test DB tables expanded. 34 derivation tests + full suite green + gold harness pass. PR #77.
 
