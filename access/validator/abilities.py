@@ -11,6 +11,19 @@ def ability_id(access: ValidatorAccess, key: str) -> str | None:
         key, key, key)
 
 
+def ability_id_for_short_key(access: ValidatorAccess, key: str) -> str | None:
+    """Map a CORE short ability key (its abbreviation) to the canonical DB ability id.
+
+    A sheet keys its abilities and saving throws by the short code, while the reference DB --
+    and every grant's target/ability id -- keys them by the full id (the canonical form). This
+    resolves the short code to that full id (matched on ``ability.abbrev`` case-insensitively),
+    or None if it matches no ability's abbreviation. Use this to normalise a short key before
+    comparing it to a DB-sourced full id."""
+    if not isinstance(key, str):
+        return None
+    return access.db.scalar("SELECT id FROM ability WHERE abbrev=? COLLATE NOCASE", key)
+
+
 def all_ability_ids(access: ValidatorAccess) -> list[str]:
     """Every ability id in the rulebook, in a stable order."""
     return [row["id"] for row in access.db.q("SELECT id FROM ability ORDER BY id")]

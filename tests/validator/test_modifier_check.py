@@ -192,6 +192,43 @@ def test_save_item_bonus_per_ability_wrong_target(access):
     assert "save-modifier-mismatch" in _codes(sheet, access)
 
 
+def _rekey_saves_short(sheet):
+    """Re-key the sheet's CORE + MODIFIER saves and abilities by the short code (abbrev x1/x2/x3),
+    mirroring the id/abbrev split of real sheets (CORE keys by short code; grant target ids are
+    full ids)."""
+    sheet["core"]["saving_throws"] = {"x1": {"proficient": True}, "x2": {"proficient": False},
+                                      "x3": {"proficient": True}}
+    sheet["core"]["abilities"] = {"x1": {"final": 14}, "x2": {"final": 16}, "x3": {"final": 12}}
+    sheet["modifier"]["abilities"] = {"x1": {"modifier": 2, "reduction": 0},
+                                      "x2": {"modifier": 3, "reduction": 0},
+                                      "x3": {"modifier": 1, "reduction": 0}}
+    sheet["modifier"]["saving_throws"] = {"x1": {"modifier": 4}, "x2": {"modifier": 3},
+                                          "x3": {"modifier": 3}}
+    sheet["inventory"] = {"equipped": {"neck": {"id": "item-neck", "name": "Amulet Alpha"}}}
+    sheet["modifier"]["item_states"] = [{"inventory_ref": "item-neck", "attuned": True}]
+    return sheet
+
+
+def test_save_item_bonus_per_ability_short_keyed(access):
+    """Key-mismatch regression: the MODIFIER/CORE saves are keyed by the short code (abbrev x1),
+    while the amulet's per-ability save bonus is keyed by the grant target_id (the full id a1). The
+    +2 must still land on x1's save — the check normalises the short key to the full id before
+    matching. (Keying by the id, as the sibling test does, hid this: the synthetic key equalled the
+    id.)"""
+    sheet = _rekey_saves_short(_sheet())
+    sheet["modifier"]["saving_throws"]["x1"]["modifier"] = 4 + 2   # x1 (== a1) gets the +2
+    # x2/x3 unchanged: the a1-targeted bonus must NOT leak to them
+    assert "save-modifier-mismatch" not in _codes(sheet, access)
+
+
+def test_save_item_bonus_per_ability_short_keyed_wrong_target(access):
+    """Same short-keyed sheet: applying the a1-targeted +2 to x2 (not x1) is flagged."""
+    sheet = _rekey_saves_short(_sheet())
+    sheet["modifier"]["saving_throws"]["x1"]["modifier"] = 4 + 2   # x1 correct
+    sheet["modifier"]["saving_throws"]["x2"]["modifier"] = 3 + 2   # x2 WRONG (bonus must not apply)
+    assert "save-modifier-mismatch" in _codes(sheet, access)
+
+
 def test_deriver_validator_agree_per_ability_save(access):
     """End-to-end: derive the MODIFIER with a per-ability item save bonus, then
     validate it. Deriver and validator must agree (no save-modifier-mismatch), and

@@ -332,7 +332,7 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO subclass VALUES ('sub-skills','class-a','Sub Skills',0,'')")
     cur.execute("INSERT INTO subclass VALUES ('sub-save','class-a','Sub Save',0,'')")
     # sub-save-late: a class-a subclass whose save grant only kicks in at class level 7
-    # (Gloom-Stalker-style -- gained_at_level gating fix's fixture)
+    # (a level-gated subclass save grant -- gained_at_level gating fix's fixture)
     cur.execute("INSERT INTO subclass VALUES ('sub-save-late','class-a','Sub Save Late',0,'')")
     cur.execute("INSERT INTO creature_type VALUES ('type-a','Type A')")
     cur.execute("INSERT INTO creature_type VALUES ('type-b','Type B')")
@@ -468,18 +468,25 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO grant_proficiency VALUES "
                 "('gp-featsave','feat','feat-save',NULL,'saving_throw','fixed',0,NULL,0,NULL)")
     cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-featsave','a3')")
-    # sub-save (class-a's subclass) grants saving-throw proficiency in a3 (like Gloom Stalker's
-    # Wisdom save) via the same proficiency grant spine, owner_kind='subclass' -- the
+    # sub-save (class-a's subclass) grants saving-throw proficiency in a3 via the same proficiency
+    # grant spine, owner_kind='subclass' -- a subclass-granted (always-on) save; the
     # subclass-granted-save fix's fixture.
     cur.execute("INSERT INTO grant_proficiency VALUES "
                 "('gp-subclass-save','subclass','sub-save',NULL,'saving_throw','fixed',0,NULL,0,NULL)")
     cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-subclass-save','a3')")
     # sub-save-late grants the same a3 save proficiency, but only from class level 7 onward
-    # (gained_at_level=7) -- the gained_at_level gating fix's fixture (Gloom Stalker's Wisdom
-    # save is a real DB fact granted at level 7, not level 1).
+    # (gained_at_level=7) -- the gained_at_level gating fix's fixture (a level-gated subclass save
+    # grant is a real DB pattern granted at a specific level, not level 1).
     cur.execute("INSERT INTO grant_proficiency VALUES "
                 "('gp-subclass-save-late','subclass','sub-save-late',7,'saving_throw','fixed',0,NULL,0,NULL)")
     cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-subclass-save-late','a3')")
+    # class-b's OWN level-gated feature grants a3 saving-throw proficiency from class level 7 onward
+    # (owner_kind='class', gained_at_level=7) -- a high-level class feature that grants extra saves,
+    # like a class's L14/L15 save feature. The saving-throws check must consume it for EVERY class
+    # entry (not just the first) and gate it by that entry's level.
+    cur.execute("INSERT INTO grant_proficiency VALUES "
+                "('gp-class-save-late','class','class-b',7,'saving_throw','fixed',0,NULL,0,NULL)")
+    cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-class-save-late','a3')")
     # feat-pre needs total_level>=4 (group 1) AND ability a1>=13 (group 2) -- AND across groups,
     # OR within a group (single row per group here, so each group's one row must hold)
     cur.execute("INSERT INTO feat_prereq VALUES "

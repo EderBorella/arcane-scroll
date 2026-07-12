@@ -13,6 +13,7 @@ import hashlib
 import json
 
 from access.primitives import grants_for, resource_at
+from access.validator import abilities as abilities_q
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -59,7 +60,7 @@ def derive_sources(core: dict, access) -> dict:
     """Build the ``sources`` map from CORE identity + DB facts.
 
     Returns ``{source_key: {kind, ability, cantrips_known, prepared_limit, ability_mode}}``
-    where source_key = ``"{kind}:{db_id}"`` (e.g. ``"class:wizard"``).
+    where source_key = ``"{kind}:{db_id}"`` (e.g. ``"class:class-a"``).
     """
     from access.validator import spellcasting as q
 
@@ -555,9 +556,10 @@ def _core_ability_mod(aid, core, access) -> int | None:
     abilities = core.get("abilities", {}) or {}
     ab = abilities.get(aid)
     if not isinstance(ab, dict):
-        abbrev = access.db.scalar("SELECT abbrev FROM ability WHERE id=?", aid)
-        if abbrev:
-            ab = abilities.get(abbrev.lower())
+        # CORE keys abilities by the short code; normalise those keys to the full DB id
+        # (the shared helper backs the abbrev lookup) and index by the grant's id.
+        norm = {abilities_q.ability_id_for_short_key(access, k): val for k, val in abilities.items()}
+        ab = norm.get(aid)
     if not isinstance(ab, dict):
         return None
     final = ab.get("final")
