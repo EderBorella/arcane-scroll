@@ -2,6 +2,7 @@
 CORE + INVENTORY + GRIMOIRE + DB + active state effects. No orchestrator, no non-overwritable
 field protection, no stacking-rule enforcement — those are C-M2."""
 from access.primitives import grants_for
+from access.validator import abilities as abilities_q
 
 
 def _int(x) -> bool:
@@ -10,6 +11,18 @@ def _int(x) -> bool:
 
 def _ability_mod(score: int) -> int:
     return (score - 10) // 2
+
+
+def _mod_for_ability_id(access, abilities: dict, full_id: str) -> int:
+    """Ability modifier for a canonical DB ability id, read from an `abilities` dict that may be
+    keyed by CORE short codes (e.g. the short form a sheet uses) or by full DB ids. A direct
+    full-id hit wins; otherwise each key is normalised (short code -> full id) and matched."""
+    if full_id in abilities:
+        return abilities.get(full_id) or 0
+    for k, val in abilities.items():
+        if abilities_q.ability_id_for_short_key(access, k) == full_id:
+            return val or 0
+    return 0
 
 
 # ── C1: ActiveEffects resolution ─────────────────────────────────────────────
@@ -214,8 +227,11 @@ def derive_abilities(core: dict, effects: ActiveEffects, access) -> tuple[dict, 
             final_score = 10
         reduction = 0
         set_score = None
+        # `aid` is the CORE key (a short code); grant_ability_set.ability_id is the full DB id, so
+        # normalise before matching a set-ability effect to this ability.
+        full_aid = abilities_q.ability_id_for_short_key(access, aid) or aid
         for ab_set in effects.ability_sets:
-            if ab_set["ability_id"] == aid:
+            if ab_set["ability_id"] in (aid, full_aid):
                 s = ab_set["score"]
                 if s is not None and (set_score is None or s > set_score):
                     set_score = s
@@ -231,8 +247,9 @@ def derive_abilities(core: dict, effects: ActiveEffects, access) -> tuple[dict, 
 
 def derive_ac(core: dict, inventory: dict | None, effects: ActiveEffects, abilities: dict,
               access) -> tuple[int, dict]:
-    """Returns (armor_class, armor_class_detail). abilities is keyed by DB ability ID."""
-    dex_mod = abilities.get("dexterity", _find_ability_mod(access, abilities, "dexterity"))
+    """Returns (armor_class, armor_class_detail). `abilities` maps an ability key (CORE short
+    code or full DB id) to its modifier; the Dex mod is resolved via that key normalisation."""
+    dex_mod = _mod_for_ability_id(access, abilities, "dexterity")
     equipped = (inventory or {}).get("equipped", {}) or {}
     if not isinstance(equipped, dict):
         equipped = {}
@@ -287,13 +304,6 @@ def derive_ac(core: dict, inventory: dict | None, effects: ActiveEffects, abilit
         "floor": floor,
     }
     return base, detail
-
-
-def _find_ability_mod(access, abilities: dict, ability_name: str) -> int:
-    aid = access.resolve("ability", ability_name)
-    if aid and aid in abilities:
-        return abilities.get(aid, 0)
-    return 0
 
 
 def derive_speed(core: dict, effects: ActiveEffects, access) -> tuple[dict, dict]:
@@ -375,6 +385,9 @@ def derive_saving_throws(core: dict, abilities: dict, pb, effects: ActiveEffects
     saves = core.get("saving_throws", {}) or {}
     result = {}
     for aid, ab_mod in abilities.items():
+        # `aid` is the CORE key (a short code); grant target ids are full DB ids, so normalise
+        # before comparing a per-ability save bonus's target to this save.
+        full_aid = abilities_q.ability_id_for_short_key(access, aid) or aid
         mod = ab_mod
         save_data = saves.get(aid)
         if isinstance(save_data, dict):
@@ -389,7 +402,7 @@ def derive_saving_throws(core: dict, abilities: dict, pb, effects: ActiveEffects
                 # set = that one ability's save), mirroring the validator. There is
                 # no ability_id column.
                 tid = b.get("target_id")
-                if not tid or tid == aid:
+                if not tid or tid == full_aid:
                     if b["value"]:
                         mod += b["value"]
         result[aid] = {"modifier": mod}
@@ -429,8 +442,9 @@ def derive_passive_scores(core: dict, skills: dict, effects: ActiveEffects,
 
 def derive_initiative(core: dict, abilities: dict, pb, effects: ActiveEffects,
                       access) -> int:
-    """Returns initiative modifier: Dex mod + bonuses from states."""
-    dex_mod = abilities.get("dexterity", 0)
+    """Returns initiative modifier: Dex mod + bonuses from states. `abilities` may be keyed by a
+    CORE short code, so resolve the Dex mod via the same key normalisation as AC/attacks."""
+    dex_mod = _mod_for_ability_id(access, abilities, "dexterity")
     return dex_mod
 
 
@@ -495,12 +509,14 @@ def derive_attacks(core: dict, inventory: dict | None, abilities: dict,
         is_finesse = "finesse" in props
         is_two_handed = "two-handed" in props
 
+        str_mod = _mod_for_ability_id(access, abilities, "strength")
+        dex_mod = _mod_for_ability_id(access, abilities, "dexterity")
         if is_finesse:
-            ab_mod = max(abilities.get("strength", 0), abilities.get("dexterity", 0))
+            ab_mod = max(str_mod, dex_mod)
         elif is_ranged:
-            ab_mod = abilities.get("dexterity", 0)
+            ab_mod = dex_mod
         else:
-            ab_mod = abilities.get("strength", 0)
+            ab_mod = str_mod
 
         bonus = ab_mod
         if _int(pb) and tier in weapon_profs:

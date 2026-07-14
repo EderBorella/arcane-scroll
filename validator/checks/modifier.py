@@ -2,6 +2,7 @@
 CORE/INVENTORY/GRIMOIRE inputs. 11 checks covering AC, saves, skills, effective abilities,
 passives, defenses, features, feats, state compatibility, prepared spells, and stacking-rule
 enforcement. NOT in ALL_CHECKS — modifier:1-specific."""
+from access.validator import abilities as abilities_q
 from access.validator.state_compatibility import blocked_states
 from validator.report import Violation
 
@@ -147,7 +148,10 @@ def _check_saves(sheet: dict, access, v: list[Violation]) -> None:
         expected = ab_mod
         if proficient and _int(pb):
             expected += pb
-        expected += item_all_bonus + item_per_ability.get(aid, 0)
+        # `aid` is the MODIFIER save key (a short code); per-ability item bonuses are keyed by the
+        # grant's target_id (a full DB id), so normalise before matching.
+        full_aid = abilities_q.ability_id_for_short_key(access, aid) or aid
+        expected += item_all_bonus + item_per_ability.get(full_aid, 0)
 
         if actual != expected:
             v.append(Violation(DOMAIN, "save-modifier-mismatch", "illegal",

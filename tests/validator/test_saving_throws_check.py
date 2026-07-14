@@ -80,9 +80,9 @@ def test_save_proficiency_without_granting_feat_is_still_a_mismatch(access):
 
 
 def test_subclass_granted_save_proficiency_is_legal(access):
-    # sub-save (class-a's subclass, Gloom-Stalker-style) grants proficiency in a3 (x3) via the
-    # proficiency grant spine (owner_kind='subclass') -- a sheet proficient in it while holding
-    # that subclass is legal, even though a3 isn't a class-a save.
+    # sub-save (class-a's subclass) grants proficiency in a3 (x3) via the proficiency grant spine
+    # (owner_kind='subclass') -- a sheet proficient in it while holding that subclass is legal,
+    # even though a3 isn't a class-a save.
     s = _sheet(classes=[{"class": "Class A", "subclass": "Sub Save", "level": 3}], saving_throws={
         "x1": {"proficient": True, "modifier": 4},
         "x2": {"proficient": True, "modifier": 4},
@@ -102,7 +102,7 @@ def test_save_proficiency_without_granting_subclass_is_still_a_mismatch(access):
 
 
 def test_level_gated_subclass_save_is_legal_once_class_level_meets_gained_at_level(access):
-    # sub-save-late (Gloom-Stalker-style) grants a3 only from class level 7 onward -- at class
+    # sub-save-late (a level-gated subclass save grant) grants a3 only from class level 7 onward -- at class
     # level 8, proficient in a3 is legal (grant active + present).
     s = _sheet(classes=[{"class": "Class A", "subclass": "Sub Save Late", "level": 8}], saving_throws={
         "x1": {"proficient": True, "modifier": 4},
@@ -132,4 +132,49 @@ def test_level_gated_subclass_save_still_flagged_when_missing_after_gained_at_le
         "x2": {"proficient": True, "modifier": 4},
         "x3": {"proficient": False, "modifier": 1},
     })
+    assert "save-proficiency-mismatch" in _codes(s, access)
+
+
+# ── class-level feature save grant (owner_kind='class', gated, non-first entry) ──
+
+
+def test_class_feature_save_grant_on_non_first_class_entry_is_legal(access):
+    # class-b's OWN L7 feature grants an a3 (x3) save. On a multiclass build where class-b is the
+    # SECOND entry at level 8 (>= the gate), being proficient in a3 is legal -- proving the check
+    # consumes a class's own save grant for a non-first class entry, gated by that entry's level.
+    s = _sheet(
+        classes=[{"class": "Class A", "level": 3},
+                 {"class": "Class B", "subclass": "Sub B", "level": 8}],
+        saving_throws={
+            "x1": {"proficient": True, "modifier": 4},   # class-a's first-class save a1
+            "x2": {"proficient": True, "modifier": 4},   # class-a's first-class save a2
+            "x3": {"proficient": True, "modifier": 3},   # class-b's L7 feature save a3
+        })
+    assert "save-proficiency-mismatch" not in _codes(s, access)
+
+
+def test_class_feature_save_grant_below_gate_not_expected(access):
+    # class-b as the second entry at level 5 (below the level-7 gate): the grant is NOT active, so
+    # NOT being proficient in a3 must not be flagged.
+    s = _sheet(
+        classes=[{"class": "Class A", "level": 3},
+                 {"class": "Class B", "subclass": "Sub B", "level": 5}],
+        saving_throws={
+            "x1": {"proficient": True, "modifier": 4},
+            "x2": {"proficient": True, "modifier": 4},
+            "x3": {"proficient": False, "modifier": 1},
+        })
+    assert "save-proficiency-mismatch" not in _codes(s, access)
+
+
+def test_class_feature_save_grant_at_gate_missing_flagged(access):
+    # class-b at level 8 (grant active) but NOT proficient in a3 -- a real error, still flagged.
+    s = _sheet(
+        classes=[{"class": "Class A", "level": 3},
+                 {"class": "Class B", "subclass": "Sub B", "level": 8}],
+        saving_throws={
+            "x1": {"proficient": True, "modifier": 4},
+            "x2": {"proficient": True, "modifier": 4},
+            "x3": {"proficient": False, "modifier": 1},
+        })
     assert "save-proficiency-mismatch" in _codes(s, access)

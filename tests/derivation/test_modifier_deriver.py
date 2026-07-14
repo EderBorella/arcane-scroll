@@ -52,6 +52,21 @@ def _empty_effects():
     return ActiveEffects()
 
 
+def _access_with_dex_str(access):
+    """Return an access wired to this test's isolated DB after adding real Dexterity/Strength
+    abilities (abbrevs Dex/Str). The AC/attack derivers resolve the canonical 'dexterity'/'strength'
+    ids, so the synthetic DB (which only has placeholder abilities) needs them present to exercise a
+    short-keyed abilities dict. The `access` fixture is function-scoped, so this stays local."""
+    import sqlite3
+    from access.validator import ValidatorAccess
+    con = sqlite3.connect(access.db.path)
+    con.execute("INSERT INTO ability VALUES ('dexterity','Dexterity','Dex')")
+    con.execute("INSERT INTO ability VALUES ('strength','Strength','Str')")
+    con.commit()
+    con.close()
+    return ValidatorAccess(path=access.db.path)
+
+
 # ── derive_abilities ─────────────────────────────────────────────────────────
 
 
@@ -66,12 +81,17 @@ def test_derive_abilities_baseline(access):
 
 
 def test_derive_abilities_set_item(access):
-    core = _core()
+    """Key-mismatch regression: CORE abilities are keyed by the short code (abbrev x1), while the
+    set-ability grant's ability_id is the full DB id (a1). The set-score must still apply — the
+    deriver normalises the short key to the full id before matching. (Keying CORE by the id, as the
+    old fixture did, gave false confidence: the synthetic key equalled the grant's id.)"""
+    core = _core(abilities={"x1": {"final": 14}, "x2": {"final": 16}, "x3": {"final": 12}})
     effects = ActiveEffects()
-    effects.ability_sets.append({"ability_id": "a1", "score": 19, "mode": "set"})
+    effects.ability_sets.append({"ability_id": "a1", "score": 19, "mode": "set"})  # grant is full id
     abilities, effective, mods = derive_abilities(core, effects, access)
-    assert effective["a1"] == 19
-    assert abilities["a1"]["modifier"] == 4  # floor((19-10)/2)
+    assert effective["x1"] == 19               # set-score applied to x1 (x1 normalises to a1)
+    assert abilities["x1"]["modifier"] == 4    # floor((19-10)/2) -- NOT 2 (the pre-fix bug dropped it)
+    assert effective["x2"] == 16               # the a1-targeted set must NOT leak to x2
 
 
 # ── derive_ac ────────────────────────────────────────────────────────────────
@@ -117,6 +137,19 @@ def test_derive_ac_spell_bonus(access):
     assert ac == 14  # 10 + 2 Dex + 2 spell
     assert len(detail["bonuses"]) == 1
     assert detail["bonuses"][0]["value"] == 2
+
+
+def test_derive_ac_short_keyed_abilities_uses_real_dex_mod(access):
+    """Folded regression: the deriver's abilities dict is keyed by CORE short codes (the Dex
+    abbrev), but derive_ac looks up the full 'dexterity' id. Before the fix that lookup missed and
+    Dex silently contributed 0 to AC. With a short-keyed dict the real Dex mod must now reach
+    unarmored AC."""
+    access = _access_with_dex_str(access)
+    core = _core()
+    abilities = {"str": 2, "dex": 3}   # keyed by the abbreviations (CORE short codes)
+    ac, detail = derive_ac(core, None, _empty_effects(), abilities, access)
+    assert ac == 13            # 10 + Dex(3) -- NOT 10 (the pre-fix bug dropped Dex to 0)
+    assert detail["dex_bonus"] == 3
 
 
 def test_derive_ac_floor(access):
@@ -191,16 +224,19 @@ def test_derive_saving_throws_bonus(access):
 
 
 def test_derive_saving_throws_per_ability_bonus(access):
-    """A grant_bonus with a set target_id applies to that one ability's save only —
-    the deriver keys on target_id (there is no ability_id column)."""
-    core = _core()
-    abilities = {"a1": 2, "a2": 3}
+    """Key-mismatch regression: the CORE save keys and the mods dict use the short codes
+    (abbreviations x1/x2), while the grant's target_id is the full DB id (a1) — exactly the
+    id/abbrev split real data has. The per-ability bonus must still land on x1's save, i.e. the
+    deriver normalises the short key to the full id before matching target_id. (Keying abilities
+    by the id, as the old fixture did, gave false confidence: the synthetic key equalled the id.)"""
+    core = _core(saving_throws={"x1": {"proficient": True}, "x2": {"proficient": False}})
+    abilities = {"x1": 2, "x2": 3}          # mods keyed by the CORE short code (abbrev)
     effects = ActiveEffects()
     effects.bonuses.append({"target_kind": "saving_throw", "value": 2, "target_id": "a1",
-                            "source_name": "Amulet Alpha"})
+                            "source_name": "Amulet Alpha"})   # grant target is the full DB id
     saves = derive_saving_throws(core, abilities, 2, effects, access)
-    assert saves["a1"]["modifier"] == 6  # 2 + PB(2) proficient + 2 item (a1 only)
-    assert saves["a2"]["modifier"] == 3  # 3 + 0, no per-ability bonus for a2
+    assert saves["x1"]["modifier"] == 6  # 2 + PB(2) proficient + 2 item (x1 normalises to a1)
+    assert saves["x2"]["modifier"] == 3  # 3 + 0, the a1-targeted bonus must NOT leak to x2
 
 
 # ── derive_skills ────────────────────────────────────────────────────────────
@@ -232,6 +268,15 @@ def test_derive_passive_scores(access):
 def test_derive_initiative(access):
     abilities = {"dexterity": 3}
     assert derive_initiative({}, abilities, 2, _empty_effects(), access) == 3
+
+
+def test_derive_initiative_short_keyed_abilities_uses_real_dex_mod(access):
+    """Folded regression (same family as AC/attacks): initiative looked up the full 'dexterity' id
+    against a short-keyed abilities dict and silently returned 0. A short-keyed dict must now yield
+    the real Dex mod."""
+    access = _access_with_dex_str(access)
+    abilities = {"str": 2, "dex": 3}   # keyed by the abbreviations (CORE short codes)
+    assert derive_initiative({}, abilities, 2, _empty_effects(), access) == 3  # NOT 0 (pre-fix bug)
 
 
 # ── derive_hp_effects ────────────────────────────────────────────────────────
@@ -267,6 +312,20 @@ def test_derive_attacks_melee(access):
     assert a["attack_bonus"] == 4  # 2 Str + 2 PB
     assert "d12" in a["damage"]
     assert "two-handed" in a["properties"]
+
+
+def test_derive_attacks_short_keyed_abilities_uses_real_str_mod(access):
+    """Folded regression: derive_attacks looked up the full 'strength'/'dexterity' ids against a
+    short-keyed abilities dict and silently used 0. A Str-based weapon must now pick up the real
+    Str mod (in both attack bonus and damage) from a short-keyed dict."""
+    access = _access_with_dex_str(access)
+    core = _core()
+    inventory = {"equipped": {"main_hand": {"id": "w1", "name": "Greataxe"}}}
+    abilities = {"str": 2, "dex": 3}   # keyed by the abbreviations (CORE short codes)
+    attacks = derive_attacks(core, inventory, abilities, [], _empty_effects(), access)
+    assert len(attacks) == 1
+    assert attacks[0]["attack_bonus"] == 4   # Str(2) + PB(2) -- NOT 2 (pre-fix bug dropped Str)
+    assert attacks[0]["damage"] == "1d12+2"  # Str mod flows into damage too
 
 
 def test_derive_attacks_finesse(access):

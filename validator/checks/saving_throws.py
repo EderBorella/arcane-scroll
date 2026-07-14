@@ -1,8 +1,9 @@
 """Saving-throws domain: proficiency and modifier consistency against the union of the first
-class's class_saving_throw rows (the 2024 first-class-grants-saves rule) and any saving-throw
-proficiency granted by a feat (e.g. Resilient), the species, or a class's subclass (e.g. Gloom
-Stalker's Wisdom save). Every expectation is derived from the DB; malformed or missing sheet data
-is skipped rather than raised."""
+class's class_saving_throw rows (the first-class-grants-saves rule) and any saving-throw
+proficiency granted by a feat, the species, a class's subclass, or a class's own level-gated
+feature (a high-level feature that grants extra saves, applied to every class entry -- not just the
+first -- gated by that entry's level). Every
+expectation is derived from the DB; malformed or missing sheet data is skipped rather than raised."""
 from access.validator import abilities as abilities_q
 from access.validator import saving_throws as q
 from validator.report import Violation
@@ -42,17 +43,23 @@ def check(sheet: dict, access) -> list[Violation]:
     for c in classes:
         if not isinstance(c, dict):
             continue
+        # Gate a grant by the level of the class entry that owns it (a subclass or class feature
+        # granting saves only from a given level onward) -- a malformed or missing level
+        # defensively counts as 0, so only always-on (NULL gained_at_level) grants apply.
+        c_level = c.get("level")
+        c_at_level = c_level if isinstance(c_level, int) and not isinstance(c_level, bool) else 0
+
+        # A class's own level-gated feature save grant, applied to EVERY class entry (including a
+        # non-first class), not only the first-class-grants-saves rows.
+        c_id = access.resolve("class", c.get("class"))
+        if c_id is not None:
+            expected_saves |= set(q.granted_save_abilities(access, "class", c_id, at_level=c_at_level))
+
         sub = c.get("subclass")
         if not sub:
             continue
         sub_id = access.resolve("subclass", sub)
         if sub_id is not None:
-            # Gate the subclass's save grant by the level of the class entry that owns it (e.g.
-            # Gloom Stalker's Wisdom save is only granted from level 7 onward) -- a malformed or
-            # missing level defensively counts as 0, so only always-on (NULL gained_at_level)
-            # grants apply.
-            c_level = c.get("level")
-            c_at_level = c_level if isinstance(c_level, int) and not isinstance(c_level, bool) else 0
             expected_saves |= set(q.granted_save_abilities(access, "subclass", sub_id, at_level=c_at_level))
 
     abilities_sheet = sheet.get("abilities")
