@@ -1,4 +1,5 @@
 """Abilities-domain DB facts: ability identity, background boost lists, and the standard score cap."""
+from access import primitives
 from access.validator import ValidatorAccess
 
 
@@ -33,6 +34,25 @@ def background_boost_abilities(access: ValidatorAccess, background_id: str) -> l
     """The ability ids a background may boost, in the background's declared order."""
     return [row["ability_id"] for row in access.db.q(
         "SELECT ability_id FROM background_ability WHERE background_id=? ORDER BY ordinal", background_id)]
+
+
+def granted_ability_sets(access: ValidatorAccess, owner_kind: str, owner_id: str,
+                         at_level: int | None = None) -> list[dict]:
+    """grant_ability_set rows an owner (species/feat/class/subclass/magic_item/...) confers, each as
+    {ability_id, score, mode}.
+
+    ``mode`` is 'set' (a true override of the score) or 'floor' (a minimum the score is raised to);
+    ``ability_id`` is the canonical full DB id. If ``at_level`` is given, only rows gained at or
+    below it are included (a NULL gained_at_level always applies) — the same level gating the
+    saving-throws grant query uses. Pure DB read — the override/floor arithmetic lives in the check."""
+    return [{"ability_id": r["ability_id"], "score": r["score"], "mode": r["mode"]}
+            for r in primitives.grants_for(access.db, "grant_ability_set", owner_kind, owner_id,
+                                           at_level)]
+
+
+def item_ability_sets(access: ValidatorAccess, magic_item_id: str) -> list[dict]:
+    """grant_ability_set rows an attuned magic item confers — see `granted_ability_sets`."""
+    return granted_ability_sets(access, "magic_item", magic_item_id)
 
 
 def standard_ability_cap(access: ValidatorAccess) -> int | None:

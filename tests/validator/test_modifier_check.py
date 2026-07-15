@@ -263,19 +263,121 @@ def test_skill_modifier_mismatch(access):
     assert "skill-modifier-mismatch" in _codes(sheet, access)
 
 
+# ── attacks ──────────────────────────────────────────────────────────────────
+
+
+def _attack_sheet(weapons, weapon_name, str_mod=1, dex_mod=3):
+    """A sheet wielding one weapon in main_hand, with str/dex mods keyed by their full DB ids so the
+    attack check resolves them directly. `weapons` is the CORE proficiencies.weapons list."""
+    sheet = _sheet()
+    sheet["core"]["proficiencies"] = {"armor": [], "weapons": weapons, "tools": []}
+    sheet["inventory"] = {"equipped": {"main_hand": {"id": "w-main", "name": weapon_name}}}
+    sheet["modifier"]["abilities"]["strength"] = {"modifier": str_mod, "reduction": 0}
+    sheet["modifier"]["abilities"]["dexterity"] = {"modifier": dex_mod, "reduction": 0}
+    return sheet
+
+
+def test_attack_proficient_via_tier(access):
+    """Rapier is martial; proficiency via the 'martial weapons' tier adds PB. Finesse -> Dex."""
+    sheet = _attack_sheet(["martial weapons"], "rapier")  # str 1, dex 3
+    sheet["modifier"]["attacks"] = [{"name": "rapier", "attack_bonus": 3 + 2}]  # Dex(3) + PB(2)
+    assert "attack-bonus-mismatch" not in _codes(sheet, access)
+    sheet["modifier"]["attacks"] = [{"name": "rapier", "attack_bonus": 3}]  # missing PB
+    assert "attack-bonus-mismatch" in _codes(sheet, access)
+
+
+def test_attack_proficient_via_specific_weapon(access):
+    """Proficient only via the specific 'rapiers' grant (not the martial tier) -> PB still applies."""
+    sheet = _attack_sheet(["simple weapons", "rapiers"], "rapier")
+    sheet["modifier"]["attacks"] = [{"name": "rapier", "attack_bonus": 3 + 2}]  # Dex(3) + PB(2)
+    assert "attack-bonus-mismatch" not in _codes(sheet, access)
+
+
+def test_attack_not_proficient_no_pb(access):
+    """No matching tier or specific grant -> no PB."""
+    sheet = _attack_sheet(["simple weapons"], "rapier")  # rapier is martial, not covered
+    sheet["modifier"]["attacks"] = [{"name": "rapier", "attack_bonus": 3}]  # Dex(3), no PB
+    assert "attack-bonus-mismatch" not in _codes(sheet, access)
+    sheet["modifier"]["attacks"] = [{"name": "rapier", "attack_bonus": 3 + 2}]  # PB wrongly added
+    assert "attack-bonus-mismatch" in _codes(sheet, access)
+
+
+def test_attack_finesse_uses_max_of_str_dex(access):
+    """Finesse picks max(str, dex): here str(5) > dex(1), so Str is used."""
+    sheet = _attack_sheet(["martial weapons"], "rapier", str_mod=5, dex_mod=1)
+    sheet["modifier"]["attacks"] = [{"name": "rapier", "attack_bonus": 5 + 2}]  # Str(5) + PB(2)
+    assert "attack-bonus-mismatch" not in _codes(sheet, access)
+
+
+def test_attack_item_weapon_attack_bonus(access):
+    """An attuned item's +1 weapon_attack bonus lands on the attack."""
+    sheet = _attack_sheet(["martial weapons"], "rapier")  # dex 3
+    sheet["inventory"]["equipped"]["waist"] = {"id": "item-waist", "name": "Charm Alpha"}
+    sheet["modifier"]["item_states"] = [{"inventory_ref": "item-waist", "attuned": True}]
+    sheet["modifier"]["attacks"] = [{"name": "rapier", "attack_bonus": 3 + 2 + 1}]  # Dex+PB+item
+    assert "attack-bonus-mismatch" not in _codes(sheet, access)
+    sheet["modifier"]["attacks"] = [{"name": "rapier", "attack_bonus": 3 + 2}]  # item bonus missing
+    assert "attack-bonus-mismatch" in _codes(sheet, access)
+
+
+def test_attack_tier_title_case(access):
+    """Robustness: a TITLE-CASE tier token ('Martial Weapons') still confers PB -- the validator's
+    tier match is case-insensitive (independent of the deriver's copy)."""
+    sheet = _attack_sheet(["Simple Weapons", "Martial Weapons"], "rapier")  # dex 3
+    sheet["modifier"]["attacks"] = [{"name": "rapier", "attack_bonus": 3 + 2}]  # Dex(3) + PB(2)
+    assert "attack-bonus-mismatch" not in _codes(sheet, access)
+
+
 # ── effective abilities ──────────────────────────────────────────────────────
 
 
 def test_effective_ability_mismatch(access):
     sheet = _sheet()
-    sheet["modifier"]["effective_abilities"]["a1"] = 5  # below minimum of 14
+    sheet["modifier"]["effective_abilities"]["a1"] = 5  # != expected 14 (no item grant)
     assert "effective-ability-mismatch" in _codes(sheet, access)
 
 
-def test_effective_ability_above_baseline_ok(access):
+def test_effective_ability_no_item_must_equal_final(access):
+    """Exact check: with no ability-set item, an effective score ABOVE the base is now a mismatch
+    (the old lenient floor accepted anything >= base)."""
     sheet = _sheet()
-    sheet["modifier"]["effective_abilities"]["a1"] = 19  # above baseline (set-item), ok
+    sheet["modifier"]["effective_abilities"]["a1"] = 19  # no item grant -> expected 14 -> mismatch
+    assert "effective-ability-mismatch" in _codes(sheet, access)
+
+
+def test_effective_ability_set_item_ok(access):
+    """An attuned item that SETS a1 to 19 makes effective 19 the exact expectation."""
+    sheet = _sheet()
+    sheet["inventory"] = {"equipped": {"waist": {"id": "item-waist", "name": "Belt Alpha"}}}
+    sheet["modifier"]["item_states"] = [{"inventory_ref": "item-waist", "attuned": True}]
+    sheet["modifier"]["effective_abilities"]["a1"] = 19  # == set value
     assert "effective-ability-mismatch" not in _codes(sheet, access)
+    # any other value is now flagged (exact, not a floor)
+    sheet["modifier"]["effective_abilities"]["a1"] = 20
+    assert "effective-ability-mismatch" in _codes(sheet, access)
+
+
+def test_effective_ability_set_override_below_base(access):
+    """`set` is a true override: Band Alpha sets a1 to 12, below the base (14). Effective must be
+    12 (override), and the max/floor value (14) must be flagged."""
+    sheet = _sheet()
+    sheet["inventory"] = {"equipped": {"waist": {"id": "item-waist", "name": "Band Alpha"}}}
+    sheet["modifier"]["item_states"] = [{"inventory_ref": "item-waist", "attuned": True}]
+    sheet["modifier"]["effective_abilities"]["a1"] = 12  # override value -> ok
+    assert "effective-ability-mismatch" not in _codes(sheet, access)
+    sheet["modifier"]["effective_abilities"]["a1"] = 14  # the pre-fix max()/floor value -> flagged
+    assert "effective-ability-mismatch" in _codes(sheet, access)
+
+
+def test_effective_ability_species_grant_override(access):
+    """Cross-owner symmetry: an always-on species-owned grant_ability_set (a NON-item owner) is
+    re-derived too. species-a SETs a2 to 20, so effective a2 must be 20 for that species."""
+    sheet = _sheet()
+    sheet["core"]["identity"] = {"size": "medium", "species": "Species A"}
+    sheet["modifier"]["effective_abilities"]["a2"] = 20  # set by the species grant
+    assert "effective-ability-mismatch" not in _codes(sheet, access)
+    sheet["modifier"]["effective_abilities"]["a2"] = 16  # base, ignoring the species set -> flagged
+    assert "effective-ability-mismatch" in _codes(sheet, access)
 
 
 # ── defenses ─────────────────────────────────────────────────────────────────

@@ -21,6 +21,34 @@ def item_is_two_handed(access: ValidatorAccess, catalog_item_id: str) -> bool:
         catalog_item_id) is not None
 
 
+def weapon_attack_facts(access: ValidatorAccess, weapon_id: str) -> dict | None:
+    """Facts a consumer needs to compute a weapon's attack bonus, or None if the id is not a weapon.
+
+    Returns ``{tier_id, range_class_id, finesse}`` where ``finesse`` is True when the weapon carries
+    the finesse property. Pure DB reads — the ability-mod choice and proficiency-bonus rule live in
+    the consuming check."""
+    row = access.db.one(
+        "SELECT tier_id, range_class_id FROM weapon WHERE id=?", weapon_id)
+    if row is None:
+        return None
+    finesse = access.db.one(
+        "SELECT 1 FROM weapon_property_map WHERE weapon_id=? AND property_id='finesse'",
+        weapon_id) is not None
+    return {"tier_id": row["tier_id"], "range_class_id": row["range_class_id"],
+            "finesse": finesse}
+
+
+def weapon_attack_item_bonuses(access: ValidatorAccess, magic_item_id: str) -> list[int]:
+    """Weapon-attack bonus values a magic item confers, one per grant_bonus row.
+
+    Every ``grant_bonus`` row with ``target_kind='weapon_attack'`` for the item, as its raw integer
+    value list (NULLs coerced to 0). Pure DB read — the consuming check owns summing/applying them."""
+    rows = access.db.q(
+        "SELECT value FROM grant_bonus WHERE owner_kind='magic_item' AND owner_id=? "
+        "AND target_kind='weapon_attack'", magic_item_id)
+    return [(r["value"] or 0) for r in rows]
+
+
 def template_valid(access: ValidatorAccess, template_name: str,
                    base_item_name: str | None) -> str | None:
     """Check template validity. Returns None if valid, or an error string if invalid."""

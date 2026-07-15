@@ -9,6 +9,31 @@ def _int(x) -> bool:
     return isinstance(x, int) and not isinstance(x, bool)
 
 
+def _norm_weapon_token(token: str) -> str:
+    """Canonicalise a weapon token for name/proficiency matching: lower-case, hyphens → spaces, and
+    a single trailing plural 's' removed. Lets a CORE proficiency entry (which may be singular or
+    plural, e.g. the plural or singular form of a weapon's name) match a weapon's name or id."""
+    if not isinstance(token, str):
+        return ""
+    t = token.strip().lower().replace("-", " ")
+    if t.endswith("s"):
+        t = t[:-1]
+    return t
+
+
+def _weapon_proficient(weapon_profs: set, tier: str, weapon_id: str, weapon_name: str) -> bool:
+    """True if the CORE weapon-proficiency list confers proficiency with this weapon, either via the
+    weapon's tier (stored as '<tier> weapons') or via a specific-weapon grant matching the weapon's
+    own name/id. Both sides are routed through `_norm_weapon_token`, so matching is case-insensitive
+    and singular/plural-insensitive (the corpus emits lower-case tokens; the generator title-case)."""
+    norm_profs = {_norm_weapon_token(p) for p in weapon_profs}
+    if tier and _norm_weapon_token(f"{tier} weapons") in norm_profs:
+        return True
+    targets = {_norm_weapon_token(weapon_id), _norm_weapon_token(weapon_name)}
+    targets.discard("")
+    return bool(targets & norm_profs)
+
+
 def _ability_mod(score: int) -> int:
     return (score - 10) // 2
 
@@ -130,7 +155,7 @@ def _accumulate_speeds(effects: ActiveEffects, access, owner_kind, owner_id):
 
 def _accumulate_ability_sets(effects: ActiveEffects, access, owner_kind, owner_id):
     for row in grants_for(access.db, "grant_ability_set", owner_kind, owner_id):
-        if row["mode"] == "set":
+        if row["mode"] in ("set", "floor"):
             effects.ability_sets.append(dict(row))
 
 
@@ -179,6 +204,7 @@ def _accumulate_item_effects(effects: ActiveEffects, access, inventory, item_sta
                 attuned_refs.add(inv_ref)
             _accumulate_bonuses(effects, access, "magic_item", mid)
             _accumulate_resistances(effects, access, "magic_item", mid)
+            _accumulate_ability_sets(effects, access, "magic_item", mid)
             _accumulate_senses(effects, access, "magic_item", mid)
             _accumulate_speeds(effects, access, "magic_item", mid)
 
@@ -214,7 +240,8 @@ def _accumulate_item_effects(effects: ActiveEffects, access, inventory, item_sta
 def derive_abilities(core: dict, effects: ActiveEffects, access) -> tuple[dict, dict, dict]:
     """Returns (abilities_dict, effective_abilities_dict, ability_mods_dict).
     abilities: {aid: {modifier, reduction}}
-    effective_abilities: {aid: score}  — max(final - reduction, set_score)"""
+    effective_abilities: {aid: score}. A 'set' grant is a TRUE OVERRIDE of the score; a 'floor'
+    grant raises it to a minimum (max)."""
     core_abilities = core.get("abilities", {}) or {}
     result = {}
     effective = {}
@@ -226,18 +253,27 @@ def derive_abilities(core: dict, effects: ActiveEffects, access) -> tuple[dict, 
         if not _int(final_score):
             final_score = 10
         reduction = 0
-        set_score = None
+        override_score = None
+        floor_score = None
         # `aid` is the CORE key (a short code); grant_ability_set.ability_id is the full DB id, so
         # normalise before matching a set-ability effect to this ability.
         full_aid = abilities_q.ability_id_for_short_key(access, aid) or aid
         for ab_set in effects.ability_sets:
             if ab_set["ability_id"] in (aid, full_aid):
                 s = ab_set["score"]
-                if s is not None and (set_score is None or s > set_score):
-                    set_score = s
+                if s is None:
+                    continue
+                if ab_set.get("mode") == "set":
+                    if override_score is None or s > override_score:
+                        override_score = s
+                else:  # floor
+                    if floor_score is None or s > floor_score:
+                        floor_score = s
         eff = final_score - reduction
-        if set_score is not None:
-            eff = max(eff, set_score)
+        if floor_score is not None:
+            eff = max(eff, floor_score)
+        if override_score is not None:  # 'set' overrides base and floor alike
+            eff = override_score
         modifier = _ability_mod(eff)
         result[aid] = {"modifier": modifier, "reduction": reduction}
         effective[aid] = eff
@@ -519,7 +555,7 @@ def derive_attacks(core: dict, inventory: dict | None, abilities: dict,
             ab_mod = str_mod
 
         bonus = ab_mod
-        if _int(pb) and tier in weapon_profs:
+        if _int(pb) and _weapon_proficient(weapon_profs, tier, weapon_id, name):
             bonus += pb
 
         for b in effects.bonuses:

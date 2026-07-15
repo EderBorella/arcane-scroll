@@ -1,8 +1,9 @@
 """MODIFIER domain (modifier-sheet:1 shape): validates a modifier sheet against DB facts +
-CORE/INVENTORY/GRIMOIRE inputs. 11 checks covering AC, saves, skills, effective abilities,
+CORE/INVENTORY/GRIMOIRE inputs. Checks cover AC, saves, skills, attacks, effective abilities,
 passives, defenses, features, feats, state compatibility, prepared spells, and stacking-rule
 enforcement. NOT in ALL_CHECKS — modifier:1-specific."""
 from access.validator import abilities as abilities_q
+from access.validator import inventory as inventory_q
 from access.validator.state_compatibility import blocked_states
 from validator.report import Violation
 
@@ -11,6 +12,48 @@ DOMAIN = "modifier"
 
 def _int(x) -> bool:
     return isinstance(x, int) and not isinstance(x, bool)
+
+
+def _norm_weapon_token(token: str) -> str:
+    """Canonicalise a weapon token for name/proficiency matching: lower-case, hyphens → spaces, and
+    a single trailing plural 's' removed. Lets a CORE proficiency entry (which may be singular or
+    plural, e.g. 'rapiers' / 'rapier') match a weapon's name or id ('Rapier' / 'rapier')."""
+    if not isinstance(token, str):
+        return ""
+    t = token.strip().lower().replace("-", " ")
+    if t.endswith("s"):
+        t = t[:-1]
+    return t
+
+
+def _weapon_proficient(weapon_profs: set, tier: str, weapon_id: str, weapon_name: str) -> bool:
+    """True if the CORE weapon-proficiency list confers proficiency with this weapon, either via the
+    weapon's tier (stored as '<tier> weapons') or via a specific-weapon grant matching the weapon's
+    own name/id. Both sides are routed through `_norm_weapon_token`, so matching is case-insensitive
+    and singular/plural-insensitive (the corpus emits lower-case tokens; the generator title-case)."""
+    norm_profs = {_norm_weapon_token(p) for p in weapon_profs}
+    if tier and _norm_weapon_token(f"{tier} weapons") in norm_profs:
+        return True
+    targets = {_norm_weapon_token(weapon_id), _norm_weapon_token(weapon_name)}
+    targets.discard("")
+    return bool(targets & norm_profs)
+
+
+def _mod_for_ability(access, mod_abilities: dict, full_id: str) -> int:
+    """Ability modifier for a canonical DB ability id, read from a MODIFIER `abilities` dict that may
+    be keyed by CORE short codes (an ability's abbrev) or by full DB ids. A direct full-id hit wins;
+    otherwise each key is normalised (short code → full id) before matching."""
+    if not isinstance(mod_abilities, dict):
+        return 0
+    direct = mod_abilities.get(full_id)
+    if isinstance(direct, dict) and _int(direct.get("modifier")):
+        return direct["modifier"]
+    for key, data in mod_abilities.items():
+        if not isinstance(data, dict):
+            continue
+        if abilities_q.ability_id_for_short_key(access, key) == full_id:
+            return data.get("modifier", 0) or 0
+    return 0
 
 
 # ── AC checks ────────────────────────────────────────────────────────────────
@@ -198,10 +241,171 @@ def _check_skills(sheet: dict, v: list[Violation]) -> None:
                                f"skills.{sid}.modifier"))
 
 
+# ── attacks ──────────────────────────────────────────────────────────────────
+
+
+def _item_weapon_attack_bonus(sheet: dict, access) -> int:
+    """Total attack bonus granted by attuned magic items, read straight from the DB.
+
+    Sums every ``grant_bonus`` row with ``target_kind='weapon_attack'`` over the attuned items
+    (mirrors `_item_save_bonuses`). These apply to every weapon attack, matching the deriver."""
+    total = 0
+    mod = sheet.get("modifier", {}) or {}
+    inventory = sheet.get("inventory", {}) or {}
+    if not isinstance(inventory, dict):
+        inventory = {}
+    item_states = mod.get("item_states", []) or []
+    if not isinstance(item_states, list):
+        return 0
+
+    for istate in item_states:
+        if not isinstance(istate, dict) or not istate.get("attuned"):
+            continue
+        name = _item_name_for_ref(inventory, istate.get("inventory_ref"))
+        if not name:
+            continue
+        mid = access.resolve("magic_item", name)
+        if not mid:
+            continue
+        total += sum(inventory_q.weapon_attack_item_bonuses(access, mid))
+    return total
+
+
+def _check_attacks(sheet: dict, access, v: list[Violation]) -> None:
+    """Re-derive each attack's bonus independently: ability mod (finesse → max(str,dex); ranged →
+    dex; else str) + PB when proficient (tier OR specific-weapon grant) + attuned-item bonuses."""
+    core = sheet.get("core", {})
+    mod = sheet.get("modifier", {})
+    attacks = mod.get("attacks", []) or []
+    if not isinstance(attacks, list) or not attacks:
+        return
+
+    inventory = sheet.get("inventory", {}) or {}
+    if not isinstance(inventory, dict):
+        inventory = {}
+    profs = core.get("proficiencies", {}) or {}
+    weapon_profs = set(profs.get("weapons", [])) if isinstance(profs, dict) else set()
+    pb = core.get("proficiency_bonus", 0)
+    mod_abilities = mod.get("abilities", {}) or {}
+    item_attack_bonus = _item_weapon_attack_bonus(sheet, access)
+
+    for atk in attacks:
+        if not isinstance(atk, dict):
+            continue
+        actual = atk.get("attack_bonus")
+        if not _int(actual):
+            continue
+        name = atk.get("name")
+        if not name:
+            continue
+        weapon_id = access.resolve("catalog_item", name)
+        if weapon_id is None:
+            continue
+        facts = inventory_q.weapon_attack_facts(access, weapon_id)
+        if facts is None:
+            continue
+
+        tier = facts["tier_id"] or ""
+        is_ranged = facts["range_class_id"] == "ranged"
+        is_finesse = facts["finesse"]
+        str_mod = _mod_for_ability(access, mod_abilities, "strength")
+        dex_mod = _mod_for_ability(access, mod_abilities, "dexterity")
+        if is_finesse:
+            ab_mod = max(str_mod, dex_mod)
+        elif is_ranged:
+            ab_mod = dex_mod
+        else:
+            ab_mod = str_mod
+
+        expected = ab_mod
+        if _int(pb) and _weapon_proficient(weapon_profs, tier, weapon_id, name):
+            expected += pb
+        expected += item_attack_bonus
+
+        if actual != expected:
+            v.append(Violation(DOMAIN, "attack-bonus-mismatch", "illegal",
+                               f"{name}: attack bonus {actual} != expected {expected}",
+                               "attacks"))
+
+
 # ── effective abilities ──────────────────────────────────────────────────────
 
 
-def _check_effective_abilities(sheet: dict, v: list[Violation]) -> None:
+def _item_ability_sets(sheet: dict, access) -> dict[str, list[tuple[str, int]]]:
+    """Ability-set/floor grants from attuned magic items, keyed by full DB ability id.
+
+    Returns ``{ability_id: [(mode, score), ...]}`` where ``mode`` is 'set' or 'floor'. Mirrors
+    `_item_save_bonuses`: walk the attuned item_states, resolve each to a magic item, and read its
+    grant_ability_set rows straight from the DB via the access layer."""
+    out: dict[str, list[tuple[str, int]]] = {}
+    mod = sheet.get("modifier", {}) or {}
+    inventory = sheet.get("inventory", {}) or {}
+    if not isinstance(inventory, dict):
+        inventory = {}
+    item_states = mod.get("item_states", []) or []
+    if not isinstance(item_states, list):
+        return out
+
+    for istate in item_states:
+        if not isinstance(istate, dict) or not istate.get("attuned"):
+            continue
+        name = _item_name_for_ref(inventory, istate.get("inventory_ref"))
+        if not name:
+            continue
+        mid = access.resolve("magic_item", name)
+        if not mid:
+            continue
+        for row in abilities_q.item_ability_sets(access, mid):
+            out.setdefault(row["ability_id"], []).append((row["mode"], row["score"]))
+    return out
+
+
+def _owner_ability_sets(sheet: dict, access) -> dict[str, list[tuple[str, int]]]:
+    """Ability-set/floor grants from the character's always-on owners — species, feats, each class,
+    and each subclass — keyed by full DB ability id, gated by class-entry level.
+
+    This is an independently rule-grounded owner set (following the saving-throws owner-gathering
+    pattern), not a strict mirror of the deriver: the deriver applies grant_ability_set across a
+    state-driven owner set, so coverage overlaps but is not identical. No grant_ability_set rows
+    exist for non-item owners today, so this changes nothing now; it exists so a future non-item
+    grant on one of these owners does not produce a false positive."""
+    out: dict[str, list[tuple[str, int]]] = {}
+    core = sheet.get("core", {}) or {}
+    if not isinstance(core, dict):
+        return out
+    ident = core.get("identity", {}) or {}
+    if not isinstance(ident, dict):
+        ident = {}
+
+    def _collect(owner_kind: str, owner_id, at_level=None) -> None:
+        if owner_id is None:
+            return
+        for row in abilities_q.granted_ability_sets(access, owner_kind, owner_id, at_level):
+            out.setdefault(row["ability_id"], []).append((row["mode"], row["score"]))
+
+    _collect("species", access.resolve("species", ident.get("species")))
+
+    feats = core.get("feats")
+    if isinstance(feats, list):
+        for f in feats:
+            name = f if isinstance(f, str) else (f.get("name") if isinstance(f, dict) else None)
+            _collect("feat", access.resolve("feat", name))
+
+    classes = ident.get("classes")
+    if isinstance(classes, list):
+        for c in classes:
+            if not isinstance(c, dict):
+                continue
+            lvl = c.get("level")
+            at = lvl if isinstance(lvl, int) and not isinstance(lvl, bool) else 0
+            _collect("class", access.resolve("class", c.get("class")), at)
+            sub = c.get("subclass")
+            if sub:
+                _collect("subclass", access.resolve("subclass", sub), at)
+    return out
+
+
+def _check_effective_abilities(sheet: dict, access, v: list[Violation]) -> None:
     core = sheet.get("core", {})
     mod = sheet.get("modifier", {})
     core_abilities = core.get("abilities", {}) or {}
@@ -209,6 +413,14 @@ def _check_effective_abilities(sheet: dict, v: list[Violation]) -> None:
     mod_abilities = mod.get("abilities", {}) or {}
     if not isinstance(effective, dict):
         return
+
+    # Union ability-set grants from attuned items AND the always-on owners (species/feats/classes/
+    # subclasses) — an independently rule-grounded owner set (the deriver accumulates across a
+    # state-driven owner set; coverage overlaps but is not a strict mirror).
+    ability_sets: dict[str, list[tuple[str, int]]] = {}
+    for source in (_item_ability_sets(sheet, access), _owner_ability_sets(sheet, access)):
+        for key, entries in source.items():
+            ability_sets.setdefault(key, []).extend(entries)
 
     for aid, score in effective.items():
         if not _int(score):
@@ -222,11 +434,30 @@ def _check_effective_abilities(sheet: dict, v: list[Violation]) -> None:
         final = core_data.get("final", 10)
         if not _int(final):
             final = 10
-        minimum = final - reduction
-        if score < minimum:
+        expected = final - reduction
+
+        # `aid` is a MODIFIER short code; grant_ability_set.ability_id is the full DB id, so
+        # normalise before matching item grants to this ability.
+        full_aid = abilities_q.ability_id_for_short_key(access, aid) or aid
+        floor_score = None
+        override_score = None
+        for mode, s in ability_sets.get(full_aid, []):
+            if not _int(s):
+                continue
+            if mode == "set":
+                if override_score is None or s > override_score:
+                    override_score = s
+            else:  # floor: a minimum the score is raised to
+                if floor_score is None or s > floor_score:
+                    floor_score = s
+        if floor_score is not None:
+            expected = max(expected, floor_score)
+        if override_score is not None:  # 'set' is a true override — it wins over base and floor
+            expected = override_score
+
+        if score != expected:
             v.append(Violation(DOMAIN, "effective-ability-mismatch", "illegal",
-                               f"{aid}: effective {score} < minimum {minimum} "
-                               f"(final {final} - reduction {reduction})",
+                               f"{aid}: effective {score} != expected {expected}",
                                f"effective_abilities.{aid}"))
 
 
@@ -388,7 +619,8 @@ def check(sheet: dict, access) -> list[Violation]:
     _check_ac_bonus_dedup(sheet, v)
     _check_saves(sheet, access, v)
     _check_skills(sheet, v)
-    _check_effective_abilities(sheet, v)
+    _check_attacks(sheet, access, v)
+    _check_effective_abilities(sheet, access, v)
     _check_defenses(sheet, v)
     _check_passives(sheet, v)
     _check_features(sheet, v)
