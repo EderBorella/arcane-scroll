@@ -454,6 +454,153 @@ def test_state_compatible(access):
     assert "state-incompatible" not in _codes(sheet, access)
 
 
+# ── defense subset: save & condition advantages (T44b) ───────────────────────
+
+
+def test_save_advantage_subset_missing(access):
+    sheet = _sheet()
+    sheet["core"]["permanent_defenses"]["save_advantages"] = ["Dex"]
+    sheet["modifier"]["effective_defenses"]["save_advantages"] = []
+    assert "defense-subset-violation" in _codes(sheet, access)
+
+
+def test_save_advantage_subset_present_ok(access):
+    sheet = _sheet()
+    sheet["core"]["permanent_defenses"]["save_advantages"] = ["Dex"]
+    sheet["modifier"]["effective_defenses"]["save_advantages"] = ["Dex"]
+    assert "defense-subset-violation" not in _codes(sheet, access)
+
+
+def test_condition_advantage_subset_missing(access):
+    sheet = _sheet()
+    sheet["core"]["permanent_defenses"]["condition_advantages"] = [
+        {"condition": "poisoned", "effect": "avoid_or_end"}]
+    sheet["modifier"]["effective_defenses"]["condition_advantages"] = []
+    assert "defense-subset-violation" in _codes(sheet, access)
+
+
+# ── state-gated resistance materialization (T44b) ─────────────────────────────
+
+
+def _rage_like_state():
+    return {"state": "active-a", "source": "State Feature A", "source_type": "feature"}
+
+
+def test_state_resistance_missing_fires(access):
+    """An active state whose owner grants a condition-gated resistance not on the
+    sheet flags state-resistance-missing (incomplete)."""
+    sheet = _sheet()
+    sheet["modifier"]["character_states"] = [_rage_like_state()]
+    assert "state-resistance-missing" in _codes(sheet, access)
+
+
+def test_state_resistance_present_passes(access):
+    sheet = _sheet()
+    sheet["modifier"]["character_states"] = [_rage_like_state()]
+    sheet["modifier"]["effective_defenses"]["resistances"] = ["fire", "cold"]
+    assert "state-resistance-missing" not in _codes(sheet, access)
+
+
+def test_state_resistance_unresolved_owner_no_false_positive(access):
+    sheet = _sheet()
+    sheet["modifier"]["character_states"] = [
+        {"state": "active-a", "source": "No Such Feature", "source_type": "feature"}]
+    assert "state-resistance-missing" not in _codes(sheet, access)
+
+
+# ── effective size (T44b) ─────────────────────────────────────────────────────
+
+
+def test_size_step_mismatch_fires(access):
+    sheet = _sheet()
+    sheet["core"]["identity"]["size"] = "size-a"  # ordinal 3
+    sheet["modifier"]["character_states"] = [
+        {"state": "sized", "source": "Spell-Grow", "source_type": "spell",
+         "detail": {"effect": "grow"}}]
+    sheet["modifier"]["effective_size"] = "size-a"  # should be size-l
+    assert "size-mismatch" in _codes(sheet, access)
+
+
+def test_size_step_match_passes(access):
+    sheet = _sheet()
+    sheet["core"]["identity"]["size"] = "size-a"
+    sheet["modifier"]["character_states"] = [
+        {"state": "sized", "source": "Spell-Grow", "source_type": "spell",
+         "detail": {"effect": "grow"}}]
+    sheet["modifier"]["effective_size"] = "size-l"
+    assert "size-mismatch" not in _codes(sheet, access)
+
+
+def test_size_set_from_creature_match_passes(access):
+    sheet = _sheet()
+    sheet["core"]["identity"]["size"] = "size-a"
+    sheet["modifier"]["character_states"] = [
+        {"state": "shaped", "source": "Spell-Grow", "source_type": "spell",
+         "detail": {"into": "creat-a"}}]
+    sheet["modifier"]["effective_size"] = "size-l"
+    assert "size-mismatch" not in _codes(sheet, access)
+
+
+def test_size_no_state_default_matches_core(access):
+    sheet = _sheet()
+    sheet["core"]["identity"]["size"] = "size-a"
+    sheet["modifier"]["effective_size"] = "size-a"
+    assert "size-mismatch" not in _codes(sheet, access)
+
+
+# ── attack damage rider (T44b) ────────────────────────────────────────────────
+
+
+def _grow_sheet(damage: str, state_id="grown"):
+    sheet = _sheet()
+    sheet["modifier"]["attacks"] = [{"name": "Greataxe", "attack_bonus": 0, "damage": damage}]
+    sheet["modifier"]["character_states"] = [
+        {"state": state_id, "source": "Spell-Grow", "source_type": "spell"}]
+    return sheet
+
+
+def test_grow_rider_missing_fires(access):
+    assert "attack-damage-rider-missing" in _codes(_grow_sheet("1d12+2"), access)
+
+
+def test_grow_rider_present_passes(access):
+    assert "attack-damage-rider-missing" not in _codes(_grow_sheet("1d12+2+1d4"), access)
+
+
+def test_shrink_rider_missing_fires(access):
+    assert "attack-damage-rider-missing" in _codes(_grow_sheet("1d12+2", "shrunk"), access)
+
+
+def test_shrink_rider_present_passes(access):
+    assert "attack-damage-rider-missing" not in _codes(_grow_sheet("1d12+2-1d4", "shrunk"), access)
+
+
+def test_no_rider_expected_without_state(access):
+    sheet = _sheet()
+    sheet["modifier"]["attacks"] = [{"name": "Greataxe", "attack_bonus": 0, "damage": "1d12+2"}]
+    assert "attack-damage-rider-missing" not in _codes(sheet, access)
+
+
+def test_rider_not_asserted_on_non_weapon_attack(access):
+    """An attack whose name is not a weapon (e.g. a spell entry the deriver never folded a
+    rider into) must not false-positive rider-missing, even with a rider-granting state active."""
+    sheet = _grow_sheet("2d6")
+    sheet["modifier"]["attacks"] = [{"name": "Not A Weapon", "attack_bonus": 0, "damage": "2d6"}]
+    assert "attack-damage-rider-missing" not in _codes(sheet, access)
+
+
+def test_rider_terms_deduped(access):
+    """Two active states yielding the same rider term produce a single violation, not one per
+    contributing state."""
+    sheet = _grow_sheet("1d12+2")
+    sheet["modifier"]["character_states"] = [
+        {"state": "grown", "source": "Spell-Grow", "source_type": "spell"},
+        {"state": "grown", "source": "Spell-Grow", "source_type": "spell"},
+    ]
+    misses = [x for x in check(sheet, access) if x.code == "attack-damage-rider-missing"]
+    assert len(misses) == 1
+
+
 # ── smoke ────────────────────────────────────────────────────────────────────
 
 

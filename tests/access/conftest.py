@@ -23,6 +23,7 @@ _HEADERS = {
     "grant_resource": "condition_kind TEXT, name TEXT, uses_kind TEXT",
     "grant_save_advantage": "scope_kind TEXT, ability_id TEXT",
     "grant_sense": "sense_id TEXT, range_ft INTEGER",
+    "grant_size": "mode TEXT, step INTEGER, size_id TEXT, variant TEXT, condition_kind TEXT",
     "grant_speed": "movement_mode_id TEXT, equals_walk INTEGER",
     "grant_spell": "bucket TEXT, recovery TEXT",
 }

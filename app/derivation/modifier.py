@@ -3,6 +3,8 @@ CORE + INVENTORY + GRIMOIRE + DB + active state effects. No orchestrator, no non
 field protection, no stacking-rule enforcement — those are C-M2."""
 from access.primitives import grants_for
 from access.validator import abilities as abilities_q
+from access.validator import defenses as defenses_q
+from access.validator import size as size_q
 
 
 def _int(x) -> bool:
@@ -63,7 +65,13 @@ class ActiveEffects:
         self.save_advantages: set[str] = set()
         self.speed_grants: list[dict] = []
         self.ability_sets: list[dict] = []
-        self.size_override: str | None = None
+        # Size effects: a net relative step (grow/shrink) and any absolute
+        # 'set' targets (a shape-change transformation → a creature's size).
+        self.size_steps: int = 0
+        self.size_sets: list[str] = []
+        # State-gated extra-damage riders on weapon/unarmed attacks: [{die_count,
+        # die_faces, damage_type_id}].
+        self.extra_damage: list[dict] = []
         self.hp_boost: int = 0
         self.hp_reduction: int = 0
         self.ac_floor: int | None = None
@@ -101,6 +109,8 @@ def resolve_active_effects(core: dict, inventory: dict | None,
         _accumulate_ability_sets(effects, access, owner_kind, owner_id)
         _accumulate_hp(effects, access, owner_kind, owner_id)
         _accumulate_senses(effects, access, owner_kind, owner_id)
+        _accumulate_size(effects, access, owner_kind, owner_id, state)
+        _accumulate_extra_damage(effects, access, owner_kind, owner_id, state)
 
     if inventory and isinstance(inventory, dict):
         _accumulate_item_effects(effects, access, inventory, item_states)
@@ -142,10 +152,54 @@ def _accumulate_conditions(effects: ActiveEffects, access, owner_kind, owner_id)
 
 
 def _accumulate_save_advantages(effects: ActiveEffects, access, owner_kind, owner_id):
+    # Map each grant to its CORE scope string (ability → abbreviation, otherwise the
+    # scope keyword) so the union in derive_defenses matches CORE's representation.
     for row in grants_for(access.db, "grant_save_advantage", owner_kind, owner_id):
-        aid = row["ability_id"]
-        if aid:
-            effects.save_advantages.add(aid)
+        scope = defenses_q.save_scope_for(access, row)
+        if scope:
+            effects.save_advantages.add(scope)
+
+
+def _accumulate_size(effects: ActiveEffects, access, owner_kind, owner_id, state: dict):
+    """Accumulate size effects from one active state. A transformation carrying
+    ``detail.into`` sets size absolutely from that creature's size; otherwise the
+    owner's grant_size rows apply, the row selected by matching the row's ``variant``
+    to the state's declared ``detail.effect``."""
+    detail = state.get("detail") if isinstance(state, dict) else None
+    detail = detail if isinstance(detail, dict) else {}
+
+    into = detail.get("into")
+    if into:
+        set_size = size_q.creature_size(access, into)
+        if set_size:
+            effects.size_sets.append(set_size)
+        return
+
+    variant = detail.get("effect")
+    for row in grants_for(access.db, "grant_size", owner_kind, owner_id):
+        if row["mode"] == "step":
+            if variant is None or row["variant"] == variant:
+                effects.size_steps += (row["step"] or 0)
+        elif row["mode"] == "set" and row["size_id"]:
+            effects.size_sets.append(row["size_id"])
+
+
+def _accumulate_extra_damage(effects: ActiveEffects, access, owner_kind, owner_id, state: dict):
+    """Accumulate condition-gated extra-damage riders from one active state's owner.
+    A grant_bonus row with ``target_kind='extra_damage'`` and a ``condition_kind`` gate
+    applies only when it is ungated, or the gate matches this state's id — so a rider on
+    a spell that also owns the opposite effect (e.g. shrink) does not leak to that state."""
+    state_id = state.get("state") if isinstance(state, dict) else None
+    for row in grants_for(access.db, "grant_bonus", owner_kind, owner_id):
+        if row["target_kind"] != "extra_damage":
+            continue
+        gate = row["condition_kind"]
+        if gate is not None and gate != state_id:
+            continue
+        dc, df = row["die_count"], row["die_faces"]
+        if _int(dc) and _int(df):
+            effects.extra_damage.append(
+                {"die_count": dc, "die_faces": df, "damage_type_id": row["damage_type_id"]})
 
 
 def _accumulate_speeds(effects: ActiveEffects, access, owner_kind, owner_id):
@@ -408,11 +462,25 @@ def derive_defenses(core: dict, effects: ActiveEffects, access) -> dict:
 
 
 def derive_size(core: dict, effects: ActiveEffects, access) -> str:
-    """Returns effective_size: effects.size_override or CORE.identity.size."""
-    if effects.size_override:
-        return effects.size_override
+    """Returns effective_size. A 'set' transformation overrides absolutely (the
+    largest wins on conflict); otherwise a net relative step is applied to
+    CORE.identity.size, clamped to the size catalog's ordinal range."""
     ident = core.get("identity", {}) or {}
-    return ident.get("size", "medium")
+    base = ident.get("size", "medium")
+
+    if effects.size_sets:
+        return max(effects.size_sets,
+                   key=lambda s: size_q.size_ordinal(access, s) or 0)
+
+    if effects.size_steps:
+        base_ord = size_q.size_ordinal(access, base)
+        if base_ord is not None:
+            lo, hi = size_q.size_ordinal_bounds(access)
+            target = max(lo, min(hi, base_ord + effects.size_steps))
+            resolved = size_q.size_by_ordinal(access, target)
+            if resolved:
+                return resolved
+    return base
 
 
 def derive_saving_throws(core: dict, abilities: dict, pb, effects: ActiveEffects,
@@ -576,6 +644,17 @@ def derive_attacks(core: dict, inventory: dict | None, abilities: dict,
             damage += f"+{dmg_bonus}"
         elif dmg_bonus < 0:
             damage += str(dmg_bonus)
+
+        # State-gated extra-damage riders append their own die term to the damage
+        # string, consistent with how the flat bonus is formatted. A negative die_count
+        # is a subtractive rider (e.g. a shrink effect → "-1d4"); the "not below 1" floor
+        # such an effect may carry is a runtime clamp, not encodable in the static term.
+        for xd in effects.extra_damage:
+            dc = xd.get("die_count")
+            df = xd.get("die_faces")
+            if _int(dc) and _int(df) and dc != 0:
+                sign = "+" if dc > 0 else "-"
+                damage += f"{sign}{abs(dc)}d{df}"
 
         mastery = wrow["mastery_id"]
         if mastery and mastery not in masteries:

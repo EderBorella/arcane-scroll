@@ -28,6 +28,7 @@ GRANT_TABLES: dict[str, list[str]] = {
     "grant_resource": [],
     "grant_save_advantage": [],
     "grant_sense": [],
+    "grant_size": [],
     "grant_speed": [],
     "grant_spell": ["grant_spell_fixed", "grant_spell_choice", "grant_spell_choice_value"],
 }

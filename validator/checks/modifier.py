@@ -3,11 +3,28 @@ CORE/INVENTORY/GRIMOIRE inputs. Checks cover AC, saves, skills, attacks, effecti
 passives, defenses, features, feats, state compatibility, prepared spells, and stacking-rule
 enforcement. NOT in ALL_CHECKS — modifier:1-specific."""
 from access.validator import abilities as abilities_q
+from access.validator import defenses as defenses_q
 from access.validator import inventory as inventory_q
+from access.validator import size as size_q
 from access.validator.state_compatibility import blocked_states
 from validator.report import Violation
 
 DOMAIN = "modifier"
+
+
+def _owner_kind_for_source_type(source_type: str) -> str | None:
+    """Map a character_state's source_type to the grant owner_kind it resolves against.
+    Re-derived here so the MODIFIER checks stay independent of the deriver."""
+    return {
+        "feature": "class_feature",
+        "spell": "spell",
+        "feat": "feat",
+        "item": "magic_item",
+        "condition": "condition",
+        "effect": "spell",
+        "class_resource": "class_resource",
+        "species": "species",
+    }.get(source_type)
 
 
 def _int(x) -> bool:
@@ -328,6 +345,66 @@ def _check_attacks(sheet: dict, access, v: list[Violation]) -> None:
                                "attacks"))
 
 
+def _check_attack_damage(sheet: dict, access, v: list[Violation]) -> None:
+    """Independently re-derive state-gated extra-damage riders from the DB and assert each
+    appears in the relevant attacks' ``damage`` string. Grounded in the DB (active state →
+    owner → condition-gated extra_damage grant), not the deriver's output."""
+    mod = sheet.get("modifier", {})
+    attacks = mod.get("attacks", []) or []
+    states = mod.get("character_states", []) or []
+    if not isinstance(attacks, list) or not attacks or not isinstance(states, list):
+        return
+
+    # De-dup: two active states can yield the same rider term; we assert its presence
+    # once, not once per contributing state (which would emit duplicate violations).
+    terms: list[str] = []
+    seen_terms: set[str] = set()
+    for st in states:
+        if not isinstance(st, dict):
+            continue
+        owner_kind = _owner_kind_for_source_type(st.get("source_type", ""))
+        if owner_kind is None:
+            continue
+        owner_id = access.resolve(owner_kind, st.get("source"))
+        if owner_id is None:
+            continue
+        state_id = st.get("state")
+        for row in inventory_q.extra_damage_grants(access, owner_kind, owner_id):
+            gate = row["condition_kind"]
+            if gate is not None and gate != state_id:
+                continue
+            dc, df = row["die_count"], row["die_faces"]
+            if _int(dc) and _int(df) and dc != 0:
+                sign = "+" if dc > 0 else "-"
+                term = f"{sign}{abs(dc)}d{df}"
+                if term not in seen_terms:
+                    seen_terms.add(term)
+                    terms.append(term)
+
+    if not terms:
+        return
+
+    # The deriver folds these riders only into WEAPON attacks (entries produced from an
+    # equipped weapon). Scope the assertion the same way — resolve each attack's name to a
+    # weapon and skip anything that isn't one (a spell/unarmed entry the deriver never folded
+    # a rider into) so a non-weapon attack can't false-positive rider-missing.
+    for atk in attacks:
+        if not isinstance(atk, dict):
+            continue
+        damage = atk.get("damage")
+        name = atk.get("name")
+        if not isinstance(damage, str) or not damage or not name:
+            continue
+        weapon_id = access.resolve("catalog_item", name)
+        if weapon_id is None or inventory_q.weapon_attack_facts(access, weapon_id) is None:
+            continue
+        for term in terms:
+            if term not in damage:
+                v.append(Violation(DOMAIN, "attack-damage-rider-missing", "incomplete",
+                                   f"{name}: expected extra-damage rider {term} from "
+                                   f"active state, not in damage {damage!r}", "attacks"))
+
+
 # ── effective abilities ──────────────────────────────────────────────────────
 
 
@@ -472,15 +549,125 @@ def _check_defenses(sheet: dict, v: list[Violation]) -> None:
     if not isinstance(perm, dict) or not isinstance(eff, dict):
         return
 
-    for key in ("resistances", "immunities", "condition_immunities"):
+    for key in ("resistances", "immunities", "condition_immunities", "save_advantages"):
         core_set = set(perm.get(key, []) or [])
         mod_list = eff.get(key, []) or []
         if not isinstance(mod_list, list):
             continue
         missing = core_set - set(mod_list)
         for m in missing:
+            label = key[:-1] if key.endswith("s") else key
             v.append(Violation(DOMAIN, "defense-subset-violation", "illegal",
-                               f"missing core {key[:-1]}: {m!r}", f"effective_defenses.{key}"))
+                               f"missing core {label}: {m!r}", f"effective_defenses.{key}"))
+
+    # condition_advantages are objects {condition, effect}; the MODIFIER must retain
+    # every CORE condition advantage (compared by condition id).
+    core_ca = perm.get("condition_advantages", []) or []
+    mod_ca = eff.get("condition_advantages", []) or []
+    if isinstance(core_ca, list) and isinstance(mod_ca, list):
+        core_ca_conds = {e.get("condition") for e in core_ca
+                         if isinstance(e, dict) and e.get("condition")}
+        mod_ca_conds = {e.get("condition") for e in mod_ca
+                        if isinstance(e, dict) and e.get("condition")}
+        for c in core_ca_conds - mod_ca_conds:
+            v.append(Violation(DOMAIN, "defense-subset-violation", "illegal",
+                               f"missing core condition_advantage: {c!r}",
+                               "effective_defenses.condition_advantages"))
+
+
+def _check_state_defenses(sheet: dict, access, v: list[Violation]) -> None:
+    """For each active character_state, gather the state's owner's condition-gated
+    resistance grants from the DB and assert each damage type appears in
+    effective_defenses.resistances. Grounded in the DB, not the deriver's output."""
+    mod = sheet.get("modifier", {})
+    states = mod.get("character_states", []) or []
+    if not isinstance(states, list):
+        return
+    eff = mod.get("effective_defenses", {}) or {}
+    if not isinstance(eff, dict):
+        return
+    res = eff.get("resistances", []) or []
+    resistances = set(res) if isinstance(res, list) else set()
+
+    for st in states:
+        if not isinstance(st, dict):
+            continue
+        owner_kind = _owner_kind_for_source_type(st.get("source_type", ""))
+        if owner_kind is None:
+            continue
+        owner_id = access.resolve(owner_kind, st.get("source"))
+        if owner_id is None:
+            continue
+        for row in defenses_q.state_resistance_grants(access, owner_kind, owner_id):
+            dt = row["damage_type_id"]
+            if dt and dt not in resistances:
+                v.append(Violation(DOMAIN, "state-resistance-missing", "incomplete",
+                                   f"active state {st.get('state')!r} grants resistance to {dt}, "
+                                   f"not on effective_defenses",
+                                   "effective_defenses.resistances"))
+
+
+def _check_size(sheet: dict, access, v: list[Violation]) -> None:
+    """Independently compute the expected effective_size from CORE.identity.size plus
+    active-state size effects (relative steps and set-from-creature transformations),
+    then compare to mod.effective_size."""
+    core = sheet.get("core", {}) or {}
+    mod = sheet.get("modifier", {}) or {}
+    actual = mod.get("effective_size")
+    if not isinstance(actual, str) or not actual:
+        return
+    ident = core.get("identity", {}) or {}
+    base = ident.get("size", "medium") if isinstance(ident, dict) else "medium"
+
+    states = mod.get("character_states", []) or []
+    if not isinstance(states, list):
+        states = []
+
+    steps = 0
+    set_candidates: list[str] = []
+    for st in states:
+        if not isinstance(st, dict):
+            continue
+        # Mirror the deriver's structural gate: a state contributes an effect only
+        # when its source resolves to a grant owner.
+        owner_kind = _owner_kind_for_source_type(st.get("source_type", ""))
+        if owner_kind is None:
+            continue
+        owner_id = access.resolve(owner_kind, st.get("source"))
+        if owner_id is None:
+            continue
+        detail = st.get("detail")
+        detail = detail if isinstance(detail, dict) else {}
+        into = detail.get("into")
+        if into:
+            sz = size_q.creature_size(access, into)
+            if sz:
+                set_candidates.append(sz)
+            continue
+        variant = detail.get("effect")
+        for row in size_q.size_grants(access, owner_kind, owner_id):
+            if row["mode"] == "step":
+                if variant is None or row["variant"] == variant:
+                    steps += row["step"] or 0
+            elif row["mode"] == "set" and row["size_id"]:
+                set_candidates.append(row["size_id"])
+
+    expected = base
+    if set_candidates:
+        expected = max(set_candidates, key=lambda s: size_q.size_ordinal(access, s) or 0)
+    elif steps:
+        base_ord = size_q.size_ordinal(access, base)
+        if base_ord is not None:
+            lo, hi = size_q.size_ordinal_bounds(access)
+            target = max(lo, min(hi, base_ord + steps))
+            resolved = size_q.size_by_ordinal(access, target)
+            if resolved:
+                expected = resolved
+
+    if actual != expected:
+        v.append(Violation(DOMAIN, "size-mismatch", "illegal",
+                           f"effective_size {actual!r} != expected {expected!r}",
+                           "effective_size"))
 
 
 # ── passive scores ───────────────────────────────────────────────────────────
@@ -620,8 +807,11 @@ def check(sheet: dict, access) -> list[Violation]:
     _check_saves(sheet, access, v)
     _check_skills(sheet, v)
     _check_attacks(sheet, access, v)
+    _check_attack_damage(sheet, access, v)
     _check_effective_abilities(sheet, access, v)
     _check_defenses(sheet, v)
+    _check_state_defenses(sheet, access, v)
+    _check_size(sheet, access, v)
     _check_passives(sheet, v)
     _check_features(sheet, v)
     _check_feats(sheet, v)

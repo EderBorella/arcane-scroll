@@ -232,6 +232,140 @@ def test_derive_size_default(access):
     assert derive_size(core, _empty_effects(), access) == "medium"
 
 
+# ── state-gated resistance materialization (T44b) ─────────────────────────────
+
+
+def _feature_state(source="State Feature A"):
+    return {"state": "active-a", "source": source, "source_type": "feature"}
+
+
+def test_state_resistance_materializes_only_when_active(access):
+    """A condition-gated resistance owned by a class feature materialises when the
+    state is active, and stays absent when no state is present."""
+    core = _core()
+    # No state → the gated resistance does not appear.
+    empty = resolve_active_effects(core, None, [], [], access)
+    assert "cold" not in empty.resistances
+    # State active → the class feature's gated resistance materialises.
+    effects = resolve_active_effects(core, None, [_feature_state()], [], access)
+    assert "cold" in effects.resistances
+
+
+def test_state_save_advantage_emitted_as_abbrev_no_dup(access):
+    """A state-owned save-advantage grant is recorded as its CORE abbreviation, and the
+    derive_defenses union with a CORE abbreviation produces no duplicate."""
+    import sqlite3
+    con = sqlite3.connect(access.db.path)
+    con.execute("INSERT INTO ability VALUES ('dexterity','Dexterity','Dex')")
+    con.execute("INSERT INTO grant_save_advantage VALUES "
+                "('gsa-state','class_feature','cf-state',NULL,'ability','dexterity',NULL,NULL)")
+    con.commit()
+    con.close()
+
+    effects = resolve_active_effects(_core(), None, [_feature_state()], [], access)
+    assert "Dex" in effects.save_advantages
+    assert "dexterity" not in effects.save_advantages  # abbrev, not raw ability_id
+
+    core = _core()
+    core["permanent_defenses"]["save_advantages"] = ["Dex"]
+    defenses = derive_defenses(core, effects, access)
+    assert defenses["save_advantages"].count("Dex") == 1
+
+
+# ── size step / set / clamp (T44b) ────────────────────────────────────────────
+
+
+def _grow_state(effect):
+    return {"state": "sized", "source": "Spell-Grow", "source_type": "spell",
+            "detail": {"effect": effect}}
+
+
+def test_derive_size_step_up(access):
+    core = _core(identity={"size": "size-a"})  # ordinal 3
+    effects = resolve_active_effects(core, None, [_grow_state("grow")], [], access)
+    assert effects.size_steps == 1
+    assert derive_size(core, effects, access) == "size-l"  # ordinal 4
+
+
+def test_derive_size_step_down(access):
+    core = _core(identity={"size": "size-a"})  # ordinal 3
+    effects = resolve_active_effects(core, None, [_grow_state("shrink")], [], access)
+    assert effects.size_steps == -1
+    assert derive_size(core, effects, access) == "size-s"  # ordinal 2
+
+
+def test_derive_size_step_clamped_at_max(access):
+    core = _core(identity={"size": "size-g"})  # ordinal 6 (the max)
+    effects = resolve_active_effects(core, None, [_grow_state("grow")], [], access)
+    assert derive_size(core, effects, access) == "size-g"  # clamped, no wrap
+
+
+def test_derive_size_set_from_creature(access):
+    """A transformation carrying detail.into sets size absolutely from the creature."""
+    core = _core(identity={"size": "size-a"})
+    state = {"state": "shaped", "source": "Spell-Grow", "source_type": "spell",
+             "detail": {"into": "creat-a"}}
+    effects = resolve_active_effects(core, None, [state], [], access)
+    assert effects.size_sets == ["size-l"]
+    assert derive_size(core, effects, access) == "size-l"
+
+
+def test_derive_size_set_overrides_step_largest_wins(access):
+    """A 'set' target wins over a relative step; on conflict the largest set wins."""
+    core = _core(identity={"size": "size-a"})
+    effects = ActiveEffects()
+    effects.size_steps = -1
+    effects.size_sets = ["size-s", "size-h"]  # ordinals 2 and 5
+    assert derive_size(core, effects, access) == "size-h"
+
+
+# ── state-gated extra-damage riders on attacks (T44b) ─────────────────────────
+
+
+def _inv_greataxe():
+    return {"equipped": {"main_hand": {"id": "w1", "name": "Greataxe"}}}
+
+
+def _size_state(state_id):
+    return {"state": state_id, "source": "Spell-Grow", "source_type": "spell"}
+
+
+def test_grow_rider_appends_die(access):
+    core = _core()
+    effects = resolve_active_effects(core, _inv_greataxe(), [_size_state("grown")], [], access)
+    assert {"die_count": 1, "die_faces": 4, "damage_type_id": None} in effects.extra_damage
+    attacks = derive_attacks(core, _inv_greataxe(), {"strength": 2, "dexterity": 3},
+                             [], effects, access)
+    assert attacks[0]["damage"] == "1d12+2+1d4"
+
+
+def test_shrink_rider_subtracts_die(access):
+    core = _core()
+    effects = resolve_active_effects(core, _inv_greataxe(), [_size_state("shrunk")], [], access)
+    assert {"die_count": -1, "die_faces": 4, "damage_type_id": None} in effects.extra_damage
+    attacks = derive_attacks(core, _inv_greataxe(), {"strength": 2, "dexterity": 3},
+                             [], effects, access)
+    assert attacks[0]["damage"] == "1d12+2-1d4"
+
+
+def test_rider_gate_no_leak_between_opposite_states(access):
+    """The grow rider (gate 'grown') must not fire for the shrunk state, and vice versa."""
+    core = _core()
+    effects = resolve_active_effects(core, _inv_greataxe(), [_size_state("grown")], [], access)
+    counts = {(x["die_count"], x["die_faces"]) for x in effects.extra_damage}
+    assert (1, 4) in counts
+    assert (-1, 4) not in counts  # shrink rider gated to 'shrunk' — no leak
+
+
+def test_no_rider_without_state(access):
+    core = _core()
+    effects = resolve_active_effects(core, _inv_greataxe(), [], [], access)
+    assert effects.extra_damage == []
+    attacks = derive_attacks(core, _inv_greataxe(), {"strength": 2, "dexterity": 3},
+                             [], effects, access)
+    assert attacks[0]["damage"] == "1d12+2"
+
+
 # ── derive_saving_throws ─────────────────────────────────────────────────────
 
 
