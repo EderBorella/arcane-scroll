@@ -49,6 +49,18 @@ def weapon_attack_item_bonuses(access: ValidatorAccess, magic_item_id: str) -> l
     return [(r["value"] or 0) for r in rows]
 
 
+def extra_damage_grants(access: ValidatorAccess, owner_kind: str, owner_id: str) -> list:
+    """Raw extra-damage grant_bonus rows for an owner (dice-only riders on attacks).
+
+    Every ``grant_bonus`` row with ``target_kind='extra_damage'`` for the owner, with its
+    dice and any ``condition_kind`` gate. Pure DB read — the consuming check owns the gate
+    logic and the damage-string match."""
+    return access.db.q(
+        "SELECT id, die_count, die_faces, damage_type_id, condition_kind FROM grant_bonus "
+        "WHERE owner_kind=? AND owner_id=? AND target_kind='extra_damage'",
+        owner_kind, owner_id)
+
+
 def template_valid(access: ValidatorAccess, template_name: str,
                    base_item_name: str | None) -> str | None:
     """Check template validity. Returns None if valid, or an error string if invalid."""

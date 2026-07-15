@@ -14,6 +14,19 @@ def resistance_grants(access: ValidatorAccess, owner_kind: str, owner_id: str,
     return access.db.q(sql, *params)
 
 
+def state_resistance_grants(access: ValidatorAccess, owner_kind: str, owner_id: str) -> list:
+    """Condition-gated (state-active-only) fixed grant_resistance rows for an owner.
+
+    These carry a non-NULL ``condition_kind`` marker: they materialise only while
+    the owning state is active, which is why the CORE permanent-defenses gatherer
+    (which walks always-on owners) does not pick them up."""
+    return access.db.q(
+        "SELECT id, damage_type_id, mode, condition_kind FROM grant_resistance "
+        "WHERE owner_kind=? AND owner_id=? AND condition_kind IS NOT NULL "
+        "AND mode='fixed' AND damage_type_id IS NOT NULL",
+        owner_kind, owner_id)
+
+
 def condition_grants(access: ValidatorAccess, owner_kind: str, owner_id: str,
                      at_level: int | None = None) -> list:
     """Raw grant_condition rows for an owner, optionally level-gated."""
@@ -57,7 +70,7 @@ def condition_ids(access: ValidatorAccess) -> list[str]:
 def variant_damage_type(access: ValidatorAccess, species_id: str, axis: str,
                         option_name: str) -> str | None:
     """Resolve a species_variant choice to its damage_type_id, e.g.
-    dragonborn + 'draconic-ancestors' + 'Black' -> 'acid'."""
+    a species + an ancestry-choice axis + variant-a -> a damage type."""
     return access.db.scalar(
         "SELECT damage_type_id FROM species_variant_option "
         "WHERE species_id=? AND axis=? AND option_name=?",

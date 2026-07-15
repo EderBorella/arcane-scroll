@@ -658,6 +658,43 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO grant_condition VALUES "
                 "('gcn-sub-a','subclass','sub-a',3,NULL,'charmed','immunity',0)")
 
+    # ── state-effect materialization fixtures (T44b) ──────────────────────────
+    # condition_kind marker: gates a grant so it materialises only while its state
+    # is active (state_resistance_grants keys on condition_kind IS NOT NULL).
+    cur.execute("CREATE TABLE condition_kind (id TEXT PRIMARY KEY, name TEXT)")
+    cur.execute("INSERT INTO condition_kind VALUES ('state-active','State Active')")
+    # gates for the two opposite size-damage riders (see grant_bonus fixtures below)
+    cur.execute("INSERT INTO condition_kind VALUES ('grown','Grown')")
+    cur.execute("INSERT INTO condition_kind VALUES ('shrunk','Shrunk')")
+
+    # A class feature that grants a damage resistance only while its state is on:
+    # owned by class_feature (never gathered by the CORE defenses walker) and gated
+    # by condition_kind. Placed at a high level so no owner-enumeration picks it up.
+    cur.execute("INSERT INTO class_feature VALUES ('cf-state','class-a',99,'State Feature A')")
+    cur.execute("INSERT INTO grant_resistance VALUES "
+                "('gre-state','class_feature','cf-state',NULL,'cold',NULL,'fixed',1,NULL,NULL,0,'state-active')")
+
+    # Extra size rows so relative-step arithmetic and clamping have a real ordinal
+    # ladder to walk ('size-a' already exists at ordinal 3).
+    for sid, sname, sord, sft in [("size-t","Size T",1,2.5),("size-s","Size S",2,5.0),
+                                   ("size-l","Size L",4,10.0),("size-h","Size H",5,15.0),
+                                   ("size-g","Size G",6,20.0)]:
+        cur.execute("INSERT INTO size VALUES (?,?,?,?)", (sid, sname, sord, sft))
+
+    # A relative size-step grant mechanism owned by a size-changing spell, and a
+    # creature carrying its own size for set-from-creature transformations.
+    cur.execute("CREATE TABLE grant_size (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
+                "gained_at_level INTEGER, mode TEXT, step INTEGER, size_id TEXT, variant TEXT, "
+                "condition_kind TEXT)")
+    cur.execute("INSERT INTO grant_size VALUES "
+                "('gsz-grow','spell','sp-grow',NULL,'step',1,NULL,'grow',NULL)")
+    cur.execute("INSERT INTO grant_size VALUES "
+                "('gsz-shrink','spell','sp-grow',NULL,'step',-1,NULL,'shrink',NULL)")
+    cur.execute("INSERT INTO spell VALUES ('sp-grow','Spell-Grow',3,0)")
+
+    cur.execute("CREATE TABLE creature (id TEXT PRIMARY KEY, name TEXT, size_id TEXT)")
+    cur.execute("INSERT INTO creature VALUES ('creat-a','Creature A','size-l')")
+
     # features domain: subclass_feature, species_trait, detail_option + additional class_feature rows
     # (class_feature table already exists from the feats domain section above)
     cur.execute("CREATE TABLE subclass_feature (id TEXT PRIMARY KEY, subclass_id TEXT, class_level INT, name TEXT)")
@@ -787,6 +824,15 @@ def _build_rules_db(path: str) -> None:
     ]:
         cur.execute("INSERT INTO grant_bonus (id,owner_kind,owner_id,target_kind,value,source_name) "
                     "VALUES (?,?,?,?,?,?)", (gbid, okind, oid, tkind, val, sn))
+
+    # T44b: two opposite state-gated extra-damage riders on the size-changing spell.
+    # A dice-only grant (value NULL); condition_kind gates it to a single state id so the
+    # grow rider (+1d4) and shrink rider (-1d4, negative die_count) never leak into each
+    # other. Owned by 'sp-grow' (which also owns the grant_size step rows).
+    for gbid, dc, ck in [("gb-xd-grow", 1, "grown"), ("gb-xd-shrink", -1, "shrunk")]:
+        cur.execute("INSERT INTO grant_bonus "
+                    "(id,owner_kind,owner_id,target_kind,value,die_count,die_faces,condition_kind) "
+                    "VALUES (?,'spell','sp-grow','extra_damage',NULL,?,4,?)", (gbid, dc, ck))
 
     cur.execute("CREATE TABLE grant_d20_modifier (id INTEGER PRIMARY KEY AUTOINCREMENT, "
                 "owner_kind TEXT, owner_id TEXT, gained_at_level INT, condition_kind TEXT, "
