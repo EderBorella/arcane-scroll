@@ -694,6 +694,9 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('handaxe','Handaxe','weapon',NULL)")
     cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('club','Club','weapon',NULL)")
     cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('net','Net','weapon',NULL)")
+    # rapier: a martial, finesse melee weapon -- exercises specific-weapon proficiency and the
+    # finesse (max of str/dex) ability-mod choice in the attack-bonus derivation/validation
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('rapier','Rapier','weapon',NULL)")
     # T35: catalog_item entries for equipment used in inventory tests
     cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('chain-mail','Chain Mail','armor','armor')")
     cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('leather-armor','Leather Armor','armor','armor')")
@@ -706,6 +709,7 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT OR IGNORE INTO weapon VALUES ('handaxe','simple','melee',1,6,NULL,'slashing','vex')")
     cur.execute("INSERT OR IGNORE INTO weapon VALUES ('club','simple','melee',1,4,NULL,'bludgeoning','slow')")
     cur.execute("INSERT OR IGNORE INTO weapon VALUES ('net','martial','ranged',NULL,NULL,NULL,NULL,NULL)")
+    cur.execute("INSERT OR IGNORE INTO weapon VALUES ('rapier','martial','melee',1,8,NULL,'piercing',NULL)")
 
     # B5: item_slot dimension table — all body slots for equipping items
     cur.execute("CREATE TABLE item_slot (id TEXT PRIMARY KEY, name TEXT)")
@@ -734,9 +738,9 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE weapon_property_map (weapon_id TEXT, property_id TEXT, "
                 "range_normal INT, range_long INT, param_die_faces INT, ammunition_type_id TEXT, "
                 "note TEXT)")
-    # greataxe: two-handed | handaxe: light | pike: two-handed + versatile
+    # greataxe: two-handed | handaxe: light | pike: two-handed + versatile | rapier: finesse
     for wid, pid in [("greataxe","two-handed"),("pike","two-handed"),
-                     ("pike","versatile"),("handaxe","light")]:
+                     ("pike","versatile"),("handaxe","light"),("rapier","finesse")]:
         cur.execute("INSERT INTO weapon_property_map (weapon_id,property_id) VALUES (?,?)",
                     (wid, pid))
 
@@ -1002,6 +1006,27 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO catalog_item VALUES ('mi-anklet','Anklet Alpha','wondrous','feet')")
     cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-anklet','uncommon',0)")
     cur.execute("INSERT INTO grant_speed VALUES ('gsp-mi-anklet','magic_item','mi-anklet',NULL,'walk',10,0,0,1,NULL,NULL)")
+
+    # T47/T48 fixtures: item ability-set grants + a weapon-attack bonus item.
+    # attuned item that SETS ability a1 to 19 (grant_ability_set mode='set') -- when equipped +
+    # attuned, effective a1 is overridden to 19 (used by the effective-ability exact check)
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-belt','Belt Alpha','wondrous','waist')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-belt','rare',1)")
+    cur.execute("INSERT INTO grant_ability_set VALUES ('gas-mi-belt','magic_item','mi-belt',NULL,'a1',19,'set',NULL)")
+    # attuned item that SETS a1 to 12 -- BELOW the fixture base (14); locks 'set' as a true override
+    # (pulls the score DOWN to 12) rather than a floor (which would keep 14)
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-band','Band Alpha','wondrous','waist')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-band','rare',1)")
+    cur.execute("INSERT INTO grant_ability_set VALUES ('gas-mi-band','magic_item','mi-band',NULL,'a1',12,'set',NULL)")
+    # attuned item granting +1 to every weapon attack (grant_bonus target_kind='weapon_attack')
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-charm','Charm Alpha','wondrous','waist')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-charm','rare',1)")
+    cur.execute("INSERT INTO grant_bonus (id,owner_kind,owner_id,target_kind,target_id,value,source_name) "
+                "VALUES ('gb-mi-charm','magic_item','mi-charm','weapon_attack',NULL,1,'Charm Alpha')")
+    # T47 cross-owner symmetry: an always-on species-owned ability-set grant (a NON-item owner) --
+    # exercises the validator's ability-set re-derivation across owner kinds. species-a SETs a2 to
+    # 20. No sheet in the default fixture carries species-a, so this is inert unless a test opts in.
+    cur.execute("INSERT INTO grant_ability_set VALUES ('gas-species-a','species','species-a',NULL,'a2',20,'set',NULL)")
 
     con.commit()
     con.close()

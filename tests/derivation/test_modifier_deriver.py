@@ -36,7 +36,7 @@ def _core(**overrides):
             "condition_immunities": ["charmed"],
             "save_advantages": ["a1"], "condition_advantages": [],
         },
-        "proficiencies": {"armor": [], "weapons": ["simple", "martial"], "tools": []},
+        "proficiencies": {"armor": [], "weapons": ["simple weapons", "martial weapons"], "tools": []},
         "weapon_masteries": [],
         "features": [{"name": "Feat A", "source": "class-a"}],
         "feats": [{"name": "feat-gen", "source": "bg-a"}],
@@ -92,6 +92,38 @@ def test_derive_abilities_set_item(access):
     assert effective["x1"] == 19               # set-score applied to x1 (x1 normalises to a1)
     assert abilities["x1"]["modifier"] == 4    # floor((19-10)/2) -- NOT 2 (the pre-fix bug dropped it)
     assert effective["x2"] == 16               # the a1-targeted set must NOT leak to x2
+
+
+def test_derive_abilities_set_is_true_override_below_base(access):
+    """`set` mode is a TRUE OVERRIDE, not a floor: an item that sets the score BELOW the base pulls
+    the effective score DOWN to the set value. This is where override and the old max() diverge."""
+    core = _core(abilities={"x1": {"final": 18}})
+    effects = ActiveEffects()
+    effects.ability_sets.append({"ability_id": "a1", "score": 12, "mode": "set"})
+    abilities, effective, mods = derive_abilities(core, effects, access)
+    assert effective["x1"] == 12               # override -- NOT max(18, 12) == 18
+    assert abilities["x1"]["modifier"] == 1    # floor((12-10)/2)
+
+
+def test_derive_abilities_floor_keeps_higher_base(access):
+    """`floor` mode is a minimum, not an override: a floor below the base leaves the base intact."""
+    core = _core(abilities={"x1": {"final": 18}})
+    effects = ActiveEffects()
+    effects.ability_sets.append({"ability_id": "a1", "score": 12, "mode": "floor"})
+    abilities, effective, mods = derive_abilities(core, effects, access)
+    assert effective["x1"] == 18               # floor: max(18, 12) == 18
+
+
+def test_item_attuned_ability_set_materializes(access):
+    """An attuned magic item's grant_ability_set must materialise at MODIFIER: Belt Alpha sets a1
+    to 19, so effective a1 overrides the base (14) to 19. Regression for the attuned-branch call."""
+    core = _core()
+    inventory = {"equipped": {"waist": {"id": "item-waist", "name": "Belt Alpha"}}}
+    item_states = [{"inventory_ref": "item-waist", "attuned": True}]
+    effects = resolve_active_effects(core, inventory, [], item_states, access)
+    abilities, effective, mods = derive_abilities(core, effects, access)
+    assert effective["a1"] == 19               # set by the attuned item (base 14 overridden)
+    assert abilities["a1"]["modifier"] == 4    # floor((19-10)/2)
 
 
 # ── derive_ac ────────────────────────────────────────────────────────────────
@@ -336,6 +368,46 @@ def test_derive_attacks_finesse(access):
     assert len(attacks) == 1
     # Club has no finesse, so it's melee (Str)
     assert attacks[0]["attack_bonus"] == 3  # 1 Str + 2 PB
+
+
+def test_derive_attacks_proficient_via_specific_weapon(access):
+    """A rapier is a MARTIAL weapon; a sheet proficient only with 'simple weapons' + the specific
+    'rapiers' grant is still proficient with it, so PB applies (tier-only matching would miss it)."""
+    core = _core(proficiencies={"armor": [], "weapons": ["simple weapons", "rapiers"], "tools": []})
+    inventory = {"equipped": {"main_hand": {"id": "w1", "name": "rapier"}}}
+    abilities = {"strength": 1, "dexterity": 3}
+    attacks = derive_attacks(core, inventory, abilities, [], _empty_effects(), access)
+    assert attacks[0]["attack_bonus"] == 5  # finesse -> Dex(3) + PB(2)
+
+
+def test_derive_attacks_specific_weapon_singular(access):
+    """The specific-weapon grant may appear singular ('rapier'); it must still match the weapon."""
+    core = _core(proficiencies={"armor": [], "weapons": ["simple weapons", "rapier"], "tools": []})
+    inventory = {"equipped": {"main_hand": {"id": "w1", "name": "rapier"}}}
+    abilities = {"strength": 1, "dexterity": 3}
+    attacks = derive_attacks(core, inventory, abilities, [], _empty_effects(), access)
+    assert attacks[0]["attack_bonus"] == 5  # finesse -> Dex(3) + PB(2)
+
+
+def test_derive_attacks_not_proficient_no_pb(access):
+    """Neither the martial tier nor a specific grant matches the rapier -> no proficiency bonus."""
+    core = _core(proficiencies={"armor": [], "weapons": ["simple weapons"], "tools": []})
+    inventory = {"equipped": {"main_hand": {"id": "w1", "name": "rapier"}}}
+    abilities = {"strength": 1, "dexterity": 3}
+    attacks = derive_attacks(core, inventory, abilities, [], _empty_effects(), access)
+    assert attacks[0]["attack_bonus"] == 3  # finesse -> Dex(3), NO PB
+
+
+def test_derive_attacks_tier_title_case(access):
+    """Robustness: a TITLE-CASE tier token ('Martial Weapons', as the generator emits from the
+    catalog) still confers PB -- the tier match is case-insensitive. The lowercase corpus form is
+    covered by the other attack tests."""
+    core = _core(proficiencies={"armor": [], "weapons": ["Simple Weapons", "Martial Weapons"],
+                                "tools": []})
+    inventory = {"equipped": {"main_hand": {"id": "w1", "name": "Greataxe"}}}
+    abilities = {"strength": 2, "dexterity": 3}
+    attacks = derive_attacks(core, inventory, abilities, [], _empty_effects(), access)
+    assert attacks[0]["attack_bonus"] == 4  # 2 Str + 2 PB (Greataxe is martial)
 
 
 def test_derive_attacks_bonus(access):
