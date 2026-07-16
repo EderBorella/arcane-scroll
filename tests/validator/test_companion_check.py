@@ -248,7 +248,7 @@ def _clean_spirit_modifier(cast_level=5, form="Form-Y"):
 
 
 def _clean_beast_modifier():
-    # cast N/A, owner level 4, pb 2, wis 16: ac=16, hp=25, pb=2, Maul bonus 5 dmg "1d8 + 5".
+    # cast N/A, owner level 4, pb 2, wis 16: ac=16, hp=25, pb=2, Strike B bonus 5 dmg "1d8 + 5".
     return {
         "companion_index": 0,
         "armor_class": 16,
@@ -261,7 +261,7 @@ def _clean_beast_modifier():
             {"ability": "a2", "modifier": 2},
             {"ability": "a3", "modifier": 0},
         ],
-        "attacks": [{"name": "Maul", "attack_bonus": 5, "damage": "1d8 + 5"}],
+        "attacks": [{"name": "Strike B", "attack_bonus": 5, "damage": "1d8 + 5"}],
         "character_states": [],
     }
 

@@ -71,7 +71,7 @@ def _equipped_choices():
     choices = _noncaster_choices()
     choices["equipment"] = {
         "equipped": {"main_hand": {"name": "Blade Alpha"}},
-        "backpack": ["Leather Armor", {"name": "Magic Scroll", "quantity": 3}],
+        "backpack": ["Armor B", {"name": "Scroll Alpha", "quantity": 3}],
     }
     return choices
 

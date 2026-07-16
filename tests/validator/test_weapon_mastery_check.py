@@ -22,15 +22,15 @@ def _codes(sheet, access):
 
 
 def test_valid_mastery_choices(access):
-    assert check(_sheet(masteries=["greataxe", "handaxe"]), access) == []
+    assert check(_sheet(masteries=["weapon-a", "weapon-b"]), access) == []
 
 
 def test_invalid_weapon_name(access):
-    assert "mastery-choice-invalid" in _codes(_sheet(masteries=["greataxe", "fakename"]), access)
+    assert "mastery-choice-invalid" in _codes(_sheet(masteries=["weapon-a", "fakename"]), access)
 
 
 def test_weapon_without_mastery(access):
-    assert "mastery-choice-invalid" in _codes(_sheet(masteries=["net"]), access)
+    assert "mastery-choice-invalid" in _codes(_sheet(masteries=["weapon-d"]), access)
 
 
 def test_empty_masteries_with_feature(access):
@@ -55,16 +55,16 @@ def test_field_ignored_without_feature(access):
 
 
 def test_case_insensitive_names(access):
-    assert check(_sheet(masteries=["Greataxe", "Club"]), access) == []
+    assert check(_sheet(masteries=["Weapon A", "Weapon C"]), access) == []
 
 
 def test_case_insensitive_feature_name(access):
-    s = _sheet(masteries=["greataxe"], features=[{"name": "weapon mastery"}])
+    s = _sheet(masteries=["weapon-a"], features=[{"name": "weapon mastery"}])
     assert check(s, access) == []
 
 
 def test_mixed_valid_and_invalid(access):
-    vs = check(_sheet(masteries=["greataxe", "net"]), access)
+    vs = check(_sheet(masteries=["weapon-a", "weapon-d"]), access)
     codes = {v.code for v in vs}
     assert "mastery-choice-invalid" in codes
     assert len([v for v in vs if v.code == "mastery-choice-invalid"]) == 1

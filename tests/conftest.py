@@ -392,22 +392,23 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO grant_proficiency VALUES "
                 "('gp-class-b-multiclass-skill','class','class-b',NULL,'skill','fixed',0,NULL,1,NULL)")
     cur.execute("INSERT INTO grant_proficiency_value VALUES ('gp-class-b-multiclass-skill','sk6')")
-    # class-r (a rogue-analogue secondary class): its multiclass-only skill grant is CHOOSE-mode
-    # with choose_n=1 and NO explicit value pool -- mirrors the real DB fact for rogue's multiclass
-    # table row (id gpr-0382: owner_kind='class', owner_id='rogue', target_kind='skill',
-    # mode='choose', choose_n=1, from_any=0, multiclass_only=1, zero grant_proficiency_value rows).
-    # The real schema resolves the pool via a from_class_list column this synthetic schema doesn't
-    # model, so -- as with the existing any-flag fallback below -- an empty-pool choose grant here
-    # widens legality to any skill; the point of this fixture is the previously-uncredited choose_n
-    # budget cost, not the pool-resolution mechanism (out of scope for this fix).
+    # class-r (a secondary class): its multiclass-only skill grant is CHOOSE-mode with choose_n=1
+    # and NO explicit value pool -- mirrors a reference-dataset multiclass table row (owner_kind=
+    # 'class', target_kind='skill', mode='choose', choose_n=1, from_any=0, multiclass_only=1, zero
+    # grant_proficiency_value rows). The reference schema resolves the pool via a from_class_list
+    # column this synthetic schema doesn't model, so -- as with the existing any-flag fallback below
+    # -- an empty-pool choose grant here widens legality to any skill; the point of this fixture is
+    # the previously-uncredited choose_n budget cost, not the pool-resolution mechanism (out of
+    # scope for this fix).
     cur.execute("INSERT INTO class VALUES ('class-r','Class R',8,3,'none','all',4,0,'')")
     cur.execute("INSERT INTO grant_proficiency VALUES "
                 "('gp-class-r-multiclass-skill','class','class-r',NULL,'skill','choose',0,1,1,NULL)")
     # class-any: a choose-ANY-skill class (skill_from_any=1, no explicit class_skill_option pool) --
-    # mirrors the real bard row (choose N of ANY skill). Its base skill picks are attributed 'class'
-    # even though no explicit pool lists them (the CORE-deriver skill-source any-flag fix's fixture).
+    # mirrors a reference-dataset class that chooses N skills of ANY kind. Its base skill picks are
+    # attributed 'class' even though no explicit pool lists them (the CORE-deriver skill-source
+    # any-flag fix's fixture).
     cur.execute("INSERT INTO class VALUES ('class-any','Class Any',8,3,'none','all',3,1,'')")
-    # sub-skills (class-a's subclass): a College-of-Lore-style grant -- choose 3 skills of your
+    # sub-skills (class-a's subclass): a choose-any-skill subclass grant -- choose 3 skills of your
     # choice (mode='choose', from_any=1, choose_n=3, no restricted value pool) via the
     # owner_kind='subclass' proficiency grant spine -- the subclass-skill-grant fix's fixture.
     cur.execute("INSERT INTO grant_proficiency VALUES "
@@ -415,8 +416,8 @@ def _build_rules_db(path: str) -> None:
     # class-a grants 1 expertise pick at level 1, from already-proficient skills (unrestricted pool)
     cur.execute("INSERT INTO grant_expertise VALUES "
                 "('gex-a','class','class-a',1,1,'choose_from_proficient',NULL)")
-    # ... and a second expertise pick at level 6 (mirrors e.g. rogue L1->2, L6->2 -- two separate
-    # per-level grants summing over a class's own levels); no existing test uses class-a above
+    # ... and a second expertise pick at level 6 (mirrors a class that grants expertise picks at two
+    # separate levels -- per-level grants summing over a class's own levels); no existing test uses class-a above
     # level 3, so this is additive-only for the multiclass-expertise-budget fix
     cur.execute("INSERT INTO grant_expertise VALUES "
                 "('gex-a6','class','class-a',6,1,'choose_from_proficient',NULL)")
@@ -547,7 +548,7 @@ def _build_rules_db(path: str) -> None:
     # recharge_cadence — referenced by grant_spell.recharge_id (e.g. short-rest)
     cur.execute("CREATE TABLE recharge_cadence (id TEXT PRIMARY KEY, name TEXT)")
 
-    # class_option — needed for grant_spell owner_kind='class_option' (Pact of the Tome analog)
+    # class_option — needed for grant_spell owner_kind='class_option' (a class-option spell-grant analog)
     cur.execute("CREATE TABLE class_option (id TEXT PRIMARY KEY, catalog TEXT, owner_kind TEXT, "
                 "owner_id TEXT, name TEXT, resource_kind TEXT, resource_id TEXT, resource_cost INTEGER, "
                 "repeatable INTEGER DEFAULT 0, description TEXT)")
@@ -588,8 +589,8 @@ def _build_rules_db(path: str) -> None:
     # it contributes floor(3/3)=1, reaching combined caster level 4. Its own spell_list_class_id is
     # unused by the multiclass-slots tests, so it's left NULL here.
     cur.execute("INSERT INTO subclass_spellcasting VALUES ('sub-b',NULL,NULL)")
-    # class-m: a non-caster class (like Fighter/Rogue) whose subclass sub-ek is a third-caster that
-    # casts from class-a's list (like Eldritch Knight casting from wizard's list) -- the
+    # class-m: a non-caster class whose subclass sub-ek is a third-caster that casts from another
+    # class's list (a subclass drawing its spell list from a full-caster class) -- the
     # spell-not-on-list false-positive fix's fixture
     cur.execute("INSERT INTO class VALUES ('class-m','Class M',10,3,'none','all',2,0,'')")
     cur.execute("INSERT INTO subclass VALUES ('sub-ek','class-m','Sub EK',1,'')")
@@ -608,14 +609,14 @@ def _build_rules_db(path: str) -> None:
     # species-a always grants sp4 (legal even though it's off class-a's list)
     cur.execute("INSERT INTO grant_spell VALUES ('gsp-species-a','species','species-a',NULL)")
     cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-species-a','sp4')")
-    # sp5 is on class-b's list only (not class-a's) -- the Magical-Secrets-style widening fixture
+    # sp5 is on class-b's list only (not class-a's) -- the spell-list-widening fixture
     cur.execute("INSERT INTO spell VALUES ('sp5','Sp5',1,0)")
     cur.execute("INSERT INTO spell_class VALUES ('sp5','class-b')")
-    # class-a's Magical-Secrets-style widening grant, gained at level 10 -- mirrors the real Bard
-    # L10 row (id l10-gsp-0010): grant_spell(owner_kind='class', owner_id='bard', gained_at_level=10)
-    # + grant_spell_choice(from_kind='class_list') + grant_spell_choice_value = {bard, cleric, druid,
-    # wizard}. Here it widens class-a's legal list to include class-b's list once the character has
-    # reached level 10 in class-a, so a prepared sp5 (class-b only) becomes legal from that level on.
+    # class-a's spell-list-widening grant, gained at level 10 -- mirrors a reference-dataset late-level
+    # class grant: grant_spell(owner_kind='class', gained_at_level=10) + grant_spell_choice(
+    # from_kind='class_list') + grant_spell_choice_value listing other classes' lists. Here it widens
+    # class-a's legal list to include class-b's list once the character has reached level 10 in
+    # class-a, so a prepared sp5 (class-b only) becomes legal from that level on.
     cur.execute("INSERT INTO grant_spell VALUES ('gsp-classa-widen','class','class-a',10)")
     cur.execute("INSERT INTO grant_spell_choice (grant_id,choose_n,from_kind) VALUES ('gsp-classa-widen',NULL,'class_list')")
     cur.execute("INSERT INTO grant_spell_choice_value VALUES ('gsp-classa-widen','class-a')")
@@ -830,7 +831,7 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO creature_resistance VALUES ('creature-form','cold',NULL)")
     cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name,atk_bonus,reach_ft,"
                 "dmg_average,dmg_dice,damage_type_id) "
-                "VALUES ('ct-form-claw','creature-form','action','Claw',6,5,11,'2d6 + 4','slashing')")
+                "VALUES ('ct-form-strike-a','creature-form','action','Strike A',6,5,11,'2d6 + 4','slashing')")
 
     # creature-t: a TEMPLATED spirit-like creature — NULL header ac/hp/pb, every
     # scaled stat driven by creature_formula rows. Exercises spell_level scaling,
@@ -903,7 +904,7 @@ def _build_rules_db(path: str) -> None:
     for aid, sc in [("a1", 12), ("a2", 14), ("a3", 10)]:
         cur.execute("INSERT INTO creature_ability VALUES ('creature-tb',?,?)", (aid, sc))
     cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name,atk_bonus_note) "
-                "VALUES ('ctr-tb-atk','creature-tb','action','Maul','equals owner spell attack')")
+                "VALUES ('ctr-tb-atk','creature-tb','action','Strike B','equals owner spell attack')")
     # ac = 13 + owner wisdom modifier
     cur.execute("INSERT INTO creature_formula (id,creature_id,target,trait_id,form_note,base,"
                 "die_count,die_faces,round_mode) "
@@ -958,44 +959,44 @@ def _build_rules_db(path: str) -> None:
 
     cur.execute("INSERT INTO subclass_feature VALUES ('sf-a1','sub-a',3,'Sub Feat A')")
     cur.execute("INSERT INTO subclass_feature VALUES ('sf-a2','sub-a',6,'Sub Feat B')")
-    cur.execute("INSERT INTO subclass_feature VALUES ('sf-a3','sub-a',3,'Aspect of the Wilds')")
+    cur.execute("INSERT INTO subclass_feature VALUES ('sf-a3','sub-a',3,'Sub Feat C')")
 
     cur.execute("INSERT INTO species_trait VALUES ('st-a1','species-a',1,'Species Trait A')")
 
-    cur.execute("INSERT INTO detail_option VALUES ('do-owl','subclass','sub-a','aspect','Owl',NULL)")
-    cur.execute("INSERT INTO detail_option VALUES ('do-panther','subclass','sub-a','aspect','Panther',NULL)")
+    cur.execute("INSERT INTO detail_option VALUES ('do-asp-a','subclass','sub-a','aspect','Aspect A',NULL)")
+    cur.execute("INSERT INTO detail_option VALUES ('do-asp-b','subclass','sub-a','aspect','Aspect B',NULL)")
 
-    cur.execute("INSERT INTO detail_option VALUES ('do-prot','class','class-a','school','Protector',NULL)")
-    cur.execute("INSERT INTO detail_option VALUES ('do-thaum','class','class-a','school','Thaumaturge',NULL)")
+    cur.execute("INSERT INTO detail_option VALUES ('do-sch-a','class','class-a','school','School A',NULL)")
+    cur.execute("INSERT INTO detail_option VALUES ('do-sch-b','class','class-a','school','School B',NULL)")
 
     # weapon mastery domain: catalog_item, weapon, mastery_property tables
     cur.execute("CREATE TABLE IF NOT EXISTS mastery_property (id TEXT PRIMARY KEY, name TEXT)")
-    cur.execute("INSERT OR IGNORE INTO mastery_property VALUES ('cleave','Cleave')")
-    cur.execute("INSERT OR IGNORE INTO mastery_property VALUES ('vex','Vex')")
-    cur.execute("INSERT OR IGNORE INTO mastery_property VALUES ('slow','Slow')")
-    cur.execute("INSERT OR IGNORE INTO mastery_property VALUES ('nick','Nick')")
+    cur.execute("INSERT OR IGNORE INTO mastery_property VALUES ('mastery-a','Mastery A')")
+    cur.execute("INSERT OR IGNORE INTO mastery_property VALUES ('mastery-b','Mastery B')")
+    cur.execute("INSERT OR IGNORE INTO mastery_property VALUES ('mastery-c','Mastery C')")
+    cur.execute("INSERT OR IGNORE INTO mastery_property VALUES ('mastery-d','Mastery D')")
     cur.execute("CREATE TABLE IF NOT EXISTS catalog_item (id TEXT PRIMARY KEY, name TEXT, kind TEXT, "
                 "category_id TEXT)")
-    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('greataxe','Greataxe','weapon',NULL)")
-    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('handaxe','Handaxe','weapon',NULL)")
-    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('club','Club','weapon',NULL)")
-    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('net','Net','weapon',NULL)")
-    # rapier: a martial, finesse melee weapon -- exercises specific-weapon proficiency and the
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('weapon-a','Weapon A','weapon',NULL)")
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('weapon-b','Weapon B','weapon',NULL)")
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('weapon-c','Weapon C','weapon',NULL)")
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('weapon-d','Weapon D','weapon',NULL)")
+    # weapon-e: a martial, finesse melee weapon -- exercises specific-weapon proficiency and the
     # finesse (max of str/dex) ability-mod choice in the attack-bonus derivation/validation
-    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('rapier','Rapier','weapon',NULL)")
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('weapon-e','Weapon E','weapon',NULL)")
     # T35: catalog_item entries for equipment used in inventory tests
-    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('chain-mail','Chain Mail','armor','armor')")
-    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('leather-armor','Leather Armor','armor','armor')")
-    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('half-plate','Half Plate Armor','armor','armor')")
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('armor-a','Armor A','armor','armor')")
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('armor-b','Armor B','armor','armor')")
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('armor-c','Armor C','armor','armor')")
     cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('shield','Shield','armor','shield')")
     cur.execute("CREATE TABLE IF NOT EXISTS weapon (id TEXT PRIMARY KEY REFERENCES catalog_item(id), "
                 "tier_id TEXT, range_class_id TEXT, dmg_dice_count INT, dmg_die_faces INT, "
                 "dmg_flat INT, damage_type_id TEXT, mastery_id TEXT REFERENCES mastery_property(id))")
-    cur.execute("INSERT OR IGNORE INTO weapon VALUES ('greataxe','martial','melee',1,12,NULL,'slashing','cleave')")
-    cur.execute("INSERT OR IGNORE INTO weapon VALUES ('handaxe','simple','melee',1,6,NULL,'slashing','vex')")
-    cur.execute("INSERT OR IGNORE INTO weapon VALUES ('club','simple','melee',1,4,NULL,'bludgeoning','slow')")
-    cur.execute("INSERT OR IGNORE INTO weapon VALUES ('net','martial','ranged',NULL,NULL,NULL,NULL,NULL)")
-    cur.execute("INSERT OR IGNORE INTO weapon VALUES ('rapier','martial','melee',1,8,NULL,'piercing',NULL)")
+    cur.execute("INSERT OR IGNORE INTO weapon VALUES ('weapon-a','martial','melee',1,12,NULL,'slashing','mastery-a')")
+    cur.execute("INSERT OR IGNORE INTO weapon VALUES ('weapon-b','simple','melee',1,6,NULL,'slashing','mastery-b')")
+    cur.execute("INSERT OR IGNORE INTO weapon VALUES ('weapon-c','simple','melee',1,4,NULL,'bludgeoning','mastery-c')")
+    cur.execute("INSERT OR IGNORE INTO weapon VALUES ('weapon-d','martial','ranged',NULL,NULL,NULL,NULL,NULL)")
+    cur.execute("INSERT OR IGNORE INTO weapon VALUES ('weapon-e','martial','melee',1,8,NULL,'piercing',NULL)")
 
     # B5: item_slot dimension table — all body slots for equipping items
     cur.execute("CREATE TABLE item_slot (id TEXT PRIMARY KEY, name TEXT)")
@@ -1024,9 +1025,9 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE weapon_property_map (weapon_id TEXT, property_id TEXT, "
                 "range_normal INT, range_long INT, param_die_faces INT, ammunition_type_id TEXT, "
                 "note TEXT)")
-    # greataxe: two-handed | handaxe: light | pike: two-handed + versatile | rapier: finesse
-    for wid, pid in [("greataxe","two-handed"),("pike","two-handed"),
-                     ("pike","versatile"),("handaxe","light"),("rapier","finesse")]:
+    # weapon-a: two-handed | weapon-b: light | weapon-f: two-handed + versatile | weapon-e: finesse
+    for wid, pid in [("weapon-a","two-handed"),("weapon-f","two-handed"),
+                     ("weapon-f","versatile"),("weapon-b","light"),("weapon-e","finesse")]:
         cur.execute("INSERT INTO weapon_property_map (weapon_id,property_id) VALUES (?,?)",
                     (wid, pid))
 
@@ -1034,20 +1035,20 @@ def _build_rules_db(path: str) -> None:
                 "rarity_id TEXT, requires_attunement INT DEFAULT 0, attune_req_kind TEXT, "
                 "attune_req_value TEXT, consumable INT DEFAULT 0, effect_duration TEXT, "
                 "description TEXT, cumulative_max_seconds INT)")
-    cur.execute("INSERT INTO catalog_item VALUES ('mi-scroll','Magic Scroll','wondrous','scroll')")
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-scroll','Scroll Alpha','wondrous','scroll')")
     cur.execute("INSERT INTO magic_item (id,rarity_id,consumable,description) "
-                "VALUES ('mi-scroll','common',1,'Spell Scroll')")
-    cur.execute("INSERT INTO catalog_item VALUES ('mi-sword','Magic Sword','weapon',NULL)")
+                "VALUES ('mi-scroll','common',1,'Scroll Alpha')")
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-sword','Sword Alpha','weapon',NULL)")
     cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) "
                 "VALUES ('mi-sword','rare',1)")
-    cur.execute("INSERT INTO catalog_item VALUES ('mi-shield','Magic Shield','armor','shield')")
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-shield','Shield Alpha','armor','shield')")
     cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) "
                 "VALUES ('mi-shield','uncommon',1)")
 
     cur.execute("CREATE TABLE magic_item_template (id INTEGER PRIMARY KEY, template_id TEXT, "
                 "base_kind TEXT, tier_id TEXT, range_class_id TEXT, base_item_id TEXT)")
     cur.execute("INSERT INTO magic_item_template (template_id,base_kind,base_item_id) "
-                "VALUES ('tpl-weapon-1','weapon','greataxe')")
+                "VALUES ('tpl-weapon-1','weapon','weapon-a')")
     cur.execute("INSERT INTO magic_item_template (template_id,base_kind,base_item_id) "
                 "VALUES ('tpl-shield','shield','mi-shield')")
 
@@ -1065,11 +1066,11 @@ def _build_rules_db(path: str) -> None:
         ("gb-ac-feat","feat","feat-gen","ac",1,"feat-gen"),
         ("gb-init-feat","feat","feat-gen","initiative",2,"feat-gen"),
         ("gb-save-sub","subclass","sub-a","saving_throw",1,"sub-a"),
-        ("gb-ac-spell","spell","sp1","ac",2,"shield-of-faith"),
-        ("gb-save-spell","spell","sp2","saving_throw",None,"bless"),
-        ("gb-ac-spell2","spell","sp1","ac",1,"shield-of-faith"),
-        ("gb-wpn-atk","spell","sp3","weapon_attack",1,"magic-weapon"),
-        ("gb-wpn-dmg","spell","sp3","weapon_damage",1,"magic-weapon"),
+        ("gb-ac-spell","spell","sp1","ac",2,"src-spell-a"),
+        ("gb-save-spell","spell","sp2","saving_throw",None,"src-spell-b"),
+        ("gb-ac-spell2","spell","sp1","ac",1,"src-spell-a"),
+        ("gb-wpn-atk","spell","sp3","weapon_attack",1,"src-spell-c"),
+        ("gb-wpn-dmg","spell","sp3","weapon_damage",1,"src-spell-c"),
     ]:
         cur.execute("INSERT INTO grant_bonus (id,owner_kind,owner_id,target_kind,value,source_name) "
                     "VALUES (?,?,?,?,?,?)", (gbid, okind, oid, tkind, val, sn))
@@ -1093,10 +1094,14 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE armor (id TEXT PRIMARY KEY REFERENCES catalog_item(id), "
                 "category_id TEXT, base_ac INT, dex_cap INT, ac_bonus INT, strength_req INT, "
                 "stealth_disadvantage INT DEFAULT 0)")
-    cur.execute("INSERT INTO catalog_item VALUES ('chain-mail-armor','Chain Mail','armor','armor')")
-    cur.execute("INSERT INTO armor VALUES ('chain-mail-armor','heavy',16,0,NULL,13,1)")
-    cur.execute("INSERT INTO catalog_item VALUES ('leather-armor-item','Leather Armor','armor','armor')")
-    cur.execute("INSERT INTO armor VALUES ('leather-armor-item','light',11,NULL,NULL,NULL,0)")
+    # Second catalog_item row per armor, sharing the display name of its twin above (armor-a / armor-b)
+    # but carrying the armor-table stats. The name resolver is last-wins over the name column, so the
+    # sheet name "Armor A" / "Armor B" resolves to THIS stats-bearing id -- preserved from the original
+    # duplicate-name fixture behaviour.
+    cur.execute("INSERT INTO catalog_item VALUES ('armor-d','Armor A','armor','armor')")
+    cur.execute("INSERT INTO armor VALUES ('armor-d','heavy',16,0,NULL,13,1)")
+    cur.execute("INSERT INTO catalog_item VALUES ('armor-e','Armor B','armor','armor')")
+    cur.execute("INSERT INTO armor VALUES ('armor-e','light',11,NULL,NULL,NULL,0)")
     cur.execute("INSERT INTO catalog_item VALUES ('shield-item','Shield','armor','shield')")
     cur.execute("INSERT INTO armor VALUES ('shield-item','shield',NULL,NULL,2,NULL,0)")
 
@@ -1222,13 +1227,13 @@ def _build_rules_db(path: str) -> None:
                 "VALUES ('gsp-slotless','species','species-slotless','always','slotless_per_rest',3,'short-rest')")
     cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-slotless','sp2')")
 
-    # class_detail grant_spell with class_list choice (Thaumaturge analog)
+    # class_detail grant_spell with class_list choice (a class-detail spell-grant analog)
     cur.execute("INSERT INTO grant_spell (id,owner_kind,owner_id,bucket,recovery) "
                 "VALUES ('gsp-cls-det','class_detail','detail-widen','cantrip','at_will')")
     cur.execute("INSERT INTO grant_spell_choice (grant_id,from_kind) VALUES ('gsp-cls-det','class_list')")
     cur.execute("INSERT INTO grant_spell_choice_value VALUES ('gsp-cls-det','class-b')")
 
-    # class_option grant_spell with class_list choice (Pact of the Tome analog)
+    # class_option grant_spell with class_list choice (a class-option spell-grant analog)
     cur.execute("INSERT INTO grant_spell (id,owner_kind,owner_id,bucket,recovery) "
                 "VALUES ('gsp-cls-opt','class_option','class-opt-widen','cantrip','at_will')")
     cur.execute("INSERT INTO grant_spell_choice (grant_id,from_kind) VALUES ('gsp-cls-opt','class_list')")

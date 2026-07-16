@@ -139,7 +139,7 @@ def test_derive_ac_unarmored(access):
 
 def test_derive_ac_worn_armor(access):
     core = _core()
-    inventory = {"equipped": {"armor": {"id": "a1", "name": "Chain Mail"}}}
+    inventory = {"equipped": {"armor": {"id": "a1", "name": "Armor A"}}}
     abilities = {"dexterity": 3}
     ac, detail = derive_ac(core, inventory, _empty_effects(), abilities, access)
     assert ac == 16  # 16 base + 0 Dex (heavy, cap=0)
@@ -150,7 +150,7 @@ def test_derive_ac_with_shield(access):
     core = _core()
     inventory = {
         "equipped": {
-            "armor": {"id": "a1", "name": "Leather Armor"},
+            "armor": {"id": "a1", "name": "Armor B"},
             "shield": {"id": "s1", "name": "Shield"},
         }
     }
@@ -164,7 +164,7 @@ def test_derive_ac_spell_bonus(access):
     core = _core()
     abilities = {"dexterity": 2}
     effects = ActiveEffects()
-    effects.bonuses.append({"target_kind": "ac", "value": 2, "source_name": "shield-of-faith"})
+    effects.bonuses.append({"target_kind": "ac", "value": 2, "source_name": "src-spell-a"})
     ac, detail = derive_ac(core, None, effects, abilities, access)
     assert ac == 14  # 10 + 2 Dex + 2 spell
     assert len(detail["bonuses"]) == 1
@@ -322,8 +322,8 @@ def test_derive_size_set_overrides_step_largest_wins(access):
 # ── state-gated extra-damage riders on attacks (T44b) ─────────────────────────
 
 
-def _inv_greataxe():
-    return {"equipped": {"main_hand": {"id": "w1", "name": "Greataxe"}}}
+def _inv_weapon_a():
+    return {"equipped": {"main_hand": {"id": "w1", "name": "Weapon A"}}}
 
 
 def _size_state(state_id):
@@ -332,18 +332,18 @@ def _size_state(state_id):
 
 def test_grow_rider_appends_die(access):
     core = _core()
-    effects = resolve_active_effects(core, _inv_greataxe(), [_size_state("grown")], [], access)
+    effects = resolve_active_effects(core, _inv_weapon_a(), [_size_state("grown")], [], access)
     assert {"die_count": 1, "die_faces": 4, "damage_type_id": None} in effects.extra_damage
-    attacks = derive_attacks(core, _inv_greataxe(), {"strength": 2, "dexterity": 3},
+    attacks = derive_attacks(core, _inv_weapon_a(), {"strength": 2, "dexterity": 3},
                              [], effects, access)
     assert attacks[0]["damage"] == "1d12+2+1d4"
 
 
 def test_shrink_rider_subtracts_die(access):
     core = _core()
-    effects = resolve_active_effects(core, _inv_greataxe(), [_size_state("shrunk")], [], access)
+    effects = resolve_active_effects(core, _inv_weapon_a(), [_size_state("shrunk")], [], access)
     assert {"die_count": -1, "die_faces": 4, "damage_type_id": None} in effects.extra_damage
-    attacks = derive_attacks(core, _inv_greataxe(), {"strength": 2, "dexterity": 3},
+    attacks = derive_attacks(core, _inv_weapon_a(), {"strength": 2, "dexterity": 3},
                              [], effects, access)
     assert attacks[0]["damage"] == "1d12+2-1d4"
 
@@ -351,7 +351,7 @@ def test_shrink_rider_subtracts_die(access):
 def test_rider_gate_no_leak_between_opposite_states(access):
     """The grow rider (gate 'grown') must not fire for the shrunk state, and vice versa."""
     core = _core()
-    effects = resolve_active_effects(core, _inv_greataxe(), [_size_state("grown")], [], access)
+    effects = resolve_active_effects(core, _inv_weapon_a(), [_size_state("grown")], [], access)
     counts = {(x["die_count"], x["die_faces"]) for x in effects.extra_damage}
     assert (1, 4) in counts
     assert (-1, 4) not in counts  # shrink rider gated to 'shrunk' — no leak
@@ -359,9 +359,9 @@ def test_rider_gate_no_leak_between_opposite_states(access):
 
 def test_no_rider_without_state(access):
     core = _core()
-    effects = resolve_active_effects(core, _inv_greataxe(), [], [], access)
+    effects = resolve_active_effects(core, _inv_weapon_a(), [], [], access)
     assert effects.extra_damage == []
-    attacks = derive_attacks(core, _inv_greataxe(), {"strength": 2, "dexterity": 3},
+    attacks = derive_attacks(core, _inv_weapon_a(), {"strength": 2, "dexterity": 3},
                              [], effects, access)
     assert attacks[0]["damage"] == "1d12+2"
 
@@ -399,14 +399,14 @@ def test_item_rider_only_on_owning_weapon(access):
     """The rider folds into Blade Alpha's own attack only, never the other equipped weapon's."""
     core = _blade_core()
     inv = {"equipped": {"main_hand": {"id": "w-main", "name": "Blade Alpha"},
-                        "off_hand": {"id": "w-off", "name": "Greataxe"}}}
+                        "off_hand": {"id": "w-off", "name": "Weapon A"}}}
     item_states = [{"inventory_ref": "w-main", "attuned": True}]
     effects = resolve_active_effects(core, inv, [], item_states, access)
     attacks = derive_attacks(core, inv, {"strength": 2, "dexterity": 3},
                              item_states, effects, access)
     by_name = {a["name"]: a["damage"] for a in attacks}
     assert by_name["Blade Alpha"] == "1d8+2+1d6"
-    assert by_name["Greataxe"] == "1d12+2"   # rider does NOT leak to the other weapon
+    assert by_name["Weapon A"] == "1d12+2"   # rider does NOT leak to the other weapon
 
 
 # ── derive_saving_throws ─────────────────────────────────────────────────────
@@ -427,7 +427,7 @@ def test_derive_saving_throws_bonus(access):
     effects = ActiveEffects()
     # NULL target_id (all-saves bonus): applies to every save
     effects.bonuses.append({"target_kind": "saving_throw", "value": 1, "target_id": None,
-                            "source_name": "bless"})
+                            "source_name": "src-spell-b"})
     saves = derive_saving_throws(core, abilities, 2, effects, access)
     assert saves["a1"]["modifier"] == 5  # 2 + PB(2) + 1 bonus
 
@@ -512,12 +512,12 @@ def test_derive_resource_state(access):
 
 def test_derive_attacks_melee(access):
     core = _core()
-    inventory = {"equipped": {"main_hand": {"id": "w1", "name": "Greataxe"}}}
+    inventory = {"equipped": {"main_hand": {"id": "w1", "name": "Weapon A"}}}
     abilities = {"strength": 2, "dexterity": 3}
     attacks = derive_attacks(core, inventory, abilities, [], _empty_effects(), access)
     assert len(attacks) == 1
     a = attacks[0]
-    assert a["name"] == "Greataxe"
+    assert a["name"] == "Weapon A"
     assert a["attack_bonus"] == 4  # 2 Str + 2 PB
     assert "d12" in a["damage"]
     assert "two-handed" in a["properties"]
@@ -529,7 +529,7 @@ def test_derive_attacks_short_keyed_abilities_uses_real_str_mod(access):
     Str mod (in both attack bonus and damage) from a short-keyed dict."""
     access = _access_with_dex_str(access)
     core = _core()
-    inventory = {"equipped": {"main_hand": {"id": "w1", "name": "Greataxe"}}}
+    inventory = {"equipped": {"main_hand": {"id": "w1", "name": "Weapon A"}}}
     abilities = {"str": 2, "dex": 3}   # keyed by the abbreviations (CORE short codes)
     attacks = derive_attacks(core, inventory, abilities, [], _empty_effects(), access)
     assert len(attacks) == 1
@@ -539,37 +539,37 @@ def test_derive_attacks_short_keyed_abilities_uses_real_str_mod(access):
 
 def test_derive_attacks_finesse(access):
     core = _core()
-    inventory = {"equipped": {"main_hand": {"id": "w2", "name": "Club"}}}
+    inventory = {"equipped": {"main_hand": {"id": "w2", "name": "Weapon C"}}}
     abilities = {"strength": 1, "dexterity": 3}
     attacks = derive_attacks(core, inventory, abilities, [], _empty_effects(), access)
     assert len(attacks) == 1
-    # Club has no finesse, so it's melee (Str)
+    # Weapon C has no finesse, so it's melee (Str)
     assert attacks[0]["attack_bonus"] == 3  # 1 Str + 2 PB
 
 
 def test_derive_attacks_proficient_via_specific_weapon(access):
-    """A rapier is a MARTIAL weapon; a sheet proficient only with 'simple weapons' + the specific
-    'rapiers' grant is still proficient with it, so PB applies (tier-only matching would miss it)."""
-    core = _core(proficiencies={"armor": [], "weapons": ["simple weapons", "rapiers"], "tools": []})
-    inventory = {"equipped": {"main_hand": {"id": "w1", "name": "rapier"}}}
+    """A weapon-e is a MARTIAL weapon; a sheet proficient only with 'simple weapons' + the specific
+    'weapon-es' grant is still proficient with it, so PB applies (tier-only matching would miss it)."""
+    core = _core(proficiencies={"armor": [], "weapons": ["simple weapons", "weapon-es"], "tools": []})
+    inventory = {"equipped": {"main_hand": {"id": "w1", "name": "weapon-e"}}}
     abilities = {"strength": 1, "dexterity": 3}
     attacks = derive_attacks(core, inventory, abilities, [], _empty_effects(), access)
     assert attacks[0]["attack_bonus"] == 5  # finesse -> Dex(3) + PB(2)
 
 
 def test_derive_attacks_specific_weapon_singular(access):
-    """The specific-weapon grant may appear singular ('rapier'); it must still match the weapon."""
-    core = _core(proficiencies={"armor": [], "weapons": ["simple weapons", "rapier"], "tools": []})
-    inventory = {"equipped": {"main_hand": {"id": "w1", "name": "rapier"}}}
+    """The specific-weapon grant may appear singular ('weapon-e'); it must still match the weapon."""
+    core = _core(proficiencies={"armor": [], "weapons": ["simple weapons", "weapon-e"], "tools": []})
+    inventory = {"equipped": {"main_hand": {"id": "w1", "name": "weapon-e"}}}
     abilities = {"strength": 1, "dexterity": 3}
     attacks = derive_attacks(core, inventory, abilities, [], _empty_effects(), access)
     assert attacks[0]["attack_bonus"] == 5  # finesse -> Dex(3) + PB(2)
 
 
 def test_derive_attacks_not_proficient_no_pb(access):
-    """Neither the martial tier nor a specific grant matches the rapier -> no proficiency bonus."""
+    """Neither the martial tier nor a specific grant matches the weapon-e -> no proficiency bonus."""
     core = _core(proficiencies={"armor": [], "weapons": ["simple weapons"], "tools": []})
-    inventory = {"equipped": {"main_hand": {"id": "w1", "name": "rapier"}}}
+    inventory = {"equipped": {"main_hand": {"id": "w1", "name": "weapon-e"}}}
     abilities = {"strength": 1, "dexterity": 3}
     attacks = derive_attacks(core, inventory, abilities, [], _empty_effects(), access)
     assert attacks[0]["attack_bonus"] == 3  # finesse -> Dex(3), NO PB
@@ -581,19 +581,19 @@ def test_derive_attacks_tier_title_case(access):
     covered by the other attack tests."""
     core = _core(proficiencies={"armor": [], "weapons": ["Simple Weapons", "Martial Weapons"],
                                 "tools": []})
-    inventory = {"equipped": {"main_hand": {"id": "w1", "name": "Greataxe"}}}
+    inventory = {"equipped": {"main_hand": {"id": "w1", "name": "Weapon A"}}}
     abilities = {"strength": 2, "dexterity": 3}
     attacks = derive_attacks(core, inventory, abilities, [], _empty_effects(), access)
-    assert attacks[0]["attack_bonus"] == 4  # 2 Str + 2 PB (Greataxe is martial)
+    assert attacks[0]["attack_bonus"] == 4  # 2 Str + 2 PB (Weapon A is martial)
 
 
 def test_derive_attacks_bonus(access):
     core = _core()
-    inventory = {"equipped": {"main_hand": {"id": "w1", "name": "Greataxe"}}}
+    inventory = {"equipped": {"main_hand": {"id": "w1", "name": "Weapon A"}}}
     abilities = {"strength": 2}
     effects = ActiveEffects()
     effects.bonuses.append({"target_kind": "weapon_attack", "value": 1,
-                            "source_name": "magic-weapon"})
+                            "source_name": "src-spell-c"})
     attacks = derive_attacks(core, inventory, abilities, [], effects, access)
     assert attacks[0]["attack_bonus"] == 5  # 2 Str + 2 PB + 1 bonus
 

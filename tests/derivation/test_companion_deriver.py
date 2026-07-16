@@ -206,9 +206,9 @@ class TestTemplatedBeastScaling:
         assert self._cm(access, _beast_core())["armor_class"] == 16                 # 13 + wis_mod(3)
 
     def test_attack_scales_with_owner_stats(self, access):
-        maul = next(a for a in self._cm(access, _beast_core())["attacks"] if a["name"] == "Maul")
-        assert maul["attack_bonus"] == 5        # spell_attack = pb(2) + wis_mod(3)
-        assert maul["damage"] == "1d8 + 5"       # 2 + wis_mod(3)
+        strike = next(a for a in self._cm(access, _beast_core())["attacks"] if a["name"] == "Strike B")
+        assert strike["attack_bonus"] == 5        # spell_attack = pb(2) + wis_mod(3)
+        assert strike["damage"] == "1d8 + 5"       # 2 + wis_mod(3)
 
     def test_fixed_ability_scores_and_saves_still_emitted(self, access):
         cm = self._cm(access, _beast_core())

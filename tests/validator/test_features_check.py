@@ -48,7 +48,7 @@ def test_ungranted_feature(access):
 def test_subclass_feature_present(access):
     s = _sheet(classes=[{"class": "Class A", "level": 3, "subclass": "Sub A"}],
                features=[_nf("Feat A"), _nf("Feat B"), _nf("Feat C"), _nf("Feat D (one use)"),
-                         _nf("Sub Feat A"), _nf("Aspect of the Wilds")])
+                         _nf("Sub Feat A"), _nf("Sub Feat C")])
     assert check(s, access) == []
 
 
@@ -63,16 +63,16 @@ def test_subclass_feature_below_level_not_expected(access):
 def test_subclass_feature_at_correct_level_expected(access):
     s = _sheet(classes=[{"class": "Class A", "level": 6, "subclass": "Sub A"}],
                features=[_nf("Feat A"), _nf("Feat B"), _nf("Feat C"), _nf("Feat D (one use)"),
-                         _nf("Sub Feat A"), _nf("Sub Feat B"), _nf("Aspect of the Wilds"),
+                         _nf("Sub Feat A"), _nf("Sub Feat B"), _nf("Sub Feat C"),
                          _nf("Ability Score Improvement")])
     assert check(s, access) == []
 
 
 def test_valid_subclass_detail(access):
     s = _sheet(classes=[{"class": "Class A", "level": 3, "subclass": "Sub A",
-                         "subclass_detail": "Owl"}],
+                         "subclass_detail": "Aspect A"}],
                features=[_nf("Feat A"), _nf("Feat B"), _nf("Feat C"), _nf("Feat D (one use)"),
-                         _nf("Sub Feat A"), _nf("Aspect of the Wilds")])
+                         _nf("Sub Feat A"), _nf("Sub Feat C")])
     assert check(s, access) == []
 
 
@@ -80,7 +80,7 @@ def test_invalid_subclass_detail(access):
     s = _sheet(classes=[{"class": "Class A", "level": 3, "subclass": "Sub A",
                          "subclass_detail": "Eagle"}],
                features=[_nf("Feat A"), _nf("Feat B"), _nf("Feat C"), _nf("Feat D (one use)"),
-                         _nf("Sub Feat A"), _nf("Aspect of the Wilds")])
+                         _nf("Sub Feat A"), _nf("Sub Feat C")])
     assert "feature-detail-option-invalid" in _codes(s, access)
 
 

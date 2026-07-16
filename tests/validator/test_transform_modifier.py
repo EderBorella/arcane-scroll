@@ -125,7 +125,7 @@ def _transform_sheet(kind, **mod_over):
                                "bonuses": [], "floor": None},
         "hit_points": {"current": 20, "temp": 20, "max_boost": 0, "max_reduction": 0},
         "speed": {"walk": 40, "climb": 20},
-        "attacks": [{"name": "Claw", "attack_bonus": 6, "damage": "2d6 + 4",
+        "attacks": [{"name": "Strike A", "attack_bonus": 6, "damage": "2d6 + 4",
                      "damage_type": "slashing", "weapon_mastery": None, "properties": []}],
         "features": [{"name": "Feat A", "uses": {"max": None}}],
         "feats": [{"name": "feat-gen", "uses": {"max": None}}],
@@ -214,13 +214,13 @@ def test_transform_defenses_form_authoritative(access):
 
 def test_transform_wrong_form_attack_flagged(access):
     sheet = _transform_sheet(TRANSFORM_PHYSICAL)
-    sheet["modifier"]["attacks"][0]["attack_bonus"] = 3   # form's Claw is +6
+    sheet["modifier"]["attacks"][0]["attack_bonus"] = 3   # form's Strike A is +6
     assert "transform-attack-mismatch" in _codes(sheet, access)
 
 
 def test_transform_missing_form_attack_flagged(access):
     sheet = _transform_sheet(TRANSFORM_PHYSICAL)
-    sheet["modifier"]["attacks"] = []   # the form's Claw action is not materialised
+    sheet["modifier"]["attacks"] = []   # the form's Strike A action is not materialised
     assert "transform-attack-missing" in _codes(sheet, access)
 
 
