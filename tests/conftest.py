@@ -1074,6 +1074,32 @@ def _build_rules_db(path: str) -> None:
     # 20. No sheet in the default fixture carries species-a, so this is inert unless a test opts in.
     cur.execute("INSERT INTO grant_ability_set VALUES ('gas-species-a','species','species-a',NULL,'a2',20,'set',NULL)")
 
+    # T51 fixtures: an attuned magic WEAPON that owns exactly one extra_damage rider.
+    # Blade Alpha is a martial melee weapon (so derive_attacks DOES produce an attack for it) AND a
+    # magic item requiring attunement, owning a single grant_bonus(target_kind='extra_damage', +1d6).
+    # The rider folds into THAT weapon's own attack, and only while the item is attuned.
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-blade','Blade Alpha','weapon',NULL)")
+    cur.execute("INSERT INTO weapon VALUES ('mi-blade','martial','melee',1,8,NULL,'slashing',NULL)")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-blade','rare',1)")
+    cur.execute("INSERT INTO grant_bonus "
+                "(id,owner_kind,owner_id,target_kind,value,die_count,die_faces,damage_type_id) "
+                "VALUES ('gb-blade-xd','magic_item','mi-blade','extra_damage',NULL,1,6,'fire')")
+
+    # T50 fixtures: a CON-set item (amulet-of-health analog) + a state-gated HP boost feature +
+    # an always-on (non-state) grant_hp that must stay INERT in the effective-CON max-HP recompute.
+    # Vigor Alpha SETs a3 to 18 while attuned; tests alias a3's abbrev to 'con' in their own private
+    # DB copy so the deriver/validator resolve it as the constitution ability.
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-vigor','Vigor Alpha','wondrous','neck')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-vigor','rare',1)")
+    cur.execute("INSERT INTO grant_ability_set VALUES ('gas-mi-vigor','magic_item','mi-vigor',NULL,'a3',18,'set',NULL)")
+    # a class feature that grants +5 max HP only while its state is active (high level so no
+    # owner-enumeration reaches it) -- lets a test combine a state grant_hp WITH the CON-delta.
+    cur.execute("INSERT INTO class_feature VALUES ('cf-hp-state','class-a',99,'HP State Feature A')")
+    cur.execute("INSERT INTO grant_hp VALUES ('ghp-state','class_feature','cf-hp-state',NULL,5,NULL,'state-active')")
+    # an always-on grant_hp on feat-gen -- never gathered under an active state, so it must NOT
+    # reach max_boost (guards the deriver's and validator's state-only HP accumulation).
+    cur.execute("INSERT INTO grant_hp VALUES ('ghp-feat','feat','feat-gen',NULL,7,NULL,NULL)")
+
     con.commit()
     con.close()
 

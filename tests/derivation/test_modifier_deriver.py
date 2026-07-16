@@ -366,6 +366,49 @@ def test_no_rider_without_state(access):
     assert attacks[0]["damage"] == "1d12+2"
 
 
+# ── item-owned extra-damage rider on attacks (T51) ────────────────────────────
+
+
+def _inv_blade():
+    return {"equipped": {"main_hand": {"id": "w-main", "name": "Blade Alpha"}}}
+
+
+def _blade_core():
+    return _core(proficiencies={"armor": [], "weapons": ["martial weapons"], "tools": []})
+
+
+def test_item_rider_folds_into_owning_attack_when_attuned(access):
+    core = _blade_core()
+    item_states = [{"inventory_ref": "w-main", "attuned": True}]
+    effects = resolve_active_effects(core, _inv_blade(), [], item_states, access)
+    attacks = derive_attacks(core, _inv_blade(), {"strength": 2, "dexterity": 3},
+                             item_states, effects, access)
+    # Blade Alpha: 1d8 + Str(2), then the item's own +1d6 rider folds in
+    assert attacks[0]["damage"] == "1d8+2+1d6"
+
+
+def test_item_rider_absent_when_not_attuned(access):
+    core = _blade_core()
+    effects = resolve_active_effects(core, _inv_blade(), [], [], access)  # not attuned
+    attacks = derive_attacks(core, _inv_blade(), {"strength": 2, "dexterity": 3},
+                             [], effects, access)
+    assert attacks[0]["damage"] == "1d8+2"   # requires attunement → rider does not fold
+
+
+def test_item_rider_only_on_owning_weapon(access):
+    """The rider folds into Blade Alpha's own attack only, never the other equipped weapon's."""
+    core = _blade_core()
+    inv = {"equipped": {"main_hand": {"id": "w-main", "name": "Blade Alpha"},
+                        "off_hand": {"id": "w-off", "name": "Greataxe"}}}
+    item_states = [{"inventory_ref": "w-main", "attuned": True}]
+    effects = resolve_active_effects(core, inv, [], item_states, access)
+    attacks = derive_attacks(core, inv, {"strength": 2, "dexterity": 3},
+                             item_states, effects, access)
+    by_name = {a["name"]: a["damage"] for a in attacks}
+    assert by_name["Blade Alpha"] == "1d8+2+1d6"
+    assert by_name["Greataxe"] == "1d12+2"   # rider does NOT leak to the other weapon
+
+
 # ── derive_saving_throws ─────────────────────────────────────────────────────
 
 
@@ -449,7 +492,7 @@ def test_derive_initiative_short_keyed_abilities_uses_real_dex_mod(access):
 
 
 def test_derive_hp_effects_baseline(access):
-    hp = derive_hp_effects(_core(), _empty_effects(), access)
+    hp = derive_hp_effects(_core(), _empty_effects(), {}, access)
     assert hp["max_boost"] == 0
     assert hp["max_reduction"] == 0
 
@@ -661,7 +704,7 @@ def test_empty_state_defaults(access):
     skills = derive_skills(core, mods, 2, effects, access)
     passives = derive_passive_scores(core, skills, effects, access)
     init = derive_initiative(core, mods, 2, effects, access)
-    hp = derive_hp_effects(core, effects, access)
+    hp = derive_hp_effects(core, effects, mods, access)
     res = derive_resource_state(core, effects, access)
     senses = derive_senses(core, effects, access)
     feat_uses = derive_features(core, access)

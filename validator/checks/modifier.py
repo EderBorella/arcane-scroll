@@ -6,7 +6,9 @@ from access.validator import abilities as abilities_q
 from access.validator import defenses as defenses_q
 from access.validator import inventory as inventory_q
 from access.validator import size as size_q
+from access.validator import vitals as vitals_q
 from access.validator.state_compatibility import blocked_states
+from validator.checks.vitals import CON_ABBREV
 from validator.report import Violation
 
 DOMAIN = "modifier"
@@ -345,15 +347,55 @@ def _check_attacks(sheet: dict, access, v: list[Violation]) -> None:
                                "attacks"))
 
 
+def _item_rider_active(sheet: dict, access, weapon_name: str, magic_item_id: str) -> bool:
+    """True if the equipped magic weapon named ``weapon_name`` is active for its extra-damage rider.
+
+    Mirrors the deriver's activity gate: an item that requires attunement is active only when it
+    carries an attuned item_state (matched via inventory_ref → equipped id); an item that does not
+    require attunement is active while equipped. Grounded in the sheet + DB, not the deriver."""
+    inventory = sheet.get("inventory", {}) or {}
+    if not isinstance(inventory, dict):
+        return False
+    equipped = inventory.get("equipped", {}) or {}
+    if not isinstance(equipped, dict):
+        return False
+    item_id = None
+    for slot_item in equipped.values():
+        if isinstance(slot_item, dict) and slot_item.get("name") == weapon_name:
+            item_id = slot_item.get("id")
+            break
+    if item_id is None:
+        return False  # not an equipped weapon → the deriver never folded a rider into it
+    if not inventory_q.requires_attunement(access, magic_item_id):
+        return True
+    mod = sheet.get("modifier", {}) or {}
+    item_states = mod.get("item_states", []) or []
+    if not isinstance(item_states, list):
+        return False
+    for ist in item_states:
+        if (isinstance(ist, dict) and ist.get("attuned")
+                and ist.get("inventory_ref") == item_id):
+            return True
+    return False
+
+
 def _check_attack_damage(sheet: dict, access, v: list[Violation]) -> None:
-    """Independently re-derive state-gated extra-damage riders from the DB and assert each
-    appears in the relevant attacks' ``damage`` string. Grounded in the DB (active state →
-    owner → condition-gated extra_damage grant), not the deriver's output."""
+    """Independently re-derive extra-damage riders from the DB and assert each appears in the
+    relevant attacks' ``damage`` string. Grounded in the DB, not the deriver's output. Two rider
+    sources are checked:
+
+    * state-gated riders (active state → owner → condition-gated extra_damage grant) apply to
+      EVERY weapon attack;
+    * an item-owned rider (a weapon-backed magic item owning exactly one extra_damage grant, active
+      per attunement/equip) applies only to THAT weapon's own attack.
+    """
     mod = sheet.get("modifier", {})
     attacks = mod.get("attacks", []) or []
     states = mod.get("character_states", []) or []
-    if not isinstance(attacks, list) or not attacks or not isinstance(states, list):
+    if not isinstance(attacks, list) or not attacks:
         return
+    if not isinstance(states, list):
+        states = []
 
     # De-dup: two active states can yield the same rider term; we assert its presence
     # once, not once per contributing state (which would emit duplicate violations).
@@ -381,13 +423,10 @@ def _check_attack_damage(sheet: dict, access, v: list[Violation]) -> None:
                     seen_terms.add(term)
                     terms.append(term)
 
-    if not terms:
-        return
-
-    # The deriver folds these riders only into WEAPON attacks (entries produced from an
-    # equipped weapon). Scope the assertion the same way — resolve each attack's name to a
-    # weapon and skip anything that isn't one (a spell/unarmed entry the deriver never folded
-    # a rider into) so a non-weapon attack can't false-positive rider-missing.
+    # The deriver folds riders only into WEAPON attacks (entries produced from an equipped
+    # weapon). Scope both assertions the same way — resolve each attack's name to a weapon and
+    # skip anything that isn't one (a spell/unarmed entry the deriver never folded a rider into)
+    # so a non-weapon attack can't false-positive rider-missing.
     for atk in attacks:
         if not isinstance(atk, dict):
             continue
@@ -398,11 +437,35 @@ def _check_attack_damage(sheet: dict, access, v: list[Violation]) -> None:
         weapon_id = access.resolve("catalog_item", name)
         if weapon_id is None or inventory_q.weapon_attack_facts(access, weapon_id) is None:
             continue
+
+        # state riders apply to every weapon attack
         for term in terms:
             if term not in damage:
                 v.append(Violation(DOMAIN, "attack-damage-rider-missing", "incomplete",
                                    f"{name}: expected extra-damage rider {term} from "
                                    f"active state, not in damage {damage!r}", "attacks"))
+
+        # item-owned rider: only THIS weapon's own single-row, weapon-backed magic item. A negative
+        # rider term is legitimate (a subtractive rider) and must appear verbatim, not be flagged.
+        mid = access.resolve("magic_item", name)
+        if mid is None:
+            continue
+        rows = inventory_q.extra_damage_grants(access, "magic_item", mid)
+        # fold only an UNGATED single-row item rider — multi-row items are carded separately, and a
+        # condition_kind-gated item rider is state-scoped (the state path owns it). Mirror the state
+        # path's discipline so a future gated item rider isn't silently blessed; none exist today.
+        if len(rows) != 1 or rows[0]["condition_kind"] is not None:
+            continue
+        dc, df = rows[0]["die_count"], rows[0]["die_faces"]
+        if not (_int(dc) and _int(df) and dc != 0):
+            continue
+        if not _item_rider_active(sheet, access, name, mid):
+            continue
+        term = f"{'+' if dc > 0 else '-'}{abs(dc)}d{df}"
+        if term not in damage:
+            v.append(Violation(DOMAIN, "item-attack-damage-rider-missing", "incomplete",
+                               f"{name}: expected item extra-damage rider {term}, "
+                               f"not in damage {damage!r}", "attacks"))
 
 
 # ── effective abilities ──────────────────────────────────────────────────────
@@ -536,6 +599,134 @@ def _check_effective_abilities(sheet: dict, access, v: list[Violation]) -> None:
             v.append(Violation(DOMAIN, "effective-ability-mismatch", "illegal",
                                f"{aid}: effective {score} != expected {expected}",
                                f"effective_abilities.{aid}"))
+
+
+# ── hit points (effective-CON max-HP recompute) ──────────────────────────────
+
+
+def _total_level(core: dict) -> int:
+    """Sum of the character's per-class levels from CORE.identity.classes."""
+    ident = core.get("identity", {}) or {}
+    classes = ident.get("classes", []) if isinstance(ident, dict) else []
+    total = 0
+    if isinstance(classes, list):
+        for c in classes:
+            if isinstance(c, dict) and _int(c.get("level")):
+                total += c["level"]
+    return total
+
+
+def _con_hp_delta(sheet: dict, access, total_level: int) -> int:
+    """Independently re-derived HP delta from the effective-CON change, ``(eff_con_mod −
+    core_con_mod) × total_level``.
+
+    ``core_con_mod`` is read from CORE.abilities (the ability whose key resolves to the
+    constitution id). The effective CON is CORE-final adjusted by ability-set/floor grants from the
+    SAME sources the effective-ability check uses (attuned items + always-on owners), applied to the
+    constitution id. Grounded in the DB + CORE, never the deriver's ``effective_abilities``."""
+    con_id = abilities_q.ability_id(access, CON_ABBREV)
+    if con_id is None:
+        return 0
+    core = sheet.get("core", {}) or {}
+    core_abilities = core.get("abilities", {}) or {}
+    if not isinstance(core_abilities, dict):
+        return 0
+    core_con_final = None
+    for k, entry in core_abilities.items():
+        if abilities_q.ability_id(access, k) != con_id:
+            continue
+        if isinstance(entry, dict):
+            f = entry.get("final")
+            if _int(f):
+                core_con_final = f
+        break
+    if not _int(core_con_final):
+        return 0
+    core_con_mod = (core_con_final - 10) // 2
+
+    ability_sets: dict[str, list[tuple[str, int]]] = {}
+    for source in (_item_ability_sets(sheet, access), _owner_ability_sets(sheet, access)):
+        for key, entries in source.items():
+            ability_sets.setdefault(key, []).extend(entries)
+
+    eff_con = core_con_final
+    floor_score = None
+    override_score = None
+    for mode, s in ability_sets.get(con_id, []):
+        if not _int(s):
+            continue
+        if mode == "set":
+            if override_score is None or s > override_score:
+                override_score = s
+        else:  # floor: a minimum the score is raised to
+            if floor_score is None or s > floor_score:
+                floor_score = s
+    if floor_score is not None:
+        eff_con = max(eff_con, floor_score)
+    if override_score is not None:  # 'set' is a true override — wins over base and floor
+        eff_con = override_score
+    eff_con_mod = (eff_con - 10) // 2
+
+    return (eff_con_mod - core_con_mod) * total_level
+
+
+def _state_hp_boost(sheet: dict, access) -> int:
+    """Total flat/per-level HP from grant_hp rows owned by ACTIVE character_states' owners.
+
+    Mirrors the deriver's state-only HP accumulation: only a state's owner contributes (an always-on
+    owner's grant_hp never does). Combined with the CON-delta to reconstruct max_boost — omitting it
+    would false-positive whenever a state legitimately boosts HP."""
+    mod = sheet.get("modifier", {}) or {}
+    states = mod.get("character_states", []) or []
+    if not isinstance(states, list):
+        return 0
+    total = 0
+    for st in states:
+        if not isinstance(st, dict):
+            continue
+        owner_kind = _owner_kind_for_source_type(st.get("source_type", ""))
+        if owner_kind is None:
+            continue
+        owner_id = access.resolve(owner_kind, st.get("source"))
+        if owner_id is None:
+            continue
+        for row in vitals_q.hp_grants(access, owner_kind, owner_id):
+            total += (row["flat"] or 0) + (row["per_level"] or 0)
+    return total
+
+
+def _check_hp(sheet: dict, access, v: list[Violation]) -> None:
+    """Assert MODIFIER.hit_points.max_boost / max_reduction reflect the effective-CON max-HP
+    recompute (as a delta on the state HP boost). The modifier sheet has no absolute max — the
+    effective max is CORE.hit_points.max + max_boost − max_reduction — so the recompute is expressed
+    as a delta: a positive CON delta raises max_boost, a negative one raises max_reduction."""
+    core = sheet.get("core", {}) or {}
+    mod = sheet.get("modifier", {}) or {}
+    if not isinstance(core, dict) or not isinstance(mod, dict):
+        return
+    hp = mod.get("hit_points")
+    if not isinstance(hp, dict):
+        return
+    actual_boost = hp.get("max_boost")
+    actual_reduction = hp.get("max_reduction")
+    if not _int(actual_boost) or not _int(actual_reduction):
+        return
+
+    total_level = _total_level(core)
+    hp_delta = _con_hp_delta(sheet, access, total_level)
+    state_hp = _state_hp_boost(sheet, access)
+
+    expected_boost = state_hp + max(0, hp_delta)
+    expected_reduction = max(0, -hp_delta)
+
+    if actual_boost != expected_boost:
+        v.append(Violation(DOMAIN, "hp-max-boost-mismatch", "illegal",
+                           f"max_boost {actual_boost} != expected {expected_boost}",
+                           "hit_points.max_boost"))
+    if actual_reduction != expected_reduction:
+        v.append(Violation(DOMAIN, "hp-max-reduction-mismatch", "illegal",
+                           f"max_reduction {actual_reduction} != expected {expected_reduction}",
+                           "hit_points.max_reduction"))
 
 
 # ── defenses ─────────────────────────────────────────────────────────────────
@@ -809,6 +1000,7 @@ def check(sheet: dict, access) -> list[Violation]:
     _check_attacks(sheet, access, v)
     _check_attack_damage(sheet, access, v)
     _check_effective_abilities(sheet, access, v)
+    _check_hp(sheet, access, v)
     _check_defenses(sheet, v)
     _check_state_defenses(sheet, access, v)
     _check_size(sheet, access, v)

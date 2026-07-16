@@ -209,7 +209,7 @@ def derive_modifier(core: dict, inventory: dict | None, grimoire: dict | None,
     skills = derive_skills(core, ability_mods, pb, effects, access)
     passives = derive_passive_scores(core, skills, effects, access)
     init = derive_initiative(core, ability_mods, pb, effects, access)
-    hp_eff = derive_hp_effects(core, effects, access)
+    hp_eff = derive_hp_effects(core, effects, ability_mods, access)
     res_state = derive_resource_state(core, effects, access)
     attacks = derive_attacks(core, inventory, ability_mods, item_states, effects, access)
     senses = derive_senses(core, effects, access)

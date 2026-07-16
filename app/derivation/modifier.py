@@ -4,6 +4,7 @@ field protection, no stacking-rule enforcement — those are C-M2."""
 from access.primitives import grants_for
 from access.validator import abilities as abilities_q
 from access.validator import defenses as defenses_q
+from access.validator import inventory as inventory_q
 from access.validator import size as size_q
 
 
@@ -280,9 +281,7 @@ def _accumulate_item_effects(effects: ActiveEffects, access, inventory, item_sta
             mid = access.resolve("magic_item", item_name)
             if not mid:
                 continue
-            requires = access.db.scalar(
-                "SELECT requires_attunement FROM magic_item WHERE id=?", mid)
-            if requires:
+            if inventory_q.requires_attunement(access, mid):
                 continue
             _accumulate_senses(effects, access, "magic_item", mid)
             _accumulate_speeds(effects, access, "magic_item", mid)
@@ -554,11 +553,46 @@ def derive_initiative(core: dict, abilities: dict, pb, effects: ActiveEffects,
     return dex_mod
 
 
-def derive_hp_effects(core: dict, effects: ActiveEffects, access) -> dict:
-    """Returns hit_points effects: {max_boost, max_reduction}."""
+def derive_hp_effects(core: dict, effects: ActiveEffects, ability_mods: dict, access) -> dict:
+    """Returns hit_points effects: {max_boost, max_reduction}.
+
+    Beyond the state-driven hp_boost/hp_reduction, the effective-CON change recomputes max HP as a
+    DELTA on those fields (the modifier sheet has no absolute max; effective max = CORE max +
+    max_boost − max_reduction). With ``core_con_mod`` from CORE.abilities and ``eff_con_mod`` the
+    already-derived effective CON modifier, ``hp_delta = (eff_con_mod − core_con_mod) × total_level``
+    adds max(0, hp_delta) to max_boost (on top of the state hp_boost) and max(0, −hp_delta) to
+    max_reduction."""
+    from validator.checks.vitals import CON_ABBREV
+
+    core_abilities = core.get("abilities", {}) or {}
+    con_id = abilities_q.ability_id(access, CON_ABBREV)
+    core_con_mod = 0
+    eff_con_mod = 0
+    if con_id is not None and isinstance(core_abilities, dict):
+        for k, score_obj in core_abilities.items():
+            if abilities_q.ability_id(access, k) != con_id:
+                continue
+            if isinstance(score_obj, dict):
+                final = score_obj.get("final", 10)
+                if _int(final):
+                    core_con_mod = _ability_mod(final)
+            eff_con_mod = ability_mods.get(k, core_con_mod)
+            if not _int(eff_con_mod):
+                eff_con_mod = core_con_mod
+            break
+
+    ident = core.get("identity", {}) or {}
+    classes = ident.get("classes", []) if isinstance(ident, dict) else []
+    total_level = 0
+    if isinstance(classes, list):
+        for c in classes:
+            if isinstance(c, dict) and _int(c.get("level")):
+                total_level += c["level"]
+
+    hp_delta = (eff_con_mod - core_con_mod) * total_level
     return {
-        "max_boost": effects.hp_boost,
-        "max_reduction": effects.hp_reduction,
+        "max_boost": effects.hp_boost + max(0, hp_delta),
+        "max_reduction": effects.hp_reduction + max(0, -hp_delta),
     }
 
 
@@ -580,7 +614,16 @@ def derive_resource_state(core: dict, effects: ActiveEffects, access) -> dict:
 
 def derive_attacks(core: dict, inventory: dict | None, abilities: dict,
                    item_states: list, effects: ActiveEffects, access) -> list[dict]:
-    """Returns attacks: list of attack row dicts for each equipped weapon."""
+    """Returns attacks: list of attack row dicts for each equipped weapon.
+
+    Extra-damage riders append their own die term to a weapon's damage string via the existing
+    signed formatter. Two sources fold in: state-gated riders (``effects.extra_damage``) apply to
+    every weapon attack; an item-owned rider (a weapon-backed magic item owning exactly one
+    ``extra_damage`` grant, active per attunement/equip) folds only into THAT item's own attack.
+
+    A subtractive rider (negative die_count, e.g. a shrink effect → ``-1d4``) is emitted raw; the
+    "damage not below 1" floor such an effect may carry is applied at the render/roll layer on the
+    rolled total, and is intentionally not encoded in the static dice string."""
     equipped = (inventory or {}).get("equipped", {}) or {}
     if not isinstance(equipped, dict):
         return []
@@ -589,6 +632,10 @@ def derive_attacks(core: dict, inventory: dict | None, abilities: dict,
     weapon_profs = set(profs.get("weapons", [])) if isinstance(profs, dict) else set()
     pb = core.get("proficiency_bonus", 0)
     masteries = set(core.get("weapon_masteries", []) or [])
+
+    # Attuned inventory refs (for gating an attunement-requiring item's own rider).
+    attuned_refs = {ist.get("inventory_ref") for ist in (item_states or [])
+                    if isinstance(ist, dict) and ist.get("attuned")}
 
     attacks = []
     for slot in ("main_hand", "off_hand"):
@@ -650,13 +697,32 @@ def derive_attacks(core: dict, inventory: dict | None, abilities: dict,
         # State-gated extra-damage riders append their own die term to the damage
         # string, consistent with how the flat bonus is formatted. A negative die_count
         # is a subtractive rider (e.g. a shrink effect → "-1d4"); the "not below 1" floor
-        # such an effect may carry is a runtime clamp, not encodable in the static term.
+        # such an effect may carry is a runtime clamp, not encodable in the static term
+        # (see the function docstring).
         for xd in effects.extra_damage:
             dc = xd.get("die_count")
             df = xd.get("die_faces")
             if _int(dc) and _int(df) and dc != 0:
                 sign = "+" if dc > 0 else "-"
                 damage += f"{sign}{abs(dc)}d{df}"
+
+        # Item-owned rider: this equipped weapon's OWN single-row, weapon-backed magic item folds
+        # its extra_damage die into THIS attack only (never character-wide), when active — attuned
+        # if the item requires attunement, else equipped (mirrors _accumulate_item_effects).
+        mid = access.resolve("magic_item", name)
+        if mid is not None:
+            xd_rows = inventory_q.extra_damage_grants(access, "magic_item", mid)
+            # Fold only an ungated single-row item rider — a condition_kind-gated item rider is
+            # state-scoped and belongs to the state path (mirrors that path's discipline); none
+            # exist today, so this is behaviour-preserving.
+            if len(xd_rows) == 1 and xd_rows[0]["condition_kind"] is None:
+                dc, df = xd_rows[0]["die_count"], xd_rows[0]["die_faces"]
+                if _int(dc) and _int(df) and dc != 0:
+                    active = (item.get("id") in attuned_refs
+                              if inventory_q.requires_attunement(access, mid) else True)
+                    if active:
+                        sign = "+" if dc > 0 else "-"
+                        damage += f"{sign}{abs(dc)}d{df}"
 
         mastery = wrow["mastery_id"]
         if mastery and mastery not in masteries:

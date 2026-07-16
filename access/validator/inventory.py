@@ -49,6 +49,14 @@ def weapon_attack_item_bonuses(access: ValidatorAccess, magic_item_id: str) -> l
     return [(r["value"] or 0) for r in rows]
 
 
+def requires_attunement(access: ValidatorAccess, magic_item_id: str) -> bool:
+    """True if a magic item requires attunement (its ``magic_item.requires_attunement`` flag is set).
+
+    Pure DB read. A missing row or NULL flag reads as False (no attunement required)."""
+    return bool(access.db.scalar(
+        "SELECT requires_attunement FROM magic_item WHERE id=?", magic_item_id))
+
+
 def extra_damage_grants(access: ValidatorAccess, owner_kind: str, owner_id: str) -> list:
     """Raw extra-damage grant_bonus rows for an owner (dice-only riders on attacks).
 
