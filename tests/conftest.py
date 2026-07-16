@@ -1359,7 +1359,10 @@ def _build_rules_db(path: str) -> None:
     for aid, score in [("a1", 15), ("a2", 14), ("a3", 13)]:
         cur.execute("INSERT INTO class_standard_array VALUES ('class-a',?,?)", (aid, score))
     # class-a starting-equipment bundles: option 'sa-a' (an item + gp), option 'sa-b' (gp only) --
-    # the grammar picks one bundle; entries within it are ordered by sort_order
+    # the grammar picks one bundle; entries within it are ordered by sort_order.
+    # 'blade-a' is the catalog item bundle sa-a's item entry (se-a1) references -- name it so the
+    # bundle-item resolver can turn the entry into a named inventory record.
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('blade-a','Blade A','weapon',NULL)")
     cur.execute("INSERT INTO start_equipment_option VALUES ('sa-a','class','class-a','Bundle A')")
     cur.execute("INSERT INTO start_equipment_option VALUES ('sa-b','class','class-a','Bundle B')")
     cur.execute("INSERT INTO start_equipment_entry VALUES "

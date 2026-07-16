@@ -21,3 +21,11 @@ def starting_equipment_entries(access: GeneratorAccess, option_id: str) -> list:
         "SELECT id, option_id, sort_order, kind, catalog_item_id, quantity, gp_amount, "
         "tool_category_id, focus_type_id, note FROM start_equipment_entry WHERE option_id=? "
         "ORDER BY sort_order, id", option_id)
+
+
+def item_name(access: GeneratorAccess, item_id: str | None) -> str | None:
+    """The display name of a catalog item, or None for an unknown / missing id — used to turn a
+    bundle's concrete item entry (a catalog item id) into a named inventory record. Pure DB read."""
+    if item_id is None:
+        return None
+    return access.db.scalar("SELECT name FROM catalog_item WHERE id=?", item_id)

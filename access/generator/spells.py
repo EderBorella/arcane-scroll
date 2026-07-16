@@ -21,3 +21,11 @@ def class_spell_pool(access: GeneratorAccess, class_id: str,
         params.append(level_max)
     sql += " ORDER BY s.level, s.id"
     return access.db.q(sql, *params)
+
+
+def subclass_spell_list_class(access: GeneratorAccess, subclass_id: str) -> str | None:
+    """The class whose spell list a spellcasting subclass draws its selectable spells from (e.g. a
+    martial subclass that casts from an arcane class's list), or None when the subclass has no
+    spellcasting row. Pure DB read."""
+    return access.db.scalar(
+        "SELECT spell_list_class_id FROM subclass_spellcasting WHERE subclass_id=?", subclass_id)
