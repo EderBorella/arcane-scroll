@@ -1,15 +1,16 @@
 """HTTP controller for character generation. Thin: validate input, call the generator service,
-return JSON. No business logic here — that lives in app.generation. The request/response models
-below are what FastAPI renders into the OpenAPI docs (`/docs`)."""
-import random
+return JSON. No business logic here — that lives in app.generation / app.derivation. The request/
+response models below are what FastAPI renders into the OpenAPI docs (`/docs`)."""
+import uuid
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
+from access.generator import GeneratorAccess
 from app import catalog
-from app.contract import to_contract_sheet
-from app.derivation import derive
-from app.generation import generate_backstory, generate_sheet, parse
+from app.derivation.document import derive_document
+from app.generation import generate_backstory
+from app.generation.choices import generate_choices, parse_request
 from app.generation.client import ModelError
 from app.generation.helpers import _ci, _norm
 
@@ -20,66 +21,66 @@ class ClassEntry(BaseModel):
     """One class the character has levels in. Multiple entries = multiclass."""
     model_config = ConfigDict(populate_by_name=True)
 
-    class_: str = Field(alias="class", description="Class index (lowercase).")
+    class_: str = Field(alias="class", description="Class id (lowercase).")
     level: int = Field(ge=1, le=20, description="Levels in this class (1–20).")
 
 
 class CharacterRequest(BaseModel):
-    race: str = Field(description="Race or subrace name.")
+    species: str = Field(description="Species id (resolved against the loaded ruleset).")
     classes: list[ClassEntry] = Field(min_length=1,
-                                      description="One entry per class; more than one = multiclass.")
+                                       description="One entry per class; more than one = multiclass.")
     subclasses: dict[str, str] = Field(
         default_factory=dict,
-        description="Optional subclass override, keyed by class index (value = subclass name). "
+        description="Optional subclass override, keyed by class id (value = subclass id). "
                     "Any class left out gets a random valid subclass once its level unlocks one.")
-    unique: str | None = Field(
-        default=None,
-        description="Optional free-text 'what is unique about this character?' hint that steers flavour.")
-    roll_starting_wealth: bool = Field(
-        default=False,
-        description="If true, the character takes rolled starting gold INSTEAD of the class equipment "
-                    "package (RAW): no class equipment is granted and the treasure is the rolled class "
-                    "wealth plus background gold. Default false = keep equipment + background gold.")
     background: str | None = Field(
         default=None,
-        description="Optional explicit background. If omitted, the service picks one (for variety).")
-    fighting_style: str | None = Field(
+        description="Optional background id. If omitted, no background is applied (no background "
+                    "ability boost or origin feat).")
+    alignment: str | None = Field(
         default=None,
-        description="Optional explicit fighting style (only used by classes that get one). If omitted, "
-                    "the service picks one for those classes.")
+        description="Optional alignment id.")
 
     model_config = ConfigDict(json_schema_extra={"examples": [
-        {"race": "<race>", "classes": [{"class": "<class>", "level": 5}]},
-        {"race": "<race>",
-         "classes": [{"class": "<class>", "level": 3}, {"class": "<class>", "level": 2}],
-         "unique": "<optional flavour hint>"},
+        {"species": "<species>", "classes": [{"class": "<class>", "level": 5}]},
+        {"species": "<species>",
+         "classes": [{"class": "<class>", "level": 3}, {"class": "<class>", "level": 2}]},
     ]})
 
 
 @router.post("/characters",
-             summary="Generate a character sheet (contract-conformant)",
+             summary="Generate a character document (five-schema, contract-conformant)",
              description=(
-                 "Turn a request (race + class(es), optional per-class subclass overrides, optional "
-                 "uniqueness hint) into a complete character sheet conforming to "
-                 "`contracts/character-sheet.schema.json` — identity, ability breakdown, proficiency "
-                 "bonus, saves, skills, HP/AC/speed, hit dice, proficiencies, languages, equipment, "
-                 "treasure, features and spellcasting — with a `meta` block carrying the seed and the "
-                 "original request. Race / class / level / subclass are code-resolved. **400** = "
-                 "unknown race/class or out-of-range level; **502** = model backend error."))
+                 "Turn a request (species + class(es), optional per-class subclass overrides, "
+                 "optional background) into a complete character document: the CORE sheet plus "
+                 "INVENTORY, an optional GRIMOIRE (class spellcasters), the MODIFIER (live/effective) "
+                 "layer, and an optional COMPANION block. The document shape is "
+                 "`{core, inventory, grimoire?, modifier, companion?}`, each part conforming to its "
+                 "live sub-schema. Species / class / level / subclass / background are code-resolved "
+                 "against the loaded ruleset. **400** = unknown id or out-of-range level; **502** = "
+                 "model backend error."))
 def create_character(req: CharacterRequest) -> dict:
-    cat = catalog.get_catalog()
-    request = req.model_dump(by_alias=True)
+    access = GeneratorAccess()
+    payload = {
+        "species": req.species,
+        "classes": [{"class": c.class_, "level": c.level} for c in req.classes],
+        "subclasses": req.subclasses,
+        "background": req.background,
+        "character_id": uuid.uuid4().hex,   # server-assigned identity for this generated character
+        "alignment": req.alignment,
+    }
     try:
-        spec = parse(cat, request)
-    except (ValueError, KeyError, TypeError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    try:
-        choices = generate_sheet(cat, spec)
-        seed = random.randrange(2 ** 32)
-        sheet = derive(cat, choices, rng=random.Random(seed))
-    except ModelError as e:
-        raise HTTPException(status_code=502, detail=f"model backend error: {e}")
-    return to_contract_sheet(choices, sheet, seed=seed, request=request)
+        try:
+            spec = parse_request(access, payload)
+        except (ValueError, KeyError, TypeError) as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        try:
+            choices = generate_choices(access, spec)
+            return derive_document(choices, access)
+        except ModelError as e:
+            raise HTTPException(status_code=502, detail=f"model backend error: {e}")
+    finally:
+        access.db.close()   # close on every path (400/502/success), not just the guarded block
 
 
 class BackstoryRequest(BaseModel):
@@ -107,16 +108,17 @@ class BackstoryResponse(BaseModel):
 @router.post("/backstory", response_model=BackstoryResponse,
              summary="Generate a character's flavour (backstory bundle)",
              description=(
-                 "Given a character's choices, generate physical traits (race-bounded), personality "
-                 "(two traits + ideal/bond/flaw), and a short backstory — grounded in the sheet. "
-                 "Physical bounds are clamped server-side. **400** if the character lacks race/classes."))
+                 "Given a character's choices, generate physical traits (bounded by the character's "
+                 "origin), personality (two traits + ideal/bond/flaw), and a short backstory — "
+                 "grounded in the sheet. Physical bounds are clamped server-side. **400** if the "
+                 "character lacks an origin or classes."))
 def create_backstory(req: BackstoryRequest) -> BackstoryResponse:
     cat = catalog.get_catalog()
     character = dict(req.character)
     race, classes = character.get("race"), character.get("classes")
     if not race or not classes:
         raise HTTPException(status_code=400, detail="character must include 'race' and 'classes'")
-    # validate against the catalog (like /v1/characters) so garbage race/class never reaches the model
+    # validate against the catalog so garbage origin/class never reaches the model
     if _norm(race) not in {_norm(r) for r in cat.get("valid_races", [])}:
         raise HTTPException(status_code=400, detail=f"unknown race: {race!r}")
     for c in classes:

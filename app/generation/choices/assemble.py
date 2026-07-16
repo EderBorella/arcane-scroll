@@ -45,20 +45,23 @@ def assemble_choices(access, spec, resolved, picks, *, feat_slots=0):
 
 def _background_increase(access, spec, picks):
     """The +2/+1 (or +1/+1/+1) background ability boost, ability-id keyed. Uses the model's pick when
-    it supplies a legal, well-formed shape (distinct targets for {2,1}), else the deterministic
-    default (+2/+1 to the background's first two options)."""
+    it supplies a legal, well-formed shape (distinct targets for {2,1}) whose targets are all among the
+    background's declared boost options, else the deterministic default (+2/+1 to the background's
+    first two options)."""
     if not spec.background:
         return {}
+    allowed = set(options.background_boost_options(access, spec.background))
     pick = picks.get("background_increase")
     if isinstance(pick, dict):
         shape = pick.get("shape")
         if shape == "two-one":
             p2, p1 = pick.get("plus_two"), pick.get("plus_one")
-            if p2 and p1 and p2 != p1:
+            if p2 and p1 and p2 != p1 and {p2, p1} <= allowed:
                 return {p2: 2, p1: 1}
         elif shape == "one-one-one":
             abilities = pick.get("abilities")
-            if isinstance(abilities, list) and len(set(abilities)) == 3:
+            if (isinstance(abilities, list) and len(set(abilities)) == 3
+                    and set(abilities) <= allowed):
                 return {aid: 1 for aid in abilities}
     return options.default_background_boost(access, spec.background)
 

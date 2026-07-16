@@ -1386,6 +1386,14 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO start_equipment_entry VALUES "
                 "('se-bg1','sa-bg',1,'tool_category_choice',NULL,1,NULL,'tc-a',NULL,NULL)")
 
+    # spell.school_id: added after the positional spell inserts (which supply the base 4 columns) so
+    # the choosable class-a spells carry a school. grimoire:1 requires `school` to be a string when
+    # present, so the deriver must emit it as a string (or omit it) — this lets the generated grimoire
+    # be asserted against the literal schema. Spells left without a school (innate sp4, etc.) exercise
+    # the omit-when-null path.
+    cur.execute("ALTER TABLE spell ADD COLUMN school_id TEXT")
+    cur.execute("UPDATE spell SET school_id='school-a' WHERE id IN ('sp1','sp2','sp3')")
+
     con.commit()
     con.close()
 

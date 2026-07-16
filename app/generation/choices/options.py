@@ -6,7 +6,9 @@ generator data-access layer, never a game literal):
 * **Enumerate** the option space the grammar constrains the model to — a class's subclasses, its
   skill pool, a caster's spell pool, the eligible feat pool, and the starting-equipment bundles.
 * **Allocate** the code-decided fields — the base ability array (a class's suggested standard-array
-  assignment), the default background ability boost, and the background's origin feat.
+  assignment) and the default background ability boost. (The background's origin feat is added by the
+  CORE deriver directly from the background, so it is not one of the model's choices and has no
+  enumerator here.)
 
 The loaded ruleset's model is baked into what is (and isn't) here: a *species* carries no ability bonus, so
 there is no species-bonus reader; the ability boost and the origin feat come from the *background*.
@@ -70,13 +72,6 @@ def default_background_boost(access, background_id):
     if len(opts) < 2:
         return {}
     return {opts[0]: 2, opts[1]: 1}
-
-
-def origin_feat(access, background_id):
-    """The origin feat id a background confers, or None. (CORE adds the origin feat to the sheet
-    automatically from the background, so it is deliberately NOT one of the model's feat picks.)"""
-    origin = bg_q.background_origin_feat(access, background_id)
-    return origin[0] if origin else None
 
 
 # --------------------------------------------------------------------------- skills

@@ -308,7 +308,11 @@ def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access,
             entry["recovery"] = "at_will"
         # Full DB metadata
         if spell_row:
-            entry["school"] = spell_row.get("school_id")
+            # `school` is an optional STRING in grimoire:1 (no null branch), so omit it when the DB
+            # carries none rather than emitting `null`. save_ability/attack_kind/casting_time/range/
+            # duration/description each allow null in the contract, so they may stay explicit.
+            if spell_row.get("school_id") is not None:
+                entry["school"] = spell_row["school_id"]
             entry["save_ability"] = spell_row.get("save_ability_id") or None
             entry["attack_kind"] = spell_row.get("attack_kind") or None
             entry["components"] = _format_components(spell_row)
@@ -505,14 +509,22 @@ def _spell_row(access, spell_id: str):
             spell_id,
         )
     except Exception:
-        # Minimal fallback for test DB
+        # Minimal fallback for a reduced test DB. Read school_id when the column exists so a spell's
+        # school still reaches the grimoire; everything else degrades to defaults.
         row = access.db.one("SELECT id, name, level, is_ritual, 0 as concentration FROM spell WHERE id = ?", spell_id)
-        if row:
-            return {
-                "id": row[0], "name": row[1], "level": row[2],
-                "is_ritual": row[3], "concentration": row[4],
-            }
-        return None
+        if not row:
+            return None
+        result = {
+            "id": row[0], "name": row[1], "level": row[2],
+            "is_ritual": row[3], "concentration": row[4],
+        }
+        try:
+            school = access.db.scalar("SELECT school_id FROM spell WHERE id = ?", spell_id)
+            if school is not None:
+                result["school_id"] = school
+        except Exception:
+            pass
+        return result
     if not row:
         return None
     return dict(row) if hasattr(row, "keys") else {

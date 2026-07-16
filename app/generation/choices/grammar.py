@@ -49,6 +49,11 @@ def build_pass1_grammar(access, spec, resolved, *, feat_slots=0):
         # The raw increase is itself one of the general feats, so a single general-feat pool models
         # the whole "ability increase OR feat" choice — no separate branch is needed.
         base = options.base_ability_scores(access, first_class)
+        # Feat eligibility is gated against the DEFAULT background boost, not the model's not-yet-made
+        # pick: the grammar is built before the model chooses its boost distribution, so ability-prereq
+        # gating uses the deterministic default (+2/+1 to the background's first two options). A model
+        # pick that shifts the boost elsewhere is a rare, minor mismatch; the assembler's feat-increase
+        # allocation then reads the actual picked boost, and the validator has the final say on legality.
         boost = options.default_background_boost(access, spec.background) if spec.background else {}
         total_level = sum(lv for _cid, lv, _sub in resolved)
         feat_pool = options.eligible_feats(access, base, boost, total_level)
