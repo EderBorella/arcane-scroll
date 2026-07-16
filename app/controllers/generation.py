@@ -7,12 +7,12 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from access.generator import GeneratorAccess
-from app import catalog
+from access.generator import classes as class_q
+from access.generator import species as species_q
 from app.derivation.document import derive_document
 from app.generation import generate_backstory
 from app.generation.choices import generate_choices, parse_request
 from app.generation.client import ModelError
-from app.generation.helpers import _ci, _norm
 
 router = APIRouter(prefix="/v1", tags=["generation"])
 
@@ -86,15 +86,15 @@ def create_character(req: CharacterRequest) -> dict:
 class BackstoryRequest(BaseModel):
     character: dict = Field(
         description="A character's choices (as returned by /v1/characters); needs at least "
-                    "'race' and 'classes'. More fields (name, alignment, background, spells) "
-                    "give the backstory more to work with.")
+                    "'species' (a species id) and 'classes'. More fields (name, alignment, "
+                    "background, spells) give the backstory more to work with.")
     unique: str | None = Field(
         default=None,
         description="Optional 'what is unique about this character?' hint. If omitted, a random "
                     "angle is used so backstories stay varied.")
 
     model_config = ConfigDict(json_schema_extra={"examples": [
-        {"character": {"race": "<race>", "classes": [{"class": "<class>", "level": 5}],
+        {"character": {"species": "<species>", "classes": [{"class": "<class>", "level": 5}],
                        "name": "<name>", "background": "<background>"},
          "unique": "<optional flavour hint>"},
     ]})
@@ -111,22 +111,28 @@ class BackstoryResponse(BaseModel):
                  "Given a character's choices, generate physical traits (bounded by the character's "
                  "origin), personality (two traits + ideal/bond/flaw), and a short backstory — "
                  "grounded in the sheet. Physical bounds are clamped server-side. **400** if the "
-                 "character lacks an origin or classes."))
+                 "character lacks a species or classes."))
 def create_backstory(req: BackstoryRequest) -> BackstoryResponse:
-    cat = catalog.get_catalog()
-    character = dict(req.character)
-    race, classes = character.get("race"), character.get("classes")
-    if not race or not classes:
-        raise HTTPException(status_code=400, detail="character must include 'race' and 'classes'")
-    # validate against the catalog so garbage origin/class never reaches the model
-    if _norm(race) not in {_norm(r) for r in cat.get("valid_races", [])}:
-        raise HTTPException(status_code=400, detail=f"unknown race: {race!r}")
-    for c in classes:
-        if not cat.record("classes", _ci(c.get("class", ""))):
-            raise HTTPException(status_code=400, detail=f"unknown class: {c.get('class')!r}")
-    if req.unique:
-        character["unique"] = req.unique
+    access = GeneratorAccess()
     try:
-        return BackstoryResponse(flavour=generate_backstory(cat, character))
-    except ModelError as e:
-        raise HTTPException(status_code=502, detail=f"model backend error: {e}")
+        character = dict(req.character)
+        species_id, classes = character.get("species"), character.get("classes")
+        if not species_id or not classes:
+            raise HTTPException(status_code=400,
+                                detail="character must include 'species' and 'classes'")
+        # validate against the DAL (the current species model) so a garbage species/class never
+        # reaches the model
+        if species_id not in {r["id"] for r in species_q.list_species(access)}:
+            raise HTTPException(status_code=400, detail=f"unknown species: {species_id!r}")
+        class_ids = {r["id"] for r in class_q.list_classes(access)}
+        for c in classes:
+            if c.get("class") not in class_ids:
+                raise HTTPException(status_code=400, detail=f"unknown class: {c.get('class')!r}")
+        if req.unique:
+            character["unique"] = req.unique
+        try:
+            return BackstoryResponse(flavour=generate_backstory(access, character))
+        except ModelError as e:
+            raise HTTPException(status_code=502, detail=f"model backend error: {e}")
+    finally:
+        access.db.close()

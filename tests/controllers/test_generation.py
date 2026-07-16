@@ -176,12 +176,12 @@ def test_post_characters_model_error_502(client, monkeypatch):
 
 
 def test_post_backstory_ok(client):
-    r = client.post("/v1/backstory", json={"character": {"race": "Human",
-                    "classes": [{"class": "Mage", "level": 5}], "name": "Tester"}})
+    r = client.post("/v1/backstory", json={"character": {"species": "species-a",
+                    "classes": [{"class": "class-a", "level": 5}], "name": "Tester"}})
     assert r.status_code == 200
     fl = r.json()["flavour"]
     assert fl["backstory"] and len(fl["personality_traits"]) == 2
-    assert 16 <= fl["age"] <= 90          # within the origin bounds
+    assert 16 <= fl["age"] <= 90          # within the species bounds
 
 
 def test_post_backstory_missing_fields_400(client):
@@ -189,13 +189,13 @@ def test_post_backstory_missing_fields_400(client):
     assert r.status_code == 400
 
 
-def test_post_backstory_unknown_race_400(client):
-    r = client.post("/v1/backstory", json={"character": {"race": "Orc",
-                    "classes": [{"class": "mage", "level": 1}]}})
-    assert r.status_code == 400 and "race" in r.json()["detail"].lower()
+def test_post_backstory_unknown_species_400(client):
+    r = client.post("/v1/backstory", json={"character": {"species": "nope",
+                    "classes": [{"class": "class-a", "level": 1}]}})
+    assert r.status_code == 400 and "species" in r.json()["detail"].lower()
 
 
 def test_post_backstory_unknown_class_400(client):
-    r = client.post("/v1/backstory", json={"character": {"race": "Human",
-                    "classes": [{"class": "bard", "level": 1}]}})
+    r = client.post("/v1/backstory", json={"character": {"species": "species-a",
+                    "classes": [{"class": "nope", "level": 1}]}})
     assert r.status_code == 400 and "class" in r.json()["detail"].lower()

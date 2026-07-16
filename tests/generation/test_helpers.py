@@ -1,18 +1,25 @@
-"""Backstory/name helpers (the pure compute retained after the choice-grammar cutover): physical
-bounds and skin palette, matched casing/punctuation-tolerantly. Deterministic against the synthetic
-catalog."""
+"""Backstory helpers (the pure compute retained after the choice-grammar cutover): physical bounds
+and appearance-palette selection, served from the reference DB via the generator access layer.
+Deterministic against the synthetic rules DB."""
 from app.generation import helpers as H
 
 
-def test_skin_options(catalog):
-    assert H.skin_options(catalog, "Scaled") == ["Bronze", "Silver"]          # origin override
-    assert H.skin_options(catalog, "Human") == catalog.get("skin_default")    # default palette
+def test_physical_bounds_from_db(gen_access):
+    assert H.physical_bounds(gen_access, "species-a") == ((16, 90), (58, 78), (110, 270))
 
 
-def test_flavour_lookups_tolerate_casing(catalog):
-    # race_phys/skin_overrides are keyed by display name; a differently-cased key (as the /backstory
-    # path may pass) must still resolve, not silently fall back to generic defaults
-    human = (tuple([16, 90]), tuple([58, 78]), tuple([110, 270]))
-    assert H.physical_bounds(catalog, "human") == human
-    assert H.physical_bounds(catalog, "HUMAN") == human
-    assert H.skin_options(catalog, "scaled") == ["Bronze", "Silver"]
+def test_physical_bounds_default_fallback(gen_access):
+    # species-l has no bounds row → the generic default
+    assert H.physical_bounds(gen_access, "species-l") == ((16, 100), (48, 84), (80, 320))
+    assert H.physical_bounds(gen_access, None) == ((16, 100), (48, 84), (80, 320))
+
+
+def test_appearance_options_override_vs_default(gen_access):
+    # species-v overrides the skin axis; species-a falls back to the default palette
+    assert H.appearance_options(gen_access, "skin", "species-v") == ["Bronze", "Silver"]
+    assert H.appearance_options(gen_access, "skin", "species-a") == ["Pale", "Tan", "Dark"]
+
+
+def test_appearance_options_non_overridable_axis(gen_access):
+    # gender is never overridden → the default palette regardless of species
+    assert H.appearance_options(gen_access, "gender", "species-v") == ["Male", "Female", "Nonbinary"]

@@ -1550,6 +1550,34 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO start_equipment_entry VALUES "
                 "('se-bg2','sa-bg',2,'item','gear-a',2,NULL,NULL,NULL,NULL)")
 
+    # --- flavour domain (F05-T90): per-species physical bounds, appearance palettes, story angles,
+    # and the flavour prompt — the backstory endpoint's DAL-served flavour data. species-a carries
+    # bounds + default palettes; species-v carries a skin override; species-l deliberately has NO
+    # bounds row (the None/default-fallback case). Values mirror the old synthetic catalog lists.
+    cur.execute("CREATE TABLE species_physical_bounds (species_id TEXT PRIMARY KEY, "
+                "age_min INT, age_max INT, height_min INT, height_max INT, weight_min INT, weight_max INT)")
+    cur.execute("INSERT INTO species_physical_bounds VALUES ('species-a',16,90,58,78,110,270)")
+    cur.execute("CREATE TABLE appearance_option (id INTEGER PRIMARY KEY, axis TEXT, species_id TEXT, "
+                "ordinal INT, value TEXT)")
+    _app_rows = []
+    _n = 1
+    for _axis, _vals in [("gender", ["Male", "Female", "Nonbinary"]),
+                         ("eyes", ["Brown", "Blue", "Green"]),
+                         ("hair", ["Black", "Brown", "Auburn"]),
+                         ("skin", ["Pale", "Tan", "Dark"])]:
+        for _ord, _val in enumerate(_vals, start=1):
+            _app_rows.append((_n, _axis, None, _ord, _val)); _n += 1
+    # species-v overrides the skin axis (the override-vs-default case)
+    for _ord, _val in enumerate(["Bronze", "Silver"], start=1):
+        _app_rows.append((_n, "skin", "species-v", _ord, _val)); _n += 1
+    cur.executemany("INSERT INTO appearance_option VALUES (?,?,?,?,?)", _app_rows)
+    cur.execute("CREATE TABLE story_archetype (id INTEGER PRIMARY KEY, ordinal INT, text TEXT)")
+    for _i, _txt in enumerate(["Frame them through a mundane trade.",
+                               "Bond them to a place, not a person."], start=1):
+        cur.execute("INSERT INTO story_archetype VALUES (?,?,?)", (_i, _i, _txt))
+    cur.execute("CREATE TABLE generator_prompt (locator TEXT PRIMARY KEY, text TEXT)")
+    cur.execute("INSERT INTO generator_prompt VALUES ('flavour_sys','TEST FLAVOUR PROMPT')")
+
     con.commit()
     con.close()
 

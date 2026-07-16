@@ -1,54 +1,39 @@
-"""Pure, catalog-driven helpers for the backstory (flavour) generator: physical bounds, skin palette,
-a one-line sheet summary, and the physical-clamp. Plus the two name normalisers the generation
-controller uses to validate an incoming character against the catalog.
+"""Pure helpers for the backstory (flavour) generator: physical bounds, appearance-palette selection,
+a one-line sheet summary, and the physical-clamp.
 
-The model picks; these compute. Every function takes the catalog (and inputs) as arguments and
-returns a value — no globals, no side-effects — so each is unit-testable in isolation.
+The model picks; these compute. Every function takes the DAL access handle (and inputs) and returns a
+value — no globals, no side-effects — so each is unit-testable in isolation. The flavour data itself
+(bounds, palettes) is read from the reference DB via the generator access layer.
 """
-import re
+from access.generator import flavour as F
+
+# Generic physical fallback for a species that carries no bounds row in the reference data —
+# ((age_min, age_max), (height_min, height_max), (weight_min, weight_max)).
+_DEFAULT_PHYS = ((16, 100), (48, 84), (80, 320))
 
 
-# Two deliberately different normalisers, by key type:
-#   _norm — strips ALL non-alphanumerics; for display-name comparisons ("Half-Elf" == "half elf").
-#   _ci  — strips only whitespace; for class *indices* which keep hyphens ("eldritch-knight").
-# Don't merge them: _norm would collapse "eldritch-knight" → "eldritchknight" and break index lookups.
-def _norm(s) -> str:
-    return re.sub(r"[^a-z0-9]", "", str(s).lower())
+def physical_bounds(access, species_id: str | None):
+    """((age_min, age_max), (h_min, h_max), (w_min, w_max)) for a species, with a generic fallback
+    for a species that carries no bounds row."""
+    row = F.physical_bounds(access, species_id)
+    if row is None:
+        return _DEFAULT_PHYS
+    return ((row["age_min"], row["age_max"]),
+            (row["height_min"], row["height_max"]),
+            (row["weight_min"], row["weight_max"]))
 
 
-def _ci(name) -> str:
-    return re.sub(r"\s+", "", str(name).lower())
+def appearance_options(access, axis: str, species_id: str | None) -> list:
+    """The enum for an appearance axis (gender/eyes/hair/skin): a species's override palette if it has
+    one, else the shared default palette."""
+    return F.appearance_overrides(access, axis, species_id) or F.appearance_defaults(access, axis)
 
 
-def _by_norm(table: dict, key):
-    """Look a value up in a display-name-keyed table, tolerating casing/punctuation differences."""
-    if key in table:
-        return table[key]
-    nk = _norm(key)
-    return next((v for k, v in table.items() if _norm(k) == nk), None)
-
-
-# ── backstory / flavour helpers ──────────────────────────────────────────────
-_DEFAULT_PHYS = {"age": [16, 100], "h": [48, 84], "w": [80, 320]}
-
-
-def physical_bounds(cat, race: str):
-    """((age_min, age_max), (h_min, h_max), (w_min, w_max)) for an origin, with a generic fallback.
-    The key is matched casing/punctuation-tolerantly (the /backstory path doesn't canonicalise it)."""
-    p = _by_norm(cat.get("race_phys", {}), race) or _DEFAULT_PHYS
-    return tuple(p["age"]), tuple(p["h"]), tuple(p["w"])
-
-
-def skin_options(cat, race: str) -> list:
-    """Skin enum for an origin — an origin-specific override if present, else the default palette."""
-    return _by_norm(cat.get("skin_overrides", {}), race) or cat.get("skin_default")
-
-
-def character_summary(character: dict) -> str:
-    """A one-line sheet summary to ground the backstory in (name / origin / class(es) / bg / picks)."""
+def character_summary(character: dict, species_name: str) -> str:
+    """A one-line sheet summary to ground the backstory in (name / species / class(es) / bg / picks)."""
     cl = " / ".join(f"{c.get('class')} {c.get('level')}" + (f" ({c['subclass']})" if c.get("subclass") else "")
                     for c in character.get("classes", []))
-    s = f"{character.get('name', '')}, a {character.get('race', '')} {cl}.".strip()
+    s = f"{character.get('name', '')}, a {species_name} {cl}.".strip()
     if character.get("alignment"):
         s += f" Alignment: {character['alignment']}."
     if character.get("background"):
@@ -61,9 +46,9 @@ def character_summary(character: dict) -> str:
     return s
 
 
-def clamp_physical(cat, race: str, flavour: dict) -> dict:
-    """Clamp age/height/weight into the origin's bounds (a grammar can't enforce numeric ranges)."""
-    (amin, amax), (hmin, hmax), (wmin, wmax) = physical_bounds(cat, race)
+def clamp_physical(access, species_id: str | None, flavour: dict) -> dict:
+    """Clamp age/height/weight into the species's bounds (a grammar can't enforce numeric ranges)."""
+    (amin, amax), (hmin, hmax), (wmin, wmax) = physical_bounds(access, species_id)
     for key, lo, hi in (("age", amin, amax), ("height_inches", hmin, hmax), ("weight_lbs", wmin, wmax)):
         v = flavour.get(key)
         if isinstance(v, (int, float)):
