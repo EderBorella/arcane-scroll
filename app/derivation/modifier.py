@@ -576,11 +576,55 @@ def derive_ac(core: dict, inventory: dict | None, effects: ActiveEffects, abilit
     return base, detail
 
 
+def _resolve_speeds(grant_rows: list, base_walk: int, class_bonuses: list) -> dict:
+    """Deriver-owned speed resolution — independent of the validator's resolver (F05-T78).
+
+    Mirrors the CORE deriver's own resolver (F05-T67): walk starts from the base; a ``sets_total``
+    grant OVERRIDES a mode (largest wins across several); an ``additive`` grant SUMS onto the mode;
+    a class-resource speed bonus adds to walk; an ``equals_walk`` mode mirrors the resolved walk
+    speed. Zero-valued modes are dropped so a baseless build never emits a spurious ``walk 0``.
+
+    The deriver and the validator's movement check re-implement this rule separately: they AGREE
+    because both read the same grant rows from the DB correctly, NOT because they share code — that
+    independence is the whole point. The ``equals_walk`` set is iterated in ``sorted()`` order so the
+    emitted key order is byte-reproducible across ``PYTHONHASHSEED`` (F05-T52). Rows are read by
+    dict-style key access, so both raw grant rows and synthesised dict rows are accepted."""
+    phases: dict = {"walk": base_walk or 0}
+    sets_total_max: dict = {}
+    additive_sum: dict = {}
+    equals_walk_modes: set = set()
+
+    for row in grant_rows:
+        mode = row["movement_mode_id"]
+        if row["sets_total"]:
+            ft = row["feet"]
+            if ft is not None:
+                sets_total_max[mode] = max(sets_total_max.get(mode, 0), ft)
+        elif row["additive"]:
+            additive_sum[mode] = additive_sum.get(mode, 0) + (row["feet"] or 0)
+        elif row["equals_walk"]:
+            equals_walk_modes.add(mode)
+
+    for mode, ft in sets_total_max.items():
+        phases[mode] = ft
+    for mode, ft in additive_sum.items():
+        phases[mode] = phases.get(mode, 0) + ft
+    if class_bonuses:
+        phases["walk"] = phases.get("walk", 0) + max(class_bonuses)
+    # sorted() only for a deterministic key order — an equals_walk mode mirrors the resolved walk.
+    for mode in sorted(equals_walk_modes):
+        if mode != "walk":
+            phases[mode] = phases.get("walk", 0)
+
+    return {k: v for k, v in phases.items() if v > 0}
+
+
 def derive_speed(core: dict, effects: ActiveEffects, access) -> tuple[dict, dict]:
     """Returns (speed_dict, speed_detail).
-    Reuses the _resolve_speeds algorithm from validator/checks/movement.py."""
-    from validator.checks.movement import _resolve_speeds
 
+    Speed is resolved by the deriver-owned ``_resolve_speeds`` (F05-T78) — the validator's movement
+    check re-derives the same rule independently, so it provides genuine cross-checking rather than
+    rubber-stamping output produced with the same code."""
     # Under a self-transform the form's speeds replace the character's entirely.
     tf = effects.transform
     if tf:

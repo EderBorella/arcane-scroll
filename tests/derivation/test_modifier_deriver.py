@@ -656,6 +656,88 @@ def test_item_equipped_and_spuriously_attuned_counts_once(access):
     assert speeds.get("walk") == 40   # base 30 + one +10 additive (not +20)
 
 
+# ── T78: validator-independence of the senses/speed resolution ───────────────
+
+
+def test_deriver_does_not_import_validator_senses_or_speed_resolver():
+    """The MODIFIER deriver must NOT import the validator's rule-bearing senses/speed resolvers
+    (nor their grant-gather walkers). If it did, the validator's movement/senses checks would agree
+    with the deriver by construction and give zero independent coverage of those fields (F05-T78)."""
+    import ast
+    import inspect
+    from app.derivation import modifier as modmod
+
+    tree = ast.parse(inspect.getsource(modmod))
+    banned_modules = {"validator.checks.movement", "validator.checks.senses"}
+    banned_names = {"_resolve_speeds", "_gather_owner_grants", "_gather_class_bonuses"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            assert node.module not in banned_modules, (
+                f"deriver imports from {node.module} — breaks T78 independence")
+            for alias in node.names:
+                assert alias.name not in banned_names, (
+                    f"deriver imports {alias.name!r} — breaks T78 independence")
+
+
+def test_validator_movement_and_senses_do_not_import_deriver():
+    """Independence is severed in BOTH directions (F05-T78): the validator's movement and senses
+    checks must not import from the deriver either. Each side reads the DB on its own."""
+    import ast
+    import inspect
+    from validator.checks import movement as mv
+    from validator.checks import senses as se
+
+    for module in (mv, se):
+        tree = ast.parse(inspect.getsource(module))
+        for node in ast.walk(tree):
+            modules = []
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules.append(node.module)
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                modules.extend(a.name for a in node.names)
+            for m in modules:
+                assert not m.startswith("app.derivation"), (
+                    f"{module.__name__} imports {m} from the deriver — breaks T78 independence")
+
+
+def test_deriver_and_validator_resolve_multimode_speed_identically_from_db(access):
+    """Behavioural independence: the deriver's OWN speed resolver and the validator's resolve the
+    same multi-mode owner identically — read purely from the DB, not by sharing code. This is the
+    climb+swim walk-equal case T52 flagged as the byte-order hazard. ``sub-a`` already grants
+    swim==walk; a climb==walk grant is added so one owner exercises TWO walk-equal modes."""
+    import sqlite3
+
+    from access.validator import ValidatorAccess
+    from access.validator import movement as movement_q
+    from validator.checks.movement import _resolve_speeds as validator_resolve
+    from app.derivation import modifier as modmod
+
+    con = sqlite3.connect(access.db.path)
+    con.execute("INSERT INTO grant_speed VALUES "
+                "('gsd-sub-climb','subclass','sub-a',3,'climb',NULL,1,0,0,NULL,NULL)")
+    con.commit()
+    con.close()
+    acc = ValidatorAccess(path=access.db.path)
+
+    rows = movement_q.speed_grants(acc, "subclass", "sub-a", 3)
+    base_walk = 30
+
+    deriver = modmod._resolve_speeds(rows, base_walk, [])
+    validator = validator_resolve(rows, base_walk, [])
+
+    assert deriver == validator == {"walk": 30, "climb": 30, "swim": 30}
+    # sorted() key order — byte-reproducible across hash seeds (T52).
+    assert list(deriver.keys()) == ["walk", "climb", "swim"]
+
+
+def test_deriver_speed_resolver_zero_modes_dropped():
+    """The deriver-owned resolver drops any zero-valued mode, so a baseless build never emits a
+    spurious ``walk 0`` — matching the validator's resolver and the CORE deriver (T67)."""
+    from app.derivation import modifier as modmod
+    assert modmod._resolve_speeds([], 0, []) == {}
+    assert modmod._resolve_speeds([], 30, []) == {"walk": 30}
+
+
 # ── derive_features / derive_feats ───────────────────────────────────────────
 
 
