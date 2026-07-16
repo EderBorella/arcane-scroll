@@ -92,6 +92,58 @@ def skill_choice(access, first_class_id):
 
 
 # --------------------------------------------------------------------------- feats
+def ability_feat_slot_count(access, resolved):
+    """Total ability-score-increase / feat slots the build has opened up, summed across its classes —
+    each counted at its OWN class level, because the slots are a per-class progression (a multiclass
+    build sums each class's slots). ``resolved`` is ``[(class_id, level, subclass_id), ...]``."""
+    return sum(class_q.ability_feat_slots(access, cid, lv) for cid, lv, _sub in resolved)
+
+
+def feat_increase_allocation(access, feat_id, effective_scores):
+    """The ability-score increase a chosen feat confers, as ``{"ability": ability_id, "amount": int}``,
+    or None when the feat confers none. A feat with a fixed target set raises the highest-scoring of
+    its allowed abilities; a from-any feat (the raw ability-score-increase itself) raises the build's
+    highest ability. The amount is the grant's point budget, capped at its per-ability maximum, so the
+    single-ability increase the choices model carries is always legal. Ties break to the lowest
+    ability id for determinism. ``effective_scores`` is ability-id keyed (base + background boost)."""
+    grant = feat_q.ability_increase_grant(access, feat_id)
+    if grant is None or not grant["points"]:
+        return None
+    if grant["from_any"] or not grant["abilities"]:
+        candidates = [r["id"] for r in catalog.list_abilities(access)]
+    else:
+        candidates = grant["abilities"]
+    if not candidates:
+        return None
+    target = max(sorted(candidates), key=lambda aid: effective_scores.get(aid, 0))
+    amount = grant["points"]
+    if grant["max_per_ability"] is not None:
+        amount = min(amount, grant["max_per_ability"])
+    return {"ability": target, "amount": amount}
+
+
+def any_repeatable(access, feat_ids):
+    """True if any feat in the pool is repeatable — the grammar uses this to decide whether a
+    ``uniqueItems`` constraint would wrongly ban repeating the raw ability-score-increase feat."""
+    return any(feat_q.is_repeatable(access, fid) for fid in feat_ids)
+
+
+def dedupe_slot_feats(access, feat_ids):
+    """Drop duplicate NON-repeatable feats, preserving order: a non-repeatable feat may fill only one
+    slot, while a repeatable feat (the raw ability-score-increase) may fill several. This backstops
+    the grammar — JSON-schema ``uniqueItems`` can't express per-item repeatability, so uniqueness is
+    enforced here rather than in the schema whenever the pool contains a repeatable feat."""
+    out = []
+    seen_non_repeatable = set()
+    for fid in feat_ids:
+        if feat_q.is_repeatable(access, fid):
+            out.append(fid)
+        elif fid not in seen_non_repeatable:
+            seen_non_repeatable.add(fid)
+            out.append(fid)
+    return out
+
+
 def eligible_feats(access, base_scores, boost, total_level, category="general"):
     """The feat ids a build may take in an ability-increase/feat slot — the feats in ``category``
     whose prerequisites the build meets. Only ability-minimum and character-level prerequisites are

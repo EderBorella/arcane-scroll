@@ -59,3 +59,15 @@ def class_standard_array(access: GeneratorAccess, class_id: str) -> list:
     return access.db.q(
         "SELECT ability_id, score FROM class_standard_array WHERE class_id=? ORDER BY ability_id",
         class_id)
+
+
+def ability_feat_slots(access: GeneratorAccess, class_id: str, level: int) -> int:
+    """The number of ability-score-increase / feat slots a class has opened up by ``level`` — the
+    count of its slot-granting class features at or below that level. The generic schedule is a slot
+    at fixed levels with some classes granting extra ones, so the count is read from the class-feature
+    spine (ruleset data), never assumed. Each slot is spent on a general feat or a raw ability-score
+    increase — and the raw increase is itself one of the general feats, so the slot count feeds the
+    general-feat option pool. Pure DB read."""
+    return access.db.scalar(
+        "SELECT COUNT(*) FROM class_feature WHERE class_id=? AND level<=? "
+        "AND name='Ability Score Improvement'", class_id, level) or 0

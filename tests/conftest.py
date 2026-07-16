@@ -357,6 +357,7 @@ def _build_rules_db(path: str) -> None:
     for score, cost in [(8, 0), (9, 1), (10, 2), (11, 3), (12, 4), (13, 5), (14, 7), (15, 9)]:
         cur.execute("INSERT INTO point_buy_cost VALUES (?,?)", (score, cost))
     cur.execute("INSERT INTO rules_constant VALUES ('point-buy-budget',27,'')")
+    cur.execute("CREATE TABLE grant_ability_increase_value (grant_id TEXT, ability_id TEXT)")
     cur.execute("INSERT INTO grant_ability_increase VALUES "
                 "('gai-asi','feat','ability-score-improvement',NULL,2,2,20,1,NULL)")
 
@@ -469,8 +470,17 @@ def _build_rules_db(path: str) -> None:
         ("feat-origin", "Feat Origin", "origin", 0),
         ("feat-pre", "Feat Pre", "general", 0),
         ("feat-save", "Feat Save", "general", 0),
+        # The raw ability-score-increase modelled AS a repeatable general feat, matching the gai-asi
+        # grant above (from_any +2). A multi-slot build may spend several slots on it (T83).
+        ("ability-score-improvement", "Ability Score Improvement", "general", 1),
+        # feat-inc: a general feat that confers a FIXED +1 to ability a2 (from_any=0). Fixture for the
+        # ability-increase fold when a slot is spent on such a feat (T83).
+        ("feat-inc", "Feat Inc", "general", 0),
     ]:
         cur.execute("INSERT INTO feat VALUES (?,?,?,?)", row)
+    cur.execute("INSERT INTO grant_ability_increase VALUES "
+                "('gai-inc','feat','feat-inc',NULL,1,1,20,0,NULL)")
+    cur.execute("INSERT INTO grant_ability_increase_value VALUES ('gai-inc','a2')")
     # feat-save (e.g. Resilient) grants saving-throw proficiency in ability a3 via the proficiency
     # grant spine (target_kind='saving_throw') -- the saving-throws domain's feat-granted-save fix
     cur.execute("INSERT INTO grant_proficiency VALUES "

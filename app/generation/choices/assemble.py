@@ -17,16 +17,24 @@ def assemble_choices(access, spec, resolved, picks, *, feat_slots=0):
     picks = picks or {}
     first_class = resolved[0][0]
 
+    base_scores = options.base_ability_scores(access, first_class)
+    background_increase = _background_increase(access, spec, picks)
+    # Effective scores (base + background boost) — the baseline a feat's ability-increase allocation
+    # reads to pick its best target, matching the scores the grammar gated feat eligibility on.
+    effective_scores = dict(base_scores)
+    for aid, amount in background_increase.items():
+        effective_scores[aid] = effective_scores.get(aid, 0) + amount
+
     choices = {
         "character_id": spec.character_id,
         "character_name": picks.get("name") or spec.character_name,
         "species": spec.species,
         "classes": [{"class": cid, "level": lv, "subclass": sub} for cid, lv, sub in resolved],
         "background": spec.background,
-        "ability_scores": options.base_ability_scores(access, first_class),
-        "background_increase": _background_increase(access, spec, picks),
+        "ability_scores": base_scores,
+        "background_increase": background_increase,
         "skills": list(picks.get("skills") or []),
-        "feats": _feats(picks, feat_slots),
+        "feats": _feats(access, picks, feat_slots, effective_scores),
         "spells": _spells(picks),
         "languages": [],
     }
@@ -55,12 +63,23 @@ def _background_increase(access, spec, picks):
     return options.default_background_boost(access, spec.background)
 
 
-def _feats(picks, feat_slots):
-    """Class/level-slot feats as ``[{feat: id}, ...]``. The ORIGIN feat is deliberately absent — CORE
-    adds it from the background automatically, so listing it here would double-count it."""
+def _feats(access, picks, feat_slots, effective_scores):
+    """Class/level-slot feats as ``[{feat: id, ability_increase?}, ...]``. A slot is spent on a general
+    feat OR a raw ability-score increase (which is itself a general feat), so each pick is a general
+    feat; when that feat confers an ability-score increase it is folded in as ``ability_increase`` (a
+    DB-grounded allocation the CORE deriver adds to the ability's final). The ORIGIN feat is
+    deliberately absent — CORE adds it from the background automatically, so listing it here would
+    double-count it."""
     if feat_slots <= 0:
         return []
-    return [{"feat": fid} for fid in (picks.get("feats") or [])]
+    out = []
+    for fid in options.dedupe_slot_feats(access, picks.get("feats") or []):
+        entry = {"feat": fid}
+        increase = options.feat_increase_allocation(access, fid, effective_scores)
+        if increase is not None:
+            entry["ability_increase"] = increase
+        out.append(entry)
+    return out
 
 
 def _spells(picks):

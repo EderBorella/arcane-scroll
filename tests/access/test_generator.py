@@ -165,6 +165,35 @@ def test_feat_prereqs_none(gen_access):
     assert feats.feat_prereqs(gen_access, "feat-gen") == []
 
 
+def test_ability_feat_slots_by_level(gen_access):
+    # class-a opens an ability-increase/feat slot at levels 4 and 8 (the synthetic ASI spine).
+    assert classes.ability_feat_slots(gen_access, "class-a", 3) == 0
+    assert classes.ability_feat_slots(gen_access, "class-a", 4) == 1
+    assert classes.ability_feat_slots(gen_access, "class-a", 7) == 1
+    assert classes.ability_feat_slots(gen_access, "class-a", 8) == 2
+    assert classes.ability_feat_slots(gen_access, "class-a", 20) == 2
+    # a class with no ASI spine (class-m) opens no slots
+    assert classes.ability_feat_slots(gen_access, "class-m", 20) == 0
+
+
+def test_ability_increase_grant_from_any(gen_access):
+    # the raw ability-score-increase feat: +2, may target any ability (from_any set, no fixed set)
+    g = feats.ability_increase_grant(gen_access, "ability-score-improvement")
+    assert g["points"] == 2 and g["max_per_ability"] == 2 and g["from_any"] == 1
+    assert g["abilities"] == []
+
+
+def test_ability_increase_grant_fixed_target(gen_access):
+    # a general feat with a fixed +1 to a specific ability
+    g = feats.ability_increase_grant(gen_access, "feat-inc")
+    assert g["points"] == 1 and g["from_any"] == 0
+    assert g["abilities"] == ["a2"]
+
+
+def test_ability_increase_grant_none(gen_access):
+    assert feats.ability_increase_grant(gen_access, "feat-gen") is None
+
+
 # --- spells ----------------------------------------------------------------
 
 def test_class_spell_pool_ordered_by_level_then_id(gen_access):

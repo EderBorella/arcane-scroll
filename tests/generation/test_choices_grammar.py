@@ -219,6 +219,146 @@ def test_caster_full_class_end_to_end(gen_access, access):
     assert mod["legal"] is True, mod["violations"]
 
 
+# --------------------------------------------------------------------------- ASI/feat slot progression
+
+def test_ability_feat_slot_count_sums_per_class(gen_access):
+    # class-a: 0 slots at L3, 2 by L8 (the synthetic ASI spine at levels 4 and 8)
+    assert options.ability_feat_slot_count(gen_access, [("class-a", 3, None)]) == 0
+    assert options.ability_feat_slot_count(gen_access, [("class-a", 8, None)]) == 2
+    # multiclass sums each class at its own level (class-m opens none)
+    assert options.ability_feat_slot_count(
+        gen_access, [("class-a", 8, None), ("class-m", 4, None)]) == 2
+
+
+def test_feat_increase_allocation(gen_access):
+    scores = {"a1": 17, "a2": 15, "a3": 13}
+    # a fixed-target feat raises its allowed ability (a2) by its point budget
+    assert options.feat_increase_allocation(gen_access, "feat-inc", scores) == {"ability": "a2", "amount": 1}
+    # the from-any raw increase raises the highest ability (+2, capped at max_per_ability=2)
+    assert options.feat_increase_allocation(
+        gen_access, "ability-score-improvement", scores) == {"ability": "a1", "amount": 2}
+    # a feat with no increase allocates nothing
+    assert options.feat_increase_allocation(gen_access, "feat-gen", scores) is None
+
+
+def test_pass1_grammar_offers_slot_feats(gen_access):
+    spec = parse_request(gen_access, {
+        "species": "species-a", "classes": [{"class": "class-a", "level": 8}], "background": "bg-a"})
+    resolved = [("class-a", 8, "sub-a")]
+    # default slot count is DB-derived: 2 slots by level 8
+    schema = grammar.build_pass1_grammar(
+        gen_access, spec, resolved,
+        feat_slots=options.ability_feat_slot_count(gen_access, resolved))
+    feats_field = schema["properties"]["feats"]
+    assert feats_field["minItems"] == 2 and feats_field["maxItems"] == 2
+    assert "feats" in schema["required"]
+    # a level-3 build (below the first slot) offers no feats field at all
+    schema3 = grammar.build_pass1_grammar(gen_access, spec, [("class-a", 3, "sub-a")], feat_slots=0)
+    assert "feats" not in schema3["properties"]
+
+
+def test_multilevel_slots_flow_into_document(gen_access, access):
+    # a single-class L8 build reaches its two ability-increase/feat slots; the picks flow into the
+    # CORE feats array and the folded increase lands in the ability final -- and it all validates.
+    spec = parse_request(gen_access, {
+        "species": "species-a", "classes": [{"class": "class-a", "level": 8}],
+        "subclasses": {"class-a": "sub-a"}, "background": "bg-a",
+        "character_id": "char-l8", "character_name": "Delta"})
+    pick = _stub_pick(
+        {"name": "Delta", "skills": ["sk1", "sk2"],
+         "background_increase": {"shape": "two-one", "plus_two": "a1", "plus_one": "a2"},
+         "spells": {"cantrips": ["sp1"], "spells": ["sp3"]},
+         "feats": ["feat-gen", "feat-inc"]},
+        {"equipment_class": "sa-a"})
+    choices = generate_choices(gen_access, spec, pick=pick)
+
+    # two slot feats picked, alongside the background origin feat added by CORE
+    assert [f["feat"] for f in choices["feats"]] == ["feat-gen", "feat-inc"]
+    inc = next(f for f in choices["feats"] if f["feat"] == "feat-inc")["ability_increase"]
+    assert inc == {"ability": "a2", "amount": 1}
+
+    document = derive_document(choices, gen_access)
+    names = [f["name"] for f in document["core"]["feats"]]
+    assert "feat-gen" in names and "feat-inc" in names and "feat-origin" in names
+    # a2: base 14 + background +1 + feat +1 = 16 (the fold reaches the ability final)
+    assert document["core"]["abilities"]["x2"]["final"] == 16
+    assert validate_core(document["core"], access)["legal"] is True
+    inv = validate_inventory(document["core"], document["inventory"], document.get("modifier"), access)
+    assert inv["legal"] is True, inv["violations"]
+
+
+def test_slot_feats_repeatability_helpers(gen_access):
+    # the raw ability-score-increase feat is repeatable; the plain general feat is not
+    assert options.any_repeatable(gen_access, ["feat-gen", "ability-score-improvement"]) is True
+    assert options.any_repeatable(gen_access, ["feat-gen", "feat-inc"]) is False
+    # dedupe keeps repeatables' duplicates but collapses a repeated non-repeatable feat
+    assert options.dedupe_slot_feats(
+        gen_access, ["ability-score-improvement", "ability-score-improvement"]) == \
+        ["ability-score-improvement", "ability-score-improvement"]
+    assert options.dedupe_slot_feats(gen_access, ["feat-gen", "feat-gen"]) == ["feat-gen"]
+
+
+def test_pass1_grammar_drops_uniqueitems_when_repeatable_available(gen_access):
+    # with a repeatable feat in the pool, uniqueItems must NOT be set (else the raw ASI couldn't
+    # fill two slots), and the slot count is preserved.
+    spec = parse_request(gen_access, {
+        "species": "species-a", "classes": [{"class": "class-a", "level": 8}], "background": "bg-a"})
+    schema = grammar.build_pass1_grammar(gen_access, spec, [("class-a", 8, "sub-a")], feat_slots=2)
+    feats_field = schema["properties"]["feats"]
+    assert feats_field["minItems"] == 2 and feats_field["maxItems"] == 2
+    assert "ability-score-improvement" in feats_field["items"]["enum"]
+    assert "uniqueItems" not in feats_field
+
+
+def test_two_slots_both_spent_on_raw_asi(gen_access, access):
+    # regression for the code-review find: before, uniqueItems + a single ASI enum entry made a
+    # two-slot raw-ASI build unsatisfiable (and there was no ASI feat row at all). Now both slots may
+    # take the repeatable raw ability-score-increase; the increases fold into the ability final,
+    # clamped at the standard cap, and the document validates legal AND complete.
+    spec = parse_request(gen_access, {
+        "species": "species-a", "classes": [{"class": "class-a", "level": 8}],
+        "subclasses": {"class-a": "sub-a"}, "background": "bg-a",
+        "character_id": "char-asi", "character_name": "Epsilon"})
+    pick = _stub_pick(
+        {"name": "Epsilon", "skills": ["sk1", "sk2"],
+         "background_increase": {"shape": "two-one", "plus_two": "a1", "plus_one": "a2"},
+         "spells": {"cantrips": ["sp1"], "spells": ["sp3"]},
+         "feats": ["ability-score-improvement", "ability-score-improvement"]},
+        {"equipment_class": "sa-a"})
+    choices = generate_choices(gen_access, spec, pick=pick)
+
+    # both slots kept (repeatable), each folding a +2 to the highest ability (a1)
+    assert [f["feat"] for f in choices["feats"]] == \
+        ["ability-score-improvement", "ability-score-improvement"]
+    assert all(f["ability_increase"] == {"ability": "a1", "amount": 2} for f in choices["feats"])
+
+    document = derive_document(choices, gen_access)
+    # a1: base 15 + background +2 + two feat +2s = 21, clamped to the cap (20)
+    assert document["core"]["abilities"]["x1"]["final"] == 20
+    result = validate_core(document["core"], access)
+    assert result["legal"] is True and result["complete"] is True, result["violations"]
+
+
+def test_two_slots_reject_duplicate_non_repeatable(gen_access, access):
+    # a non-repeatable feat picked twice collapses to a single entry (rather than a repeated feat the
+    # validator would flag) — the second slot is simply left unspent, which is legal.
+    spec = parse_request(gen_access, {
+        "species": "species-a", "classes": [{"class": "class-a", "level": 8}],
+        "subclasses": {"class-a": "sub-a"}, "background": "bg-a",
+        "character_id": "char-dup", "character_name": "Zeta"})
+    pick = _stub_pick(
+        {"name": "Zeta", "skills": ["sk1", "sk2"],
+         "background_increase": {"shape": "two-one", "plus_two": "a1", "plus_one": "a2"},
+         "spells": {"cantrips": ["sp1"], "spells": ["sp3"]},
+         "feats": ["feat-gen", "feat-gen"]},
+        {"equipment_class": "sa-a"})
+    choices = generate_choices(gen_access, spec, pick=pick)
+    assert [f["feat"] for f in choices["feats"]] == ["feat-gen"]
+
+    document = derive_document(choices, gen_access)
+    assert validate_core(document["core"], access)["legal"] is True
+
+
 def test_caster_end_to_end(gen_access, access):
     spec = parse_request(gen_access, {
         "species": "species-a", "classes": [{"class": "class-m", "level": 3}],

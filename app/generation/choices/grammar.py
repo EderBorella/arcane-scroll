@@ -45,13 +45,25 @@ def build_pass1_grammar(access, spec, resolved, *, feat_slots=0):
         req.append("spells")
 
     if feat_slots > 0:
+        # Each ability-increase/feat slot is spent on a general feat OR a raw ability-score increase.
+        # The raw increase is itself one of the general feats, so a single general-feat pool models
+        # the whole "ability increase OR feat" choice — no separate branch is needed.
         base = options.base_ability_scores(access, first_class)
         boost = options.default_background_boost(access, spec.background) if spec.background else {}
         total_level = sum(lv for _cid, lv, _sub in resolved)
         feat_pool = options.eligible_feats(access, base, boost, total_level)
         if feat_pool:
-            props["feats"] = {"type": "array", "items": {"enum": feat_pool},
-                              "minItems": feat_slots, "maxItems": feat_slots, "uniqueItems": True}
+            feats_schema = {"type": "array", "items": {"enum": feat_pool},
+                            "minItems": feat_slots, "maxItems": feat_slots}
+            # A repeatable feat (the raw ability-score-increase) may fill several slots, so uniqueness
+            # can't be a blanket schema rule. Only apply ``uniqueItems`` when NO eligible feat repeats
+            # (duplicates would then always be illegal); otherwise the assembler drops duplicate
+            # non-repeatables. In the unique case, clamp the count to the pool size so a build with
+            # more slots than distinct feats still yields a satisfiable schema.
+            if not options.any_repeatable(access, feat_pool):
+                n = min(feat_slots, len(feat_pool))
+                feats_schema.update(minItems=n, maxItems=n, uniqueItems=True)
+            props["feats"] = feats_schema
             req.append("feats")
 
     return {"type": "object", "properties": props, "required": req}
