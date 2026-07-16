@@ -64,9 +64,9 @@ def _feats(picks, feat_slots):
 
 
 def _spells(picks):
-    """The caster's spell picks, ``{cantrips: [ids], spells: [ids]}``. Recorded for completeness; the
-    GRIMOIRE deriver currently re-derives the full spell list from the class progression, so these
-    picks are not yet consumed by the pipeline (Phase-5 wiring)."""
+    """The caster's spell picks, ``{cantrips: [ids], spells: [ids]}``. Consumed by the derivation
+    pipeline: ``derive_document`` passes these into the GRIMOIRE deriver, which places them on the
+    matching class source (as chosen cantrips / prepared spells) against the DB budgets."""
     sp = picks.get("spells")
     if not isinstance(sp, dict):
         return {"cantrips": [], "spells": []}

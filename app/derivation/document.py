@@ -134,7 +134,7 @@ def derive_document(choices: Choices, access) -> dict:
     core = derive_core(choices, access)
     inventory = assemble_inventory(choices, core, access)
 
-    grimoire_full = derive_grimoire(core, None, access)
+    grimoire_full = derive_grimoire(core, None, access, chosen_spells=choices.get("spells"))
     grimoire = grimoire_full if _has_class_spellcasting(grimoire_full) else None
 
     modifier, _mod_meta = derive_modifier(core, inventory, grimoire, None, "full", access)
