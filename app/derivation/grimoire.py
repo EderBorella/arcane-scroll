@@ -12,7 +12,7 @@ from collections import defaultdict
 import hashlib
 import json
 
-from access.primitives import grants_for, resource_at
+from access.primitives import fixed_spell_ids, grants_for, resource_at
 from access.validator import abilities as abilities_q
 
 
@@ -345,7 +345,7 @@ def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access,
                     continue
 
                 # Get the spell name(s) from fixed grants
-                spell_ids = _grant_spell_fixed_ids(access, g["id"])
+                spell_ids = fixed_spell_ids(access.db, g["id"])
                 for sid in spell_ids:
                     srow = _spell_row(access, sid)
                     if not srow:
@@ -367,7 +367,7 @@ def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access,
                 source_key = _source_key_for_feat(fid, sources)
                 if not source_key:
                     continue
-                for sid in _grant_spell_fixed_ids(access, g["id"]):
+                for sid in fixed_spell_ids(access.db, g["id"]):
                     srow = _spell_row(access, sid)
                     if not srow:
                         continue
@@ -390,7 +390,7 @@ def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access,
                 source_key = _source_key_for_kind(owner_kind, oid, sources)
                 if not source_key:
                     continue
-                for sid in _grant_spell_fixed_ids(access, g["id"]):
+                for sid in fixed_spell_ids(access.db, g["id"]):
                     srow = _spell_row(access, sid)
                     if not srow:
                         continue
@@ -481,17 +481,6 @@ def _place_chosen_spells(chosen_spells: dict, sources: dict, ident: dict, access
 
     _place(chosen_spells.get("cantrips"), "cantrip", "cantrips_known", "at_will")
     _place(chosen_spells.get("spells"), "prepared", "prepared_limit", "spell_slot")
-
-
-def _grant_spell_fixed_ids(access, grant_id: str) -> list[str]:
-    """Return spell_ids for fixed-grant spells for a given grant_spell id."""
-    # ORDER BY spell_id for a deterministic, rebuild-stable order (the table's
-    # composite PK is (grant_id, spell_id); order only, no value change).
-    rows = access.db.q(
-        "SELECT spell_id FROM grant_spell_fixed WHERE grant_id = ? ORDER BY spell_id",
-        grant_id
-    )
-    return [r[0] for r in rows]
 
 
 def _spell_row(access, spell_id: str):

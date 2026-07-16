@@ -71,6 +71,10 @@ def _build(path: str) -> None:
     # a resource ladder 'res-a'
     for lv, cnt in [(1, 2), (5, 3), (9, 4)]:
         cur.execute("INSERT INTO class_resource_level (resource_id,level,count) VALUES (?,?,?)", ("res-a", lv, cnt))
+    # fixed-spell child rows for grant 'gsf1', inserted out of key order so a reader
+    # that orders by spell_id returns them deterministically (sp-a, sp-b)
+    cur.execute("INSERT INTO grant_spell_fixed (grant_id,spell_id) VALUES ('gsf1','sp-b')")
+    cur.execute("INSERT INTO grant_spell_fixed (grant_id,spell_id) VALUES ('gsf1','sp-a')")
     cur.execute("INSERT INTO rules_constant VALUES ('const-a',27,'a fake constant')")
     for lv, nm in [(1, "FeatureA"), (2, "FeatureB"), (5, "FeatureC")]:
         cur.execute("INSERT INTO class_feature (id,class_id,level,name) VALUES (?,?,?,?)", (f"cf-{lv}", "cls-a", lv, nm))

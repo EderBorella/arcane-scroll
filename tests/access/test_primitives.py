@@ -27,6 +27,16 @@ def test_children_of_resolves_values(db):
     assert kids["grant_proficiency_category"] == []
 
 
+def test_fixed_spell_ids_deterministic_order(db):
+    # child rows were inserted (sp-b, sp-a); the reader orders by spell_id for a
+    # rebuild-stable result
+    assert p.fixed_spell_ids(db, "gsf1") == ["sp-a", "sp-b"]
+
+
+def test_fixed_spell_ids_empty_for_unknown_grant(db):
+    assert p.fixed_spell_ids(db, "no-such-grant") == []
+
+
 def test_all_grants_for_fans_out(db):
     grants = p.all_grants_for(db, "species", "src-a")
     assert set(grants) == {"grant_proficiency", "grant_resistance"}
