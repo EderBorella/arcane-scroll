@@ -68,6 +68,29 @@ def test_feat_granted_save_proficiency_is_legal(access):
     assert "save-proficiency-mismatch" not in _codes(s, access)
 
 
+def test_feat_granted_save_proficiency_as_object_entry_is_legal(access):
+    # A top-level-fields sheet carries each feat as an OBJECT with a `name` field (plus source /
+    # ability-increase metadata), not a bare string. The save granted by that feat must still be
+    # credited -- handing the resolver the raw object never resolves and silently drops the grant.
+    s = _sheet(feats=[{"name": "Feat Save", "source": "Background X"}], saving_throws={
+        "x1": {"proficient": True, "modifier": 4},
+        "x2": {"proficient": True, "modifier": 4},
+        "x3": {"proficient": True, "modifier": 3},
+    })
+    assert "save-proficiency-mismatch" not in _codes(s, access)
+
+
+def test_object_feat_entry_without_grant_is_still_a_mismatch(access):
+    # Same object-entry shape, but the feat grants no save -- a3 proficient is still illegal, so
+    # resolving object entries must not blanket-suppress the finding.
+    s = _sheet(feats=[{"name": "Feat Gen", "source": "Background X"}], saving_throws={
+        "x1": {"proficient": True, "modifier": 4},
+        "x2": {"proficient": True, "modifier": 4},
+        "x3": {"proficient": True, "modifier": 3},
+    })
+    assert "save-proficiency-mismatch" in _codes(s, access)
+
+
 def test_save_proficiency_without_granting_feat_is_still_a_mismatch(access):
     # same a3-proficient sheet, but WITHOUT feat-save -- still illegal (real errors like g035
     # must still be caught).

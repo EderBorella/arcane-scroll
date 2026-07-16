@@ -95,6 +95,37 @@ def test_background_boosts_summing_to_four_is_illegal(access):
     assert "background-boost-missing" not in codes
 
 
+def _core_abilities():
+    # Top-level-fields sheet shape: ability entries carry NO `modifier` field.
+    return {
+        "x1": {"base": 13, "final": 13},
+        "x2": {"base": 13, "final": 13},
+        "x3": {"base": 13, "final": 13},
+        "x4": {"base": 13, "final": 13},
+        "x5": {"base": 13, "final": 13},
+        "x6": {"base": 13, "final": 13},
+        "wis": {"base": 13, "final": 13},
+    }
+
+
+def test_over_cap_fires_without_a_modifier_field(access):
+    # An over-cap final score on a sheet that carries no per-ability modifier must still be flagged
+    # -- the over-cap rule needs only the final score, so it must not be gated on modifier presence.
+    ab = _core_abilities()
+    ab["x4"]["final"] = 21
+    s = {"identity": {}, "abilities": ab}
+    assert "ability-over-cap" in _codes(s, access)
+
+
+def test_within_cap_passes_without_a_modifier_field(access):
+    # A within-cap final score on the same modifier-less shape must not be flagged, and the absence
+    # of a modifier must not itself produce a modifier-mismatch.
+    s = {"identity": {}, "abilities": _core_abilities()}
+    codes = _codes(s, access)
+    assert "ability-over-cap" not in codes
+    assert "modifier-mismatch" not in codes
+
+
 def test_ability_id_returns_none_for_non_string_key_list(access):
     from access.validator.abilities import ability_id
     assert ability_id(access, ["x1"]) is None

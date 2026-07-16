@@ -47,7 +47,18 @@ def _con_modifier(abilities_sheet, access) -> int | None:
     return None
 
 
-def _check_hit_dice_pool(v: list[Violation], hit_dice, resolved: list[tuple[str, int, int]], total_level: int) -> None:
+def _vitals_location(sheet: dict) -> tuple[object, object, str]:
+    """Locate the hit-points and hit-dice sub-objects plus the report-path prefix for them. A
+    combat-nested sheet keeps both under a `combat` object; a top-level-fields sheet keeps them at
+    the document root. Branch on the shape rather than hard-switching so both are supported."""
+    combat = sheet.get("combat")
+    if isinstance(combat, dict):
+        return combat.get("hit_points"), combat.get("hit_dice"), "combat."
+    return sheet.get("hit_points"), sheet.get("hit_dice"), ""
+
+
+def _check_hit_dice_pool(v: list[Violation], hit_dice, resolved: list[tuple[str, int, int]],
+                         total_level: int, prefix: str) -> None:
     if not isinstance(hit_dice, dict):
         return
     expected_pool: dict[str, int] = {}
@@ -66,24 +77,22 @@ def _check_hit_dice_pool(v: list[Violation], hit_dice, resolved: list[tuple[str,
         if key not in expected_pool:
             v.append(Violation(DOMAIN, "hit-dice-face-invalid", "illegal",
                                f"unexpected hit-die face {key!r} for this class combination",
-                               f"combat.hit_dice.{key}"))
+                               f"{prefix}hit_dice.{key}"))
         elif maxv != expected_pool[key]:
             v.append(Violation(DOMAIN, "hit-dice-count-mismatch", "illegal",
                                f"{key}: max {maxv} != expected {expected_pool[key]}",
-                               f"combat.hit_dice.{key}"))
+                               f"{prefix}hit_dice.{key}"))
 
     if actual_total != total_level:
         v.append(Violation(DOMAIN, "hit-dice-total-mismatch", "illegal",
                            f"hit dice total {actual_total} != total level {total_level}",
-                           "combat.hit_dice"))
+                           f"{prefix}hit_dice"))
 
 
-def _check_hp_range(v: list[Violation], sheet: dict, access, resolved: list[tuple[str, int, int]],
-                    total_level: int, con_mod: int | None) -> None:
+def _check_hp_range(v: list[Violation], hp, access, sheet: dict, resolved: list[tuple[str, int, int]],
+                    total_level: int, con_mod: int | None, prefix: str) -> None:
     if con_mod is None or not resolved:
         return
-    combat = sheet.get("combat")
-    hp = combat.get("hit_points") if isinstance(combat, dict) else None
     actual_max = hp.get("max") if isinstance(hp, dict) else None
     if not isinstance(actual_max, int) or isinstance(actual_max, bool):
         return
@@ -103,7 +112,7 @@ def _check_hp_range(v: list[Violation], sheet: dict, access, resolved: list[tupl
     if not (hp_min <= actual_max <= hp_max):
         v.append(Violation(DOMAIN, "hp-out-of-range", "illegal",
                            f"hit points max {actual_max} outside the expected range [{hp_min}, {hp_max}]",
-                           "combat.hit_points.max"))
+                           f"{prefix}hit_points.max"))
 
 
 def check(sheet: dict, access) -> list[Violation]:
@@ -120,10 +129,9 @@ def check(sheet: dict, access) -> list[Violation]:
         return v
     total_level = sum(lvl for _, lvl, _ in resolved)
 
-    combat = sheet.get("combat")
-    hit_dice = combat.get("hit_dice") if isinstance(combat, dict) else None
-    _check_hit_dice_pool(v, hit_dice, resolved, total_level)
+    hp, hit_dice, prefix = _vitals_location(sheet)
+    _check_hit_dice_pool(v, hit_dice, resolved, total_level, prefix)
 
     con_mod = _con_modifier(sheet.get("abilities"), access)
-    _check_hp_range(v, sheet, access, resolved, total_level, con_mod)
+    _check_hp_range(v, hp, access, sheet, resolved, total_level, con_mod, prefix)
     return v

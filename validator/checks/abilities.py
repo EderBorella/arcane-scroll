@@ -33,15 +33,21 @@ def check(sheet: dict, access) -> list[Violation]:
 
         final = entry.get("final")
         modifier = entry.get("modifier")
-        if (isinstance(final, int) and not isinstance(final, bool)
-                and isinstance(modifier, int) and not isinstance(modifier, bool)):
+        final_ok = isinstance(final, int) and not isinstance(final, bool)
+        modifier_ok = isinstance(modifier, int) and not isinstance(modifier, bool)
+        # The modifier-mismatch rule needs both fields; a sheet shape that carries no per-ability
+        # modifier (top-level-fields sheet) simply has nothing to cross-check here.
+        if final_ok and modifier_ok:
             if modifier != (final - 10) // 2:
                 v.append(Violation(DOMAIN, "modifier-mismatch", "illegal",
                                    f"{k}: modifier {modifier} does not match final score {final}", path))
-            if cap is not None and final > cap:
-                v.append(Violation(DOMAIN, "ability-over-cap", "illegal",
-                                   f"{k}: final score {final} exceeds the standard cap {cap} "
-                                   "(item-set exceptions are checked in the items domain)", path))
+        # The over-cap rule needs only the final score, so it must fire regardless of whether a
+        # per-ability modifier is present -- otherwise an over-cap score on a sheet shape without
+        # modifiers would validate as legal.
+        if final_ok and cap is not None and final > cap:
+            v.append(Violation(DOMAIN, "ability-over-cap", "illegal",
+                               f"{k}: final score {final} exceeds the standard cap {cap} "
+                               "(item-set exceptions are checked in the items domain)", path))
 
         bonus = entry.get("background_bonus")
         if bonus is not None:
