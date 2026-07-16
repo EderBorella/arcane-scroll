@@ -12,6 +12,7 @@ from validator.validate_core import validate_core
 from validator.validate_grimoire import validate_grimoire
 from validator.validate_inventory import validate_inventory
 from validator.validate_modifier import validate_modifier
+from validator.validate_monster import validate_monster
 
 _state: dict = {}
 
@@ -64,3 +65,11 @@ async def validate_companion_sheet(body: dict = Body(...)) -> dict:
     # creatures ignore it.
     return validate_companion(body["core"], body.get("grimoire"),
                               body["companion"], _state["access"])
+
+
+@app.post("/validate-monster")
+async def validate_monster_sheet(sheet: dict = Body(...)) -> dict:
+    # A standalone monster-sheet:1 document (owner-less): {schema_version, monsters[]}.
+    # No CORE, no owner GRIMOIRE — each concrete creature is re-derived from the
+    # catalog; templated (owner-scaled) creatures are rejected.
+    return validate_monster(sheet, _state["access"])
