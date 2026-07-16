@@ -6,7 +6,7 @@ The check reads top-level keys ``sources``, ``spells``, ``spell_slots``, ``pact_
 the adapter) and CORE fields ``identity``, ``feats``, ``proficiency_bonus``. Violation paths point
 directly into the grimoire:1 shape (e.g. ``sources.class-a.save_dc``, ``spells[3]``).
 
-Source-key format: ``{kind}:{db_id}`` (e.g. ``class:wizard``)."""
+Source-key format: ``{kind}:{db_id}`` (e.g. ``class:class-a``)."""
 from access.validator import spellcasting as q
 from validator.report import Violation
 

@@ -3,13 +3,25 @@ CORE/INVENTORY/GRIMOIRE inputs. Checks cover AC, saves, skills, attacks, effecti
 passives, defenses, features, feats, state compatibility, prepared spells, and stacking-rule
 enforcement. NOT in ALL_CHECKS — modifier:1-specific."""
 from access.validator import abilities as abilities_q
+from access.validator import creature as creature_q
 from access.validator import defenses as defenses_q
 from access.validator import inventory as inventory_q
 from access.validator import size as size_q
+from access.validator import vitals as vitals_q
 from access.validator.state_compatibility import blocked_states
+from validator.checks.vitals import CON_ABBREV
 from validator.report import Violation
 
 DOMAIN = "modifier"
+
+# Self-transform (T60): the character temporarily BECOMES a creature. 'physical' (physical-form)
+# replaces the physical abilities only (mental abilities retained); 'full' replaces all six.
+# The mental set is a rule constant (the split is fixed by the ruleset). Re-derived here so the
+# check stays independent of the deriver.
+TRANSFORM_PHYSICAL = "physical"
+TRANSFORM_FULL = "full"
+_TRANSFORM_KINDS = (TRANSFORM_PHYSICAL, TRANSFORM_FULL)
+_MENTAL_ABILITY_IDS = frozenset({"intelligence", "wisdom", "charisma"})
 
 
 def _owner_kind_for_source_type(source_type: str) -> str | None:
@@ -177,7 +189,7 @@ def _item_save_bonuses(sheet: dict, access) -> tuple[int, dict]:
     return all_bonus, per
 
 
-def _check_saves(sheet: dict, access, v: list[Violation]) -> None:
+def _check_saves(sheet: dict, access, v: list[Violation], transform: dict | None = None) -> None:
     core = sheet.get("core", {})
     mod = sheet.get("modifier", {})
     core_saves = core.get("saving_throws", {}) or {}
@@ -188,13 +200,25 @@ def _check_saves(sheet: dict, access, v: list[Violation]) -> None:
     if not isinstance(core_saves, dict) or not isinstance(mod_saves, dict):
         return
 
-    item_all_bonus, item_per_ability = _item_save_bonuses(sheet, access)
+    # Under a FULL transform saves are the form's ability modifiers with NO character
+    # proficiency/PB and no item bonus (gear melds into the form). A PHYSICAL transform keeps
+    # the character's own proficiencies/PB on the (partly replaced) ability modifiers.
+    full_transform = bool(transform and transform["kind"] == TRANSFORM_FULL)
+    item_all_bonus, item_per_ability = (0, {}) if full_transform else _item_save_bonuses(sheet, access)
 
     for aid, save_obj in mod_saves.items():
         if not isinstance(save_obj, dict):
             continue
         actual = save_obj.get("modifier")
         if not _int(actual):
+            continue
+
+        if full_transform:
+            ab_mod = (mod_abilities.get(aid, {}) or {}).get("modifier", 0)
+            if actual != ab_mod:
+                v.append(Violation(DOMAIN, "save-modifier-mismatch", "illegal",
+                                   f"{aid}: modifier {actual} != expected {ab_mod}",
+                                   f"saving_throws.{aid}.modifier"))
             continue
 
         core_save = core_saves.get(aid)
@@ -222,7 +246,7 @@ def _check_saves(sheet: dict, access, v: list[Violation]) -> None:
 # ── skills ───────────────────────────────────────────────────────────────────
 
 
-def _check_skills(sheet: dict, v: list[Violation]) -> None:
+def _check_skills(sheet: dict, v: list[Violation], transform: dict | None = None) -> None:
     core = sheet.get("core", {})
     mod = sheet.get("modifier", {})
     core_skills = core.get("skills", {}) or {}
@@ -231,6 +255,10 @@ def _check_skills(sheet: dict, v: list[Violation]) -> None:
     mod_skills = mod.get("skills", {}) or {}
     if not isinstance(mod_skills, dict):
         return
+
+    # Under a FULL transform skills are the form's ability modifiers with NO character
+    # proficiency/PB; a PHYSICAL transform keeps the character's own proficiencies/PB.
+    full_transform = bool(transform and transform["kind"] == TRANSFORM_FULL)
 
     for sid, skill_obj in mod_skills.items():
         if not isinstance(skill_obj, dict):
@@ -246,7 +274,7 @@ def _check_skills(sheet: dict, v: list[Violation]) -> None:
         ab_data = mod_abilities.get(sk_ability, {}) or {}
         ab_mod = ab_data.get("modifier", 0)
         expected = ab_mod
-        if _int(pb):
+        if not full_transform and _int(pb):
             if core_skill.get("expertise"):
                 expected += pb * 2
             elif core_skill.get("proficient"):
@@ -345,15 +373,55 @@ def _check_attacks(sheet: dict, access, v: list[Violation]) -> None:
                                "attacks"))
 
 
+def _item_rider_active(sheet: dict, access, weapon_name: str, magic_item_id: str) -> bool:
+    """True if the equipped magic weapon named ``weapon_name`` is active for its extra-damage rider.
+
+    Mirrors the deriver's activity gate: an item that requires attunement is active only when it
+    carries an attuned item_state (matched via inventory_ref → equipped id); an item that does not
+    require attunement is active while equipped. Grounded in the sheet + DB, not the deriver."""
+    inventory = sheet.get("inventory", {}) or {}
+    if not isinstance(inventory, dict):
+        return False
+    equipped = inventory.get("equipped", {}) or {}
+    if not isinstance(equipped, dict):
+        return False
+    item_id = None
+    for slot_item in equipped.values():
+        if isinstance(slot_item, dict) and slot_item.get("name") == weapon_name:
+            item_id = slot_item.get("id")
+            break
+    if item_id is None:
+        return False  # not an equipped weapon → the deriver never folded a rider into it
+    if not inventory_q.requires_attunement(access, magic_item_id):
+        return True
+    mod = sheet.get("modifier", {}) or {}
+    item_states = mod.get("item_states", []) or []
+    if not isinstance(item_states, list):
+        return False
+    for ist in item_states:
+        if (isinstance(ist, dict) and ist.get("attuned")
+                and ist.get("inventory_ref") == item_id):
+            return True
+    return False
+
+
 def _check_attack_damage(sheet: dict, access, v: list[Violation]) -> None:
-    """Independently re-derive state-gated extra-damage riders from the DB and assert each
-    appears in the relevant attacks' ``damage`` string. Grounded in the DB (active state →
-    owner → condition-gated extra_damage grant), not the deriver's output."""
+    """Independently re-derive extra-damage riders from the DB and assert each appears in the
+    relevant attacks' ``damage`` string. Grounded in the DB, not the deriver's output. Two rider
+    sources are checked:
+
+    * state-gated riders (active state → owner → condition-gated extra_damage grant) apply to
+      EVERY weapon attack;
+    * an item-owned rider (a weapon-backed magic item owning exactly one extra_damage grant, active
+      per attunement/equip) applies only to THAT weapon's own attack.
+    """
     mod = sheet.get("modifier", {})
     attacks = mod.get("attacks", []) or []
     states = mod.get("character_states", []) or []
-    if not isinstance(attacks, list) or not attacks or not isinstance(states, list):
+    if not isinstance(attacks, list) or not attacks:
         return
+    if not isinstance(states, list):
+        states = []
 
     # De-dup: two active states can yield the same rider term; we assert its presence
     # once, not once per contributing state (which would emit duplicate violations).
@@ -381,13 +449,10 @@ def _check_attack_damage(sheet: dict, access, v: list[Violation]) -> None:
                     seen_terms.add(term)
                     terms.append(term)
 
-    if not terms:
-        return
-
-    # The deriver folds these riders only into WEAPON attacks (entries produced from an
-    # equipped weapon). Scope the assertion the same way — resolve each attack's name to a
-    # weapon and skip anything that isn't one (a spell/unarmed entry the deriver never folded
-    # a rider into) so a non-weapon attack can't false-positive rider-missing.
+    # The deriver folds riders only into WEAPON attacks (entries produced from an equipped
+    # weapon). Scope both assertions the same way — resolve each attack's name to a weapon and
+    # skip anything that isn't one (a spell/unarmed entry the deriver never folded a rider into)
+    # so a non-weapon attack can't false-positive rider-missing.
     for atk in attacks:
         if not isinstance(atk, dict):
             continue
@@ -398,11 +463,35 @@ def _check_attack_damage(sheet: dict, access, v: list[Violation]) -> None:
         weapon_id = access.resolve("catalog_item", name)
         if weapon_id is None or inventory_q.weapon_attack_facts(access, weapon_id) is None:
             continue
+
+        # state riders apply to every weapon attack
         for term in terms:
             if term not in damage:
                 v.append(Violation(DOMAIN, "attack-damage-rider-missing", "incomplete",
                                    f"{name}: expected extra-damage rider {term} from "
                                    f"active state, not in damage {damage!r}", "attacks"))
+
+        # item-owned rider: only THIS weapon's own single-row, weapon-backed magic item. A negative
+        # rider term is legitimate (a subtractive rider) and must appear verbatim, not be flagged.
+        mid = access.resolve("magic_item", name)
+        if mid is None:
+            continue
+        rows = inventory_q.extra_damage_grants(access, "magic_item", mid)
+        # fold only an UNGATED single-row item rider — multi-row items are carded separately, and a
+        # condition_kind-gated item rider is state-scoped (the state path owns it). Mirror the state
+        # path's discipline so a future gated item rider isn't silently blessed; none exist today.
+        if len(rows) != 1 or rows[0]["condition_kind"] is not None:
+            continue
+        dc, df = rows[0]["die_count"], rows[0]["die_faces"]
+        if not (_int(dc) and _int(df) and dc != 0):
+            continue
+        if not _item_rider_active(sheet, access, name, mid):
+            continue
+        term = f"{'+' if dc > 0 else '-'}{abs(dc)}d{df}"
+        if term not in damage:
+            v.append(Violation(DOMAIN, "item-attack-damage-rider-missing", "incomplete",
+                               f"{name}: expected item extra-damage rider {term}, "
+                               f"not in damage {damage!r}", "attacks"))
 
 
 # ── effective abilities ──────────────────────────────────────────────────────
@@ -536,6 +625,138 @@ def _check_effective_abilities(sheet: dict, access, v: list[Violation]) -> None:
             v.append(Violation(DOMAIN, "effective-ability-mismatch", "illegal",
                                f"{aid}: effective {score} != expected {expected}",
                                f"effective_abilities.{aid}"))
+
+
+# ── hit points (effective-CON max-HP recompute) ──────────────────────────────
+
+
+def _total_level(core: dict) -> int:
+    """Sum of the character's per-class levels from CORE.identity.classes."""
+    ident = core.get("identity", {}) or {}
+    classes = ident.get("classes", []) if isinstance(ident, dict) else []
+    total = 0
+    if isinstance(classes, list):
+        for c in classes:
+            if isinstance(c, dict) and _int(c.get("level")):
+                total += c["level"]
+    return total
+
+
+def _con_hp_delta(sheet: dict, access, total_level: int) -> int:
+    """Independently re-derived HP delta from the effective-CON change, ``(eff_con_mod −
+    core_con_mod) × total_level``.
+
+    ``core_con_mod`` is read from CORE.abilities (the ability whose key resolves to the
+    constitution id). The effective CON is CORE-final adjusted by ability-set/floor grants from the
+    SAME sources the effective-ability check uses (attuned items + always-on owners), applied to the
+    constitution id. Grounded in the DB + CORE, never the deriver's ``effective_abilities``."""
+    con_id = abilities_q.ability_id(access, CON_ABBREV)
+    if con_id is None:
+        return 0
+    core = sheet.get("core", {}) or {}
+    core_abilities = core.get("abilities", {}) or {}
+    if not isinstance(core_abilities, dict):
+        return 0
+    core_con_final = None
+    for k, entry in core_abilities.items():
+        if abilities_q.ability_id(access, k) != con_id:
+            continue
+        if isinstance(entry, dict):
+            f = entry.get("final")
+            if _int(f):
+                core_con_final = f
+        break
+    if not _int(core_con_final):
+        return 0
+    core_con_mod = (core_con_final - 10) // 2
+
+    ability_sets: dict[str, list[tuple[str, int]]] = {}
+    for source in (_item_ability_sets(sheet, access), _owner_ability_sets(sheet, access)):
+        for key, entries in source.items():
+            ability_sets.setdefault(key, []).extend(entries)
+
+    eff_con = core_con_final
+    floor_score = None
+    override_score = None
+    for mode, s in ability_sets.get(con_id, []):
+        if not _int(s):
+            continue
+        if mode == "set":
+            if override_score is None or s > override_score:
+                override_score = s
+        else:  # floor: a minimum the score is raised to
+            if floor_score is None or s > floor_score:
+                floor_score = s
+    if floor_score is not None:
+        eff_con = max(eff_con, floor_score)
+    if override_score is not None:  # 'set' is a true override — wins over base and floor
+        eff_con = override_score
+    eff_con_mod = (eff_con - 10) // 2
+
+    return (eff_con_mod - core_con_mod) * total_level
+
+
+def _state_hp_boost(sheet: dict, access) -> int:
+    """Total flat/per-level HP from grant_hp rows owned by ACTIVE character_states' owners.
+
+    Mirrors the deriver's state-only HP accumulation: only a state's owner contributes (an always-on
+    owner's grant_hp never does). Combined with the CON-delta to reconstruct max_boost — omitting it
+    would false-positive whenever a state legitimately boosts HP."""
+    mod = sheet.get("modifier", {}) or {}
+    states = mod.get("character_states", []) or []
+    if not isinstance(states, list):
+        return 0
+    total = 0
+    for st in states:
+        if not isinstance(st, dict):
+            continue
+        owner_kind = _owner_kind_for_source_type(st.get("source_type", ""))
+        if owner_kind is None:
+            continue
+        owner_id = access.resolve(owner_kind, st.get("source"))
+        if owner_id is None:
+            continue
+        for row in vitals_q.hp_grants(access, owner_kind, owner_id):
+            total += (row["flat"] or 0) + (row["per_level"] or 0)
+    return total
+
+
+def _check_hp(sheet: dict, access, v: list[Violation], transform: dict | None = None) -> None:
+    """Assert MODIFIER.hit_points.max_boost / max_reduction reflect the effective-CON max-HP
+    recompute (as a delta on the state HP boost). The modifier sheet has no absolute max — the
+    effective max is CORE.hit_points.max + max_boost − max_reduction — so the recompute is expressed
+    as a delta: a positive CON delta raises max_boost, a negative one raises max_reduction.
+
+    Under a self-transform the character retains their OWN Hit Points, so the form's CON does NOT
+    recompute max HP (the form's HP is a separate live-play Temporary-HP pool, not derived) — the
+    expected CON delta is 0 (T60 fork 2)."""
+    core = sheet.get("core", {}) or {}
+    mod = sheet.get("modifier", {}) or {}
+    if not isinstance(core, dict) or not isinstance(mod, dict):
+        return
+    hp = mod.get("hit_points")
+    if not isinstance(hp, dict):
+        return
+    actual_boost = hp.get("max_boost")
+    actual_reduction = hp.get("max_reduction")
+    if not _int(actual_boost) or not _int(actual_reduction):
+        return
+
+    total_level = _total_level(core)
+    hp_delta = 0 if transform else _con_hp_delta(sheet, access, total_level)
+    state_hp = _state_hp_boost(sheet, access)
+
+    expected_boost = state_hp + max(0, hp_delta)
+    expected_reduction = max(0, -hp_delta)
+
+    if actual_boost != expected_boost:
+        v.append(Violation(DOMAIN, "hp-max-boost-mismatch", "illegal",
+                           f"max_boost {actual_boost} != expected {expected_boost}",
+                           "hit_points.max_boost"))
+    if actual_reduction != expected_reduction:
+        v.append(Violation(DOMAIN, "hp-max-reduction-mismatch", "illegal",
+                           f"max_reduction {actual_reduction} != expected {expected_reduction}",
+                           "hit_points.max_reduction"))
 
 
 # ── defenses ─────────────────────────────────────────────────────────────────
@@ -793,6 +1014,211 @@ def _check_states(sheet: dict, access, v: list[Violation]) -> None:
                                "character_states"))
 
 
+# ── self-transform (full effective-stat replacement) ─────────────────────────
+
+
+def _active_transform(sheet: dict, access) -> dict | None:
+    """Return ``{creature_id, kind}`` for the first active self-transform state (a
+    ``character_state`` whose source resolves to a grant owner and whose ``detail`` carries
+    ``into`` + a valid ``transform`` kind), else None. Owner-resolution is re-derived here so
+    the check stays independent of the deriver."""
+    mod = sheet.get("modifier", {}) or {}
+    states = mod.get("character_states", []) or []
+    if not isinstance(states, list):
+        return None
+    for st in states:
+        if not isinstance(st, dict):
+            continue
+        owner_kind = _owner_kind_for_source_type(st.get("source_type", ""))
+        if owner_kind is None:
+            continue
+        if access.resolve(owner_kind, st.get("source")) is None:
+            continue
+        detail = st.get("detail")
+        detail = detail if isinstance(detail, dict) else {}
+        into = detail.get("into")
+        kind = detail.get("transform")
+        if into and kind in _TRANSFORM_KINDS:
+            return {"creature_id": into, "kind": kind}
+    return None
+
+
+def _form_speeds(access, creature_id: str) -> dict:
+    """The form's movement modes → feet (a formula_note mode resolves to the walk value)."""
+    rows = creature_q.creature_speeds(access, creature_id)
+    walk = None
+    for r in rows:
+        if r["movement_mode_id"] == "walk" and _int(r["feet"]):
+            walk = r["feet"]
+    out = {}
+    for r in rows:
+        mode, feet = r["movement_mode_id"], r["feet"]
+        if _int(feet):
+            out[mode] = feet
+        elif r["formula_note"] and walk is not None:
+            out[mode] = walk
+    # Floor to a walk speed for a speed-less form, matching the deriver's fallback so a
+    # form with no catalogued speeds does not false-flag a speed mismatch.
+    return out or {"walk": 0}
+
+
+def _form_senses(access, creature_id: str) -> dict:
+    return {r["sense_id"]: r["range_ft"]
+            for r in creature_q.creature_senses(access, creature_id)
+            if _int(r["range_ft"])}
+
+
+def _form_defenses(access, creature_id: str) -> dict:
+    d = creature_q.creature_defenses(access, creature_id)
+    return {
+        "resistances": sorted(r["damage_type_id"] for r in d["resistance"] if r["damage_type_id"]),
+        "immunities": sorted(r["damage_type_id"] for r in d["immunity_damage"]
+                             if r["damage_type_id"]),
+        "vulnerabilities": sorted(r["damage_type_id"] for r in d["vulnerability"]
+                                  if r["damage_type_id"]),
+        "condition_immunities": sorted(r["condition_id"] for r in d["immunity_condition"]
+                                       if r["condition_id"]),
+    }
+
+
+def _form_attacks(access, creature_id: str) -> dict:
+    """The form's expected attacks keyed by name → (attack_bonus, damage, damage_type),
+    re-derived from the creature's action rows (the same catalog source the deriver reads). An
+    action counts as an attack when it carries an attack bonus; its damage is the stored dice
+    string, else the flat average, else None — mirroring the deriver's replacement rule."""
+    out = {}
+    for row in creature_q.creature_actions(access, creature_id):
+        atk_bonus = row["atk_bonus"]
+        if not _int(atk_bonus):
+            continue
+        dmg_dice = row["dmg_dice"]
+        if isinstance(dmg_dice, str) and dmg_dice.strip():
+            damage = dmg_dice.strip()
+        elif _int(row["dmg_average"]):
+            damage = str(row["dmg_average"])
+        else:
+            damage = None
+        out[row["name"]] = (atk_bonus, damage, row["damage_type_id"])
+    return out
+
+
+def _check_transform(sheet: dict, access, transform: dict, v: list[Violation]) -> None:
+    """Independently re-derive the transformed effective stats from the creature catalog and flag
+    divergence. Enforces the retained-vs-replaced ability split (mental abilities retained under a
+    PHYSICAL transform, all six replaced under FULL). A templated/unknown form is illegal. Never
+    reads the deriver's output — every expectation comes from the catalog + CORE."""
+    cid = transform["creature_id"]
+    kind = transform["kind"]
+    row = creature_q.creature_row(access, cid)
+    if row is None:
+        v.append(Violation(DOMAIN, "transform-creature-unknown", "illegal",
+                           f"transform into {cid!r} does not resolve to a creature",
+                           "character_states"))
+        return
+    if creature_q.creature_formulas(access, cid):
+        v.append(Violation(DOMAIN, "transform-templated-not-form", "illegal",
+                           f"transform target {cid!r} is owner-scaled (templated) and has no "
+                           f"standalone stat block", "character_states"))
+        return
+
+    core = sheet.get("core", {}) or {}
+    mod = sheet.get("modifier", {}) or {}
+    core_abilities = core.get("abilities", {}) or {}
+
+    # Effective abilities: form scores replace, except a PHYSICAL transform retains the
+    # character's mental (Int/Wis/Cha) scores.
+    form_scores = {r["ability_id"]: r["score"]
+                   for r in creature_q.creature_abilities(access, cid) if _int(r["score"])}
+    effective = mod.get("effective_abilities", {}) or {}
+    if isinstance(effective, dict):
+        for aid, actual in effective.items():
+            if not _int(actual):
+                continue
+            full_aid = abilities_q.ability_id_for_short_key(access, aid) or aid
+            retained = (kind == TRANSFORM_PHYSICAL and full_aid in _MENTAL_ABILITY_IDS)
+            if retained:
+                cdata = core_abilities.get(aid, {}) or {}
+                final = cdata.get("final", 10) if isinstance(cdata, dict) else 10
+                expected = final if _int(final) else 10
+            else:
+                expected = form_scores.get(full_aid)
+            if expected is not None and actual != expected:
+                v.append(Violation(DOMAIN, "transform-ability-mismatch", "illegal",
+                                   f"{aid}: transformed effective {actual} != expected {expected} "
+                                   f"({'retained mental' if retained else 'form'})",
+                                   f"effective_abilities.{aid}"))
+
+    # AC — the form's flat AC.
+    ac = mod.get("armor_class")
+    if _int(ac) and _int(row["ac_value"]) and ac != row["ac_value"]:
+        v.append(Violation(DOMAIN, "transform-ac-mismatch", "illegal",
+                           f"transformed armor_class {ac} != form AC {row['ac_value']}",
+                           "armor_class"))
+
+    # Speed — the form's speeds replace the character's.
+    speed = mod.get("speed")
+    if isinstance(speed, dict):
+        expected_speed = _form_speeds(access, cid)
+        for mode, exp in expected_speed.items():
+            if speed.get(mode) != exp:
+                v.append(Violation(DOMAIN, "transform-speed-mismatch", "illegal",
+                                   f"speed {mode} {speed.get(mode)!r} != form {exp}", "speed"))
+        for mode in speed:
+            if mode not in expected_speed:
+                v.append(Violation(DOMAIN, "transform-speed-mismatch", "illegal",
+                                   f"speed {mode} {speed.get(mode)!r} not in the form's speeds",
+                                   "speed"))
+
+    # Senses — the form's senses replace the character's.
+    senses = mod.get("effective_senses")
+    if isinstance(senses, dict):
+        expected_senses = _form_senses(access, cid)
+        for sid, exp in expected_senses.items():
+            if senses.get(sid) != exp:
+                v.append(Violation(DOMAIN, "transform-sense-mismatch", "illegal",
+                                   f"sense {sid} {senses.get(sid)!r} != form {exp}",
+                                   "effective_senses"))
+        for sid in senses:
+            if sid not in expected_senses:
+                v.append(Violation(DOMAIN, "transform-sense-mismatch", "illegal",
+                                   f"sense {sid} {senses.get(sid)!r} not in the form's senses",
+                                   "effective_senses"))
+
+    # Defences — the form's block is authoritative (replace, not union with CORE permanent).
+    eff_def = mod.get("effective_defenses")
+    if isinstance(eff_def, dict):
+        expected_def = _form_defenses(access, cid)
+        for key, exp_list in expected_def.items():
+            actual_list = eff_def.get(key, []) or []
+            if not isinstance(actual_list, list):
+                actual_list = []
+            if sorted(actual_list) != exp_list:
+                v.append(Violation(DOMAIN, "transform-defense-mismatch", "illegal",
+                                   f"effective_defenses.{key} {sorted(actual_list)!r} != "
+                                   f"form {exp_list!r}", f"effective_defenses.{key}"))
+
+    # Attacks — the form's actions replace the character's; each expected form attack must be
+    # present with the form's bonus/damage/damage_type. (`_check_attacks`/`_check_attack_damage`
+    # are suspended under transform, so this is the sole attack assertion while transformed.)
+    attacks = mod.get("attacks")
+    if isinstance(attacks, list):
+        expected_attacks = _form_attacks(access, cid)
+        by_name = {a.get("name"): a for a in attacks if isinstance(a, dict) and a.get("name")}
+        for name, (exp_bonus, exp_damage, exp_type) in expected_attacks.items():
+            atk = by_name.get(name)
+            if atk is None:
+                v.append(Violation(DOMAIN, "transform-attack-missing", "illegal",
+                                   f"form attack {name!r} not in transformed attacks", "attacks"))
+                continue
+            if (atk.get("attack_bonus") != exp_bonus or atk.get("damage") != exp_damage
+                    or atk.get("damage_type") != exp_type):
+                v.append(Violation(DOMAIN, "transform-attack-mismatch", "illegal",
+                                   f"{name}: transformed attack "
+                                   f"({atk.get('attack_bonus')!r}, {atk.get('damage')!r}, "
+                                   f"{atk.get('damage_type')!r}) != form "
+                                   f"({exp_bonus!r}, {exp_damage!r}, {exp_type!r})", "attacks"))
+
+
 # ── dispatcher ───────────────────────────────────────────────────────────────
 
 
@@ -802,15 +1228,26 @@ def check(sheet: dict, access) -> list[Violation]:
     if modifier is None or not isinstance(modifier, dict):
         return v
 
+    # A self-transform makes the form's stat block authoritative: the effective abilities, AC,
+    # speed, senses, attacks and defences are the form's, not the character's. Under an active
+    # transform, suspend the checks that would re-derive those from the character's CORE (they
+    # would false-positive) and validate the form's block via `_check_transform` instead. The
+    # ability-derived saves/skills/HP checks stay on, but transform-aware (fork 1 + 2).
+    transform = _active_transform(sheet, access)
+
     _check_ac(sheet, v)
     _check_ac_bonus_dedup(sheet, v)
-    _check_saves(sheet, access, v)
-    _check_skills(sheet, v)
-    _check_attacks(sheet, access, v)
-    _check_attack_damage(sheet, access, v)
-    _check_effective_abilities(sheet, access, v)
-    _check_defenses(sheet, v)
-    _check_state_defenses(sheet, access, v)
+    _check_saves(sheet, access, v, transform)
+    _check_skills(sheet, v, transform)
+    _check_hp(sheet, access, v, transform)
+    if transform is None:
+        _check_attacks(sheet, access, v)
+        _check_attack_damage(sheet, access, v)
+        _check_effective_abilities(sheet, access, v)
+        _check_defenses(sheet, v)
+        _check_state_defenses(sheet, access, v)
+    else:
+        _check_transform(sheet, access, transform, v)
     _check_size(sheet, access, v)
     _check_passives(sheet, v)
     _check_features(sheet, v)

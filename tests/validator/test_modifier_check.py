@@ -236,7 +236,9 @@ def test_deriver_validator_agree_per_ability_save(access):
     from app.derivation.modifier_orchestrator import derive_modifier
     core = {
         "character_id": "t", "character_name": "T",
-        "identity": {"size": "medium", "species": "Species A", "lineage": None,
+        # Species Slotless carries no ability-set grant, so a2 is not overridden — this test is
+        # about a per-ability ITEM save bonus, not an always-on ability set (species-a would SET a2).
+        "identity": {"size": "medium", "species": "Species Slotless", "lineage": None,
                      "classes": [{"class": "Class A", "level": 3, "subclass": None}]},
         "abilities": {"a1": {"final": 14}, "a2": {"final": 16}, "a3": {"final": 12}},
         "proficiency_bonus": 2,
@@ -278,53 +280,53 @@ def _attack_sheet(weapons, weapon_name, str_mod=1, dex_mod=3):
 
 
 def test_attack_proficient_via_tier(access):
-    """Rapier is martial; proficiency via the 'martial weapons' tier adds PB. Finesse -> Dex."""
-    sheet = _attack_sheet(["martial weapons"], "rapier")  # str 1, dex 3
-    sheet["modifier"]["attacks"] = [{"name": "rapier", "attack_bonus": 3 + 2}]  # Dex(3) + PB(2)
+    """Weapon E is martial; proficiency via the 'martial weapons' tier adds PB. Finesse -> Dex."""
+    sheet = _attack_sheet(["martial weapons"], "weapon-e")  # str 1, dex 3
+    sheet["modifier"]["attacks"] = [{"name": "weapon-e", "attack_bonus": 3 + 2}]  # Dex(3) + PB(2)
     assert "attack-bonus-mismatch" not in _codes(sheet, access)
-    sheet["modifier"]["attacks"] = [{"name": "rapier", "attack_bonus": 3}]  # missing PB
+    sheet["modifier"]["attacks"] = [{"name": "weapon-e", "attack_bonus": 3}]  # missing PB
     assert "attack-bonus-mismatch" in _codes(sheet, access)
 
 
 def test_attack_proficient_via_specific_weapon(access):
-    """Proficient only via the specific 'rapiers' grant (not the martial tier) -> PB still applies."""
-    sheet = _attack_sheet(["simple weapons", "rapiers"], "rapier")
-    sheet["modifier"]["attacks"] = [{"name": "rapier", "attack_bonus": 3 + 2}]  # Dex(3) + PB(2)
+    """Proficient only via the specific 'weapon-es' grant (not the martial tier) -> PB still applies."""
+    sheet = _attack_sheet(["simple weapons", "weapon-es"], "weapon-e")
+    sheet["modifier"]["attacks"] = [{"name": "weapon-e", "attack_bonus": 3 + 2}]  # Dex(3) + PB(2)
     assert "attack-bonus-mismatch" not in _codes(sheet, access)
 
 
 def test_attack_not_proficient_no_pb(access):
     """No matching tier or specific grant -> no PB."""
-    sheet = _attack_sheet(["simple weapons"], "rapier")  # rapier is martial, not covered
-    sheet["modifier"]["attacks"] = [{"name": "rapier", "attack_bonus": 3}]  # Dex(3), no PB
+    sheet = _attack_sheet(["simple weapons"], "weapon-e")  # weapon-e is martial, not covered
+    sheet["modifier"]["attacks"] = [{"name": "weapon-e", "attack_bonus": 3}]  # Dex(3), no PB
     assert "attack-bonus-mismatch" not in _codes(sheet, access)
-    sheet["modifier"]["attacks"] = [{"name": "rapier", "attack_bonus": 3 + 2}]  # PB wrongly added
+    sheet["modifier"]["attacks"] = [{"name": "weapon-e", "attack_bonus": 3 + 2}]  # PB wrongly added
     assert "attack-bonus-mismatch" in _codes(sheet, access)
 
 
 def test_attack_finesse_uses_max_of_str_dex(access):
     """Finesse picks max(str, dex): here str(5) > dex(1), so Str is used."""
-    sheet = _attack_sheet(["martial weapons"], "rapier", str_mod=5, dex_mod=1)
-    sheet["modifier"]["attacks"] = [{"name": "rapier", "attack_bonus": 5 + 2}]  # Str(5) + PB(2)
+    sheet = _attack_sheet(["martial weapons"], "weapon-e", str_mod=5, dex_mod=1)
+    sheet["modifier"]["attacks"] = [{"name": "weapon-e", "attack_bonus": 5 + 2}]  # Str(5) + PB(2)
     assert "attack-bonus-mismatch" not in _codes(sheet, access)
 
 
 def test_attack_item_weapon_attack_bonus(access):
     """An attuned item's +1 weapon_attack bonus lands on the attack."""
-    sheet = _attack_sheet(["martial weapons"], "rapier")  # dex 3
+    sheet = _attack_sheet(["martial weapons"], "weapon-e")  # dex 3
     sheet["inventory"]["equipped"]["waist"] = {"id": "item-waist", "name": "Charm Alpha"}
     sheet["modifier"]["item_states"] = [{"inventory_ref": "item-waist", "attuned": True}]
-    sheet["modifier"]["attacks"] = [{"name": "rapier", "attack_bonus": 3 + 2 + 1}]  # Dex+PB+item
+    sheet["modifier"]["attacks"] = [{"name": "weapon-e", "attack_bonus": 3 + 2 + 1}]  # Dex+PB+item
     assert "attack-bonus-mismatch" not in _codes(sheet, access)
-    sheet["modifier"]["attacks"] = [{"name": "rapier", "attack_bonus": 3 + 2}]  # item bonus missing
+    sheet["modifier"]["attacks"] = [{"name": "weapon-e", "attack_bonus": 3 + 2}]  # item bonus missing
     assert "attack-bonus-mismatch" in _codes(sheet, access)
 
 
 def test_attack_tier_title_case(access):
     """Robustness: a TITLE-CASE tier token ('Martial Weapons') still confers PB -- the validator's
     tier match is case-insensitive (independent of the deriver's copy)."""
-    sheet = _attack_sheet(["Simple Weapons", "Martial Weapons"], "rapier")  # dex 3
-    sheet["modifier"]["attacks"] = [{"name": "rapier", "attack_bonus": 3 + 2}]  # Dex(3) + PB(2)
+    sheet = _attack_sheet(["Simple Weapons", "Martial Weapons"], "weapon-e")  # dex 3
+    sheet["modifier"]["attacks"] = [{"name": "weapon-e", "attack_bonus": 3 + 2}]  # Dex(3) + PB(2)
     assert "attack-bonus-mismatch" not in _codes(sheet, access)
 
 
@@ -553,7 +555,7 @@ def test_size_no_state_default_matches_core(access):
 
 def _grow_sheet(damage: str, state_id="grown"):
     sheet = _sheet()
-    sheet["modifier"]["attacks"] = [{"name": "Greataxe", "attack_bonus": 0, "damage": damage}]
+    sheet["modifier"]["attacks"] = [{"name": "Weapon A", "attack_bonus": 0, "damage": damage}]
     sheet["modifier"]["character_states"] = [
         {"state": state_id, "source": "Spell-Grow", "source_type": "spell"}]
     return sheet
@@ -577,7 +579,7 @@ def test_shrink_rider_present_passes(access):
 
 def test_no_rider_expected_without_state(access):
     sheet = _sheet()
-    sheet["modifier"]["attacks"] = [{"name": "Greataxe", "attack_bonus": 0, "damage": "1d12+2"}]
+    sheet["modifier"]["attacks"] = [{"name": "Weapon A", "attack_bonus": 0, "damage": "1d12+2"}]
     assert "attack-damage-rider-missing" not in _codes(sheet, access)
 
 
@@ -599,6 +601,121 @@ def test_rider_terms_deduped(access):
     ]
     misses = [x for x in check(sheet, access) if x.code == "attack-damage-rider-missing"]
     assert len(misses) == 1
+
+
+# ── item-owned extra-damage rider (T51) ──────────────────────────────────────
+
+
+def _blade_sheet(damage, attuned=True):
+    """A sheet wielding the attuned magic weapon 'Blade Alpha' (mi-blade) in main_hand. mi-blade
+    owns a single extra_damage grant (+1d6) and requires attunement."""
+    sheet = _sheet()
+    sheet["core"]["proficiencies"] = {"armor": [], "weapons": ["martial weapons"], "tools": []}
+    sheet["inventory"] = {"equipped": {"main_hand": {"id": "w-main", "name": "Blade Alpha"}}}
+    if attuned:
+        sheet["modifier"]["item_states"] = [{"inventory_ref": "w-main", "attuned": True}]
+    sheet["modifier"]["attacks"] = [{"name": "Blade Alpha", "attack_bonus": 0, "damage": damage}]
+    return sheet
+
+
+def test_item_rider_missing_from_own_attack_fires(access):
+    """An attuned magic weapon's +1d6 rider absent from ITS OWN attack's damage is flagged."""
+    assert "item-attack-damage-rider-missing" in _codes(_blade_sheet("1d8+2"), access)
+
+
+def test_item_rider_present_passes(access):
+    assert "item-attack-damage-rider-missing" not in _codes(_blade_sheet("1d8+2+1d6"), access)
+
+
+def test_item_rider_not_required_when_not_attuned(access):
+    """mi-blade requires attunement: without an attuned item_state the rider is not required."""
+    assert "item-attack-damage-rider-missing" not in _codes(_blade_sheet("1d8+2", attuned=False), access)
+
+
+def test_item_rider_not_flagged_on_different_weapon(access):
+    """The item's rider is weapon-specific: a different equipped weapon's attack must never be
+    flagged for it. Here Blade Alpha's own rider IS missing (one violation), and the Weapon A's
+    attack (no rider owed) stays clean."""
+    sheet = _blade_sheet("1d8+2")  # Blade Alpha missing its rider -> exactly one violation
+    sheet["inventory"]["equipped"]["off_hand"] = {"id": "w-off", "name": "Weapon A"}
+    sheet["modifier"]["attacks"].append(
+        {"name": "Weapon A", "attack_bonus": 0, "damage": "1d12+2"})
+    misses = [x for x in check(sheet, access) if x.code == "item-attack-damage-rider-missing"]
+    assert len(misses) == 1
+    assert "Blade Alpha" in misses[0].message
+
+
+# ── effective-CON max-HP recompute (T50) ─────────────────────────────────────
+
+
+def _access_with_con(access):
+    """Return an access wired to this test's isolated DB after aliasing a3's abbrev to 'con', so the
+    HP recompute resolves a3 as the constitution ability (the shared synthetic table only carries the
+    x1..x6 abbrevs). rules_db is rebuilt fresh per test, so this doesn't leak to other tests."""
+    import sqlite3
+    from access.validator import ValidatorAccess
+    con = sqlite3.connect(access.db.path)
+    con.execute("UPDATE ability SET abbrev='con' WHERE id='a3'")
+    con.commit()
+    con.close()
+    return ValidatorAccess(path=access.db.path)
+
+
+def _hp_sheet(con_final=12, level=3, vigor=True, states=None, max_boost=0, max_reduction=0):
+    """A multi-level character with a constitution ability (a3). Optionally attunes the CON-set
+    'Vigor Alpha' (sets a3 to 18) and/or carries active states."""
+    sheet = _sheet()
+    sheet["core"]["identity"] = {"size": "medium",
+                                 "classes": [{"class": "Class A", "level": level}]}
+    sheet["core"]["abilities"]["a3"] = {"final": con_final}
+    if vigor:
+        sheet["inventory"] = {"equipped": {"neck": {"id": "item-neck", "name": "Vigor Alpha"}}}
+        sheet["modifier"]["item_states"] = [{"inventory_ref": "item-neck", "attuned": True}]
+    if states is not None:
+        sheet["modifier"]["character_states"] = states
+    sheet["modifier"]["hit_points"]["max_boost"] = max_boost
+    sheet["modifier"]["hit_points"]["max_reduction"] = max_reduction
+    return sheet
+
+
+def test_hp_boost_missing_from_con_set_item_fires(access):
+    """An attuned CON-set item raises effective CON (+1 mod × level), but max_boost still 0 -> flag."""
+    access = _access_with_con(access)
+    # con 12 (mod +1) -> set 18 (mod +4); delta = (4-1)*3 = 9
+    assert "hp-max-boost-mismatch" in _codes(_hp_sheet(con_final=12, level=3, max_boost=0), access)
+
+
+def test_hp_boost_correct_delta_passes(access):
+    access = _access_with_con(access)
+    assert "hp-max-boost-mismatch" not in _codes(_hp_sheet(con_final=12, level=3, max_boost=9), access)
+
+
+def test_hp_reduction_on_lower_override(access):
+    """A 'set' that LOWERS effective CON drives the delta into max_reduction, not max_boost."""
+    access = _access_with_con(access)
+    # con 20 (mod +5) -> set 18 (mod +4); delta = (4-5)*3 = -3 -> reduction 3, boost 0
+    assert "hp-max-reduction-mismatch" not in _codes(
+        _hp_sheet(con_final=20, level=3, max_boost=0, max_reduction=3), access)
+    assert "hp-max-reduction-mismatch" in _codes(
+        _hp_sheet(con_final=20, level=3, max_boost=0, max_reduction=0), access)
+
+
+def test_hp_state_grant_combined_with_delta(access):
+    """max_boost must combine the state grant_hp contribution WITH the CON-delta."""
+    access = _access_with_con(access)
+    state = {"state": "hp-active", "source": "HP State Feature A", "source_type": "feature"}
+    # state feature grants +5, CON delta = 9 -> expected max_boost 14
+    assert "hp-max-boost-mismatch" not in _codes(
+        _hp_sheet(con_final=12, level=3, states=[state], max_boost=14), access)
+    assert "hp-max-boost-mismatch" in _codes(
+        _hp_sheet(con_final=12, level=3, states=[state], max_boost=9), access)  # forgot the state
+
+
+def test_hp_non_state_grant_inert(access):
+    """An always-on (non-state) grant_hp (feat-gen +7) must NOT contribute to max_boost — only the
+    CON delta (9) does, so a sheet with max_boost 9 is clean despite feat-gen owning a grant_hp."""
+    access = _access_with_con(access)
+    assert "hp-max-boost-mismatch" not in _codes(_hp_sheet(con_final=12, level=3, max_boost=9), access)
 
 
 # ── smoke ────────────────────────────────────────────────────────────────────

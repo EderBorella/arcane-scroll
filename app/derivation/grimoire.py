@@ -265,13 +265,21 @@ def _feat_ability_mode(grants: list) -> str | None:
 
 # ── C-G1b  spellbook derivation ─────────────────────────────────────────────
 
-def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access) -> list:
+def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access,
+                  chosen_spells: dict | None = None) -> list:
     """Build the ``spells[]`` array: deterministic grants + preserved player choices.
 
     Deterministic spells come from the ``grant_spell`` spine — subclass always-prepared
-    grants, feat-granted spells, species/lineage spells, and Warlock patron class-list
+    grants, feat-granted spells, species/lineage spells, and pact-caster patron class-list
     expansions.  Player-chosen spells are carried forward from a previous GRIMOIRE
     (append-only — the deriver never deletes).
+
+    ``chosen_spells`` is the generator's spell picks — ``{"cantrips": [spell_id, ...],
+    "spells": [spell_id, ...]}`` — resolved from ``choices["spells"]``.  When supplied
+    (the generation path) each chosen cantrip/leveled spell is placed on the first CLASS
+    source whose spell list carries it and still has budget remaining, so the spellbook
+    reflects the model's picks.  When absent (the gold / ``migrate`` path passes nothing)
+    this is a no-op and the deterministic behaviour is unchanged.
     """
     spells: list[dict] = []
     seen: set[tuple[str, str]] = set()  # (name, source) dedup
@@ -300,7 +308,11 @@ def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access)
             entry["recovery"] = "at_will"
         # Full DB metadata
         if spell_row:
-            entry["school"] = spell_row.get("school_id")
+            # `school` is an optional STRING in grimoire:1 (no null branch), so omit it when the DB
+            # carries none rather than emitting `null`. save_ability/attack_kind/casting_time/range/
+            # duration/description each allow null in the contract, so they may stay explicit.
+            if spell_row.get("school_id") is not None:
+                entry["school"] = spell_row["school_id"]
             entry["save_ability"] = spell_row.get("save_ability_id") or None
             entry["attack_kind"] = spell_row.get("attack_kind") or None
             entry["components"] = _format_components(spell_row)
@@ -402,7 +414,73 @@ def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access)
                     seen.add(key)
                     spells.append(dict(ps))
 
+    # ── player-chosen spells (generation path) ──
+    # Placed against the per-source DB budgets: a chosen cantrip/leveled spell goes on the first
+    # CLASS source whose spell list carries it and still has budget remaining.  Absent chosen picks
+    # (the gold / migrate path) this loop does not run, so the deterministic output is unchanged.
+    if chosen_spells:
+        _place_chosen_spells(chosen_spells, sources, ident, access, add_spell, seen)
+
     return spells
+
+
+def _place_chosen_spells(chosen_spells: dict, sources: dict, ident: dict, access,
+                         add_spell, seen: set) -> None:
+    """Assign the generator's chosen spell ids onto the CLASS sources, honouring the DB budgets.
+
+    Each chosen cantrip is bucketed ``cantrip`` (at-will) and each chosen leveled spell ``prepared``
+    (cast from a slot); it lands on the first class source whose effective spell list carries the
+    spell and whose remaining count for that bucket is not yet spent.  Spell ids/names resolve from
+    the DB — content-neutral.
+    """
+    from access.validator import spellcasting as q
+
+    classes = ident.get("classes", []) or []
+
+    def _list_class_for(cid: str) -> str:
+        """The spell-list class a class source draws from — a third-caster subclass casts from its
+        declared list class; otherwise the class casts from its own list."""
+        for c in classes:
+            if _class_id(c, access) == cid:
+                sub = _subclass_id(c, access)
+                if sub:
+                    lc = q.subclass_caster_list(access, sub)
+                    if lc:
+                        return lc
+                break
+        return cid
+
+    list_class: dict[str, str] = {}
+    for key, src in sources.items():
+        if isinstance(src, dict) and src.get("kind") == "class":
+            list_class[key] = _list_class_for(key.split(":", 1)[1])
+
+    def _place(spell_ids, bucket: str, budget_field: str, recovery: str) -> None:
+        # Remaining budget per class source (None = untabulated → unlimited, matching the validator,
+        # which flags only counts that EXCEED an integer budget).
+        remaining: dict[str, int | None] = {}
+        for key, src in sources.items():
+            if isinstance(src, dict) and src.get("kind") == "class":
+                b = src.get(budget_field)
+                remaining[key] = b if _is_int(b) else None
+        for sid in spell_ids or []:
+            srow = _spell_row(access, sid)
+            if not srow:
+                continue
+            for key in list_class:
+                if (srow["name"], key) in seen:
+                    break  # already on this source (e.g. an always-grant) — nothing to place
+                if not q.spell_on_class_list(access, sid, list_class[key]):
+                    continue
+                if remaining[key] is not None and remaining[key] <= 0:
+                    continue
+                add_spell(srow["name"], key, bucket, recovery, spell_row=srow)
+                if remaining[key] is not None:
+                    remaining[key] -= 1
+                break
+
+    _place(chosen_spells.get("cantrips"), "cantrip", "cantrips_known", "at_will")
+    _place(chosen_spells.get("spells"), "prepared", "prepared_limit", "spell_slot")
 
 
 def _grant_spell_fixed_ids(access, grant_id: str) -> list[str]:
@@ -431,14 +509,22 @@ def _spell_row(access, spell_id: str):
             spell_id,
         )
     except Exception:
-        # Minimal fallback for test DB
+        # Minimal fallback for a reduced test DB. Read school_id when the column exists so a spell's
+        # school still reaches the grimoire; everything else degrades to defaults.
         row = access.db.one("SELECT id, name, level, is_ritual, 0 as concentration FROM spell WHERE id = ?", spell_id)
-        if row:
-            return {
-                "id": row[0], "name": row[1], "level": row[2],
-                "is_ritual": row[3], "concentration": row[4],
-            }
-        return None
+        if not row:
+            return None
+        result = {
+            "id": row[0], "name": row[1], "level": row[2],
+            "is_ritual": row[3], "concentration": row[4],
+        }
+        try:
+            school = access.db.scalar("SELECT school_id FROM spell WHERE id = ?", spell_id)
+            if school is not None:
+                result["school_id"] = school
+        except Exception:
+            pass
+        return result
     if not row:
         return None
     return dict(row) if hasattr(row, "keys") else {
@@ -750,10 +836,16 @@ def derive_slots(core: dict, access) -> tuple[dict, dict]:
 
 # ── orchestrator ────────────────────────────────────────────────────────────
 
-def derive_grimoire(core: dict, prev_grimoire: dict | None, access) -> dict:
-    """Produce a ``grimoire:1`` dict from CORE + optional previous GRIMOIRE + DB."""
+def derive_grimoire(core: dict, prev_grimoire: dict | None, access,
+                    chosen_spells: dict | None = None) -> dict:
+    """Produce a ``grimoire:1`` dict from CORE + optional previous GRIMOIRE + DB.
+
+    ``chosen_spells`` (``{"cantrips": [...], "spells": [...]}`` from ``choices["spells"]``) folds the
+    generator's spell picks into the spellbook when supplied.  Omitted (the gold / ``migrate`` path),
+    the deriver behaves exactly as before — re-derived purely from the class progression + grants.
+    """
     sources = derive_sources(core, access)
-    spells = derive_spells(core, prev_grimoire, sources, access)
+    spells = derive_spells(core, prev_grimoire, sources, access, chosen_spells=chosen_spells)
     spell_slots, pact_slots = derive_slots(core, access)
 
     result: dict = {

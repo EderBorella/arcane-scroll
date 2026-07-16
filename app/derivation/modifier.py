@@ -3,12 +3,102 @@ CORE + INVENTORY + GRIMOIRE + DB + active state effects. No orchestrator, no non
 field protection, no stacking-rule enforcement — those are C-M2."""
 from access.primitives import grants_for
 from access.validator import abilities as abilities_q
+from access.validator import creature as creature_q
 from access.validator import defenses as defenses_q
+from access.validator import inventory as inventory_q
 from access.validator import size as size_q
+
+# Self-transform (T60): the character temporarily BECOMES a creature (full effective-stat
+# replacement). Two kinds, selected by ``detail.transform``. ``PHYSICAL`` (physical-form) replaces
+# the physical ability scores only, retaining the character's MENTAL abilities and their own
+# proficiencies/PB; ``FULL`` replaces all six ability scores and drops proficiencies. The mental
+# ability set is a rule constant (the split is fixed by the ruleset, not a per-row DB fact).
+TRANSFORM_PHYSICAL = "physical"
+TRANSFORM_FULL = "full"
+_TRANSFORM_KINDS = (TRANSFORM_PHYSICAL, TRANSFORM_FULL)
+_MENTAL_ABILITY_IDS = frozenset({"intelligence", "wisdom", "charisma"})
 
 
 def _int(x) -> bool:
     return isinstance(x, int) and not isinstance(x, bool)
+
+
+# ── form stat-block readers (concrete creatures; pure catalog reads) ──────────
+
+
+def _form_ability_scores(access, creature_id: str) -> dict:
+    """The form's ability scores keyed by full DB ability id → score."""
+    return {r["ability_id"]: r["score"]
+            for r in creature_q.creature_abilities(access, creature_id)
+            if _int(r["score"])}
+
+
+def _form_speeds(access, creature_id: str) -> dict:
+    """The form's movement modes keyed by mode id → feet. A mode stored as a
+    ``formula_note`` (e.g. equal to the walk speed) resolves to the walk value."""
+    rows = creature_q.creature_speeds(access, creature_id)
+    walk = None
+    for r in rows:
+        if r["movement_mode_id"] == "walk" and _int(r["feet"]):
+            walk = r["feet"]
+    result = {}
+    for r in rows:
+        mode, feet = r["movement_mode_id"], r["feet"]
+        if _int(feet):
+            result[mode] = feet
+        elif r["formula_note"] and walk is not None:
+            result[mode] = walk
+    return result
+
+
+def _form_senses(access, creature_id: str) -> dict:
+    """The form's special senses keyed by sense id → range in feet."""
+    return {r["sense_id"]: r["range_ft"]
+            for r in creature_q.creature_senses(access, creature_id)
+            if _int(r["range_ft"])}
+
+
+def _form_attacks(access, creature_id: str) -> list:
+    """The form's attacks, shaped for the modifier sheet. An action counts as an attack
+    when it carries an attack bonus; its damage string is the stored dice expression, or
+    the flat average when no dice term is stored."""
+    result = []
+    for row in creature_q.creature_actions(access, creature_id):
+        atk_bonus = row["atk_bonus"]
+        if not _int(atk_bonus):
+            continue
+        dmg_dice = row["dmg_dice"]
+        if isinstance(dmg_dice, str) and dmg_dice.strip():
+            damage = dmg_dice.strip()
+        elif _int(row["dmg_average"]):
+            damage = str(row["dmg_average"])
+        else:
+            damage = None
+        result.append({
+            "name": row["name"],
+            "attack_bonus": atk_bonus,
+            "damage": damage,
+            "damage_type": row["damage_type_id"],
+            "weapon_mastery": None,
+            "properties": [],
+        })
+    return result
+
+
+def _form_defenses(access, creature_id: str) -> dict:
+    """The form's effective-defences block (form is authoritative under transform)."""
+    d = creature_q.creature_defenses(access, creature_id)
+    return {
+        "resistances": sorted(r["damage_type_id"] for r in d["resistance"] if r["damage_type_id"]),
+        "immunities": sorted(r["damage_type_id"] for r in d["immunity_damage"]
+                             if r["damage_type_id"]),
+        "vulnerabilities": sorted(r["damage_type_id"] for r in d["vulnerability"]
+                                  if r["damage_type_id"]),
+        "condition_immunities": sorted(r["condition_id"] for r in d["immunity_condition"]
+                                       if r["condition_id"]),
+        "save_advantages": [],
+        "condition_advantages": [],
+    }
 
 
 def _norm_weapon_token(token: str) -> str:
@@ -76,6 +166,9 @@ class ActiveEffects:
         self.hp_reduction: int = 0
         self.ac_floor: int | None = None
         self.sense_grants: list[dict] = []
+        # Self-transform: {creature_id, kind} when a transform state is active
+        # (concrete form only), else None. Drives full effective-stat replacement.
+        self.transform: dict | None = None
 
 
 def resolve_active_effects(core: dict, inventory: dict | None,
@@ -83,6 +176,13 @@ def resolve_active_effects(core: dict, inventory: dict | None,
     """Resolve all active effects from character_states[] and item_states[]. Returns
     ActiveEffects with accumulated bonuses, resistances, etc. Empty states → empty effects."""
     effects = ActiveEffects()
+    # Always-on ability sets from the character's PERMANENT owners (species/feats/classes/subclasses)
+    # apply unconditionally — they are not gated by an active state. This mirrors the validator's
+    # independently rule-grounded owner re-derivation, so a grant_ability_set on a permanent owner
+    # (not just an attuned magic item) reaches effective abilities and never trips a false
+    # effective-ability mismatch (reconciliation debt (b)). Runs before the empty-state fast path so
+    # a gearless, stateless build still resolves its permanent ability sets.
+    _accumulate_owner_ability_sets(effects, core, access)
     has_equipped = isinstance(inventory, dict) and bool(inventory.get("equipped"))
     if not states and not item_states and not has_equipped:
         return effects
@@ -111,6 +211,7 @@ def resolve_active_effects(core: dict, inventory: dict | None,
         _accumulate_senses(effects, access, owner_kind, owner_id)
         _accumulate_size(effects, access, owner_kind, owner_id, state)
         _accumulate_extra_damage(effects, access, owner_kind, owner_id, state)
+        _accumulate_transform(effects, access, state)
 
     if inventory and isinstance(inventory, dict):
         _accumulate_item_effects(effects, access, inventory, item_states)
@@ -184,6 +285,25 @@ def _accumulate_size(effects: ActiveEffects, access, owner_kind, owner_id, state
             effects.size_sets.append(row["size_id"])
 
 
+def _accumulate_transform(effects: ActiveEffects, access, state: dict):
+    """Capture a self-transform from one active state carrying ``detail.into`` +
+    ``detail.transform``. The form must be a CONCRETE creature (a fixed stat block); a
+    templated (owner-scaled) creature has no standalone block and is skipped gracefully,
+    as is an unknown id or a missing/invalid ``transform`` kind (which leaves the legacy
+    size-only ``detail.into`` behaviour untouched)."""
+    detail = state.get("detail") if isinstance(state, dict) else None
+    detail = detail if isinstance(detail, dict) else {}
+    into = detail.get("into")
+    kind = detail.get("transform")
+    if not into or kind not in _TRANSFORM_KINDS:
+        return
+    if creature_q.creature_row(access, into) is None:
+        return
+    if creature_q.creature_formulas(access, into):
+        return  # templated form → no standalone stat block; skip
+    effects.transform = {"creature_id": into, "kind": kind}
+
+
 def _accumulate_extra_damage(effects: ActiveEffects, access, owner_kind, owner_id, state: dict):
     """Accumulate condition-gated extra-damage riders from one active state's owner.
     A grant_bonus row with ``target_kind='extra_damage'`` and a ``condition_kind`` gate
@@ -211,6 +331,49 @@ def _accumulate_ability_sets(effects: ActiveEffects, access, owner_kind, owner_i
     for row in grants_for(access.db, "grant_ability_set", owner_kind, owner_id):
         if row["mode"] in ("set", "floor"):
             effects.ability_sets.append(dict(row))
+
+
+def _accumulate_owner_ability_sets(effects: ActiveEffects, core: dict, access):
+    """Always-on ability-set/floor grants from the character's permanent owners — species, each feat,
+    each class, and each subclass — gated by class-entry level. Mirrors the validator's independently
+    rule-grounded owner set (``validator.checks.modifier._owner_ability_sets``): the deriver applies
+    ``grant_ability_set`` across a state-driven owner set + attuned items, so a grant on a permanent
+    owner would otherwise be missed and produce a false effective-ability mismatch. No non-item grants
+    exist in the reference dataset today, so this is inert there; the synthetic ruleset carries one on
+    a species, which this reconciles."""
+    if not isinstance(core, dict):
+        return
+    ident = core.get("identity", {}) or {}
+    if not isinstance(ident, dict):
+        ident = {}
+
+    def _collect(owner_kind: str, owner_id, at_level=None) -> None:
+        """Append an owner's ability-set/floor grants, gated by ``at_level`` (None = level-agnostic)."""
+        if owner_id is None:
+            return
+        for row in grants_for(access.db, "grant_ability_set", owner_kind, owner_id, at_level):
+            if row["mode"] in ("set", "floor"):
+                effects.ability_sets.append(dict(row))
+
+    _collect("species", access.resolve("species", ident.get("species")))
+
+    feats = core.get("feats")
+    if isinstance(feats, list):
+        for f in feats:
+            name = f if isinstance(f, str) else (f.get("name") if isinstance(f, dict) else None)
+            _collect("feat", access.resolve("feat", name))
+
+    classes = ident.get("classes")
+    if isinstance(classes, list):
+        for c in classes:
+            if not isinstance(c, dict):
+                continue
+            lvl = c.get("level")
+            at = lvl if isinstance(lvl, int) and not isinstance(lvl, bool) else 0
+            _collect("class", access.resolve("class", c.get("class")), at)
+            sub = c.get("subclass")
+            if sub:
+                _collect("subclass", access.resolve("subclass", sub), at)
 
 
 def _accumulate_hp(effects: ActiveEffects, access, owner_kind, owner_id):
@@ -280,9 +443,7 @@ def _accumulate_item_effects(effects: ActiveEffects, access, inventory, item_sta
             mid = access.resolve("magic_item", item_name)
             if not mid:
                 continue
-            requires = access.db.scalar(
-                "SELECT requires_attunement FROM magic_item WHERE id=?", mid)
-            if requires:
+            if inventory_q.requires_attunement(access, mid):
                 continue
             _accumulate_senses(effects, access, "magic_item", mid)
             _accumulate_speeds(effects, access, "magic_item", mid)
@@ -297,6 +458,8 @@ def derive_abilities(core: dict, effects: ActiveEffects, access) -> tuple[dict, 
     effective_abilities: {aid: score}. A 'set' grant is a TRUE OVERRIDE of the score; a 'floor'
     grant raises it to a minimum (max)."""
     core_abilities = core.get("abilities", {}) or {}
+    tf = effects.transform
+    form_scores = _form_ability_scores(access, tf["creature_id"]) if tf else {}
     result = {}
     effective = {}
     mods = {}
@@ -328,6 +491,13 @@ def derive_abilities(core: dict, effects: ActiveEffects, access) -> tuple[dict, 
             eff = max(eff, floor_score)
         if override_score is not None:  # 'set' overrides base and floor alike
             eff = override_score
+        # Self-transform replaces the effective score with the form's: all six abilities for a
+        # FULL transform, the physical abilities only for a PHYSICAL (physical-form) one — the
+        # character's mental abilities (Int/Wis/Cha) are retained.
+        if tf and (tf["kind"] == TRANSFORM_FULL or full_aid not in _MENTAL_ABILITY_IDS):
+            form_score = form_scores.get(full_aid)
+            if form_score is not None:
+                eff = form_score
         modifier = _ability_mod(eff)
         result[aid] = {"modifier": modifier, "reduction": reduction}
         effective[aid] = eff
@@ -339,6 +509,16 @@ def derive_ac(core: dict, inventory: dict | None, effects: ActiveEffects, abilit
               access) -> tuple[int, dict]:
     """Returns (armor_class, armor_class_detail). `abilities` maps an ability key (CORE short
     code or full DB id) to its modifier; the Dex mod is resolved via that key normalisation."""
+    # Under a self-transform the form's stat block is authoritative: AC is the form's
+    # flat AC, no worn-armour/Dex/bonus contribution (gear melds into the new form).
+    tf = effects.transform
+    if tf:
+        row = creature_q.creature_row(access, tf["creature_id"])
+        ac = row["ac_value"] if row is not None and _int(row["ac_value"]) else 10
+        detail = {"source": tf["creature_id"], "base": ac, "dex_bonus": 0,
+                  "bonuses": [], "floor": None}
+        return ac, detail
+
     dex_mod = _mod_for_ability_id(access, abilities, "dexterity")
     equipped = (inventory or {}).get("equipped", {}) or {}
     if not isinstance(equipped, dict):
@@ -401,6 +581,14 @@ def derive_speed(core: dict, effects: ActiveEffects, access) -> tuple[dict, dict
     Reuses the _resolve_speeds algorithm from validator/checks/movement.py."""
     from validator.checks.movement import _resolve_speeds
 
+    # Under a self-transform the form's speeds replace the character's entirely.
+    tf = effects.transform
+    if tf:
+        speeds = _form_speeds(access, tf["creature_id"]) or {"walk": 0}
+        detail = {"base": speeds.get("walk", 0), "base_source": tf["creature_id"],
+                  "base_mode": "walk", "modifiers": []}
+        return speeds, detail
+
     perm_speed = core.get("permanent_speed", {}) or {}
     base_walk = perm_speed.get("walk", 30)
     if not _int(base_walk):
@@ -443,7 +631,11 @@ def derive_speed(core: dict, effects: ActiveEffects, access) -> tuple[dict, dict
 
 
 def derive_defenses(core: dict, effects: ActiveEffects, access) -> dict:
-    """Returns effective_defenses dict merging CORE permanent + active state grants."""
+    """Returns effective_defenses dict merging CORE permanent + active state grants.
+    Under a self-transform the form's defences are authoritative (replace, not union)."""
+    if effects.transform:
+        return _form_defenses(access, effects.transform["creature_id"])
+
     perm = core.get("permanent_defenses", {}) or {}
     if not isinstance(perm, dict):
         perm = {}
@@ -487,10 +679,17 @@ def derive_size(core: dict, effects: ActiveEffects, access) -> str:
 
 def derive_saving_throws(core: dict, abilities: dict, pb, effects: ActiveEffects,
                          access) -> dict:
-    """Returns saving_throws: {aid: {modifier}}."""
+    """Returns saving_throws: {aid: {modifier}}. Under a FULL transform saves are the form's
+    ability modifiers with NO character proficiency/PB (the form's block is authoritative); a
+    PHYSICAL transform keeps the character's own proficiencies/PB on the (partly replaced)
+    ability modifiers."""
+    tf = effects.transform
     saves = core.get("saving_throws", {}) or {}
     result = {}
     for aid, ab_mod in abilities.items():
+        if tf and tf["kind"] == TRANSFORM_FULL:
+            result[aid] = {"modifier": ab_mod}
+            continue
         # `aid` is the CORE key (a short code); grant target ids are full DB ids, so normalise
         # before comparing a per-ability save bonus's target to this save.
         full_aid = abilities_q.ability_id_for_short_key(access, aid) or aid
@@ -517,7 +716,11 @@ def derive_saving_throws(core: dict, abilities: dict, pb, effects: ActiveEffects
 
 def derive_skills(core: dict, abilities: dict, pb, effects: ActiveEffects,
                   access) -> dict:
-    """Returns skills: {sid: {modifier}}."""
+    """Returns skills: {sid: {modifier}}. Under a FULL transform skills are the form's ability
+    modifiers with NO character proficiency/PB; a PHYSICAL transform keeps the character's own
+    proficiencies/PB (on the partly replaced ability modifiers)."""
+    tf = effects.transform
+    full = bool(tf and tf["kind"] == TRANSFORM_FULL)
     core_skills = core.get("skills", {}) or {}
     result = {}
     for sid, skill_obj in core_skills.items():
@@ -526,7 +729,7 @@ def derive_skills(core: dict, abilities: dict, pb, effects: ActiveEffects,
         sk_ability = skill_obj.get("ability", "")
         ab_mod = abilities.get(sk_ability, 0)
         mod = ab_mod
-        if _int(pb):
+        if not full and _int(pb):
             prof = skill_obj.get("proficient", False)
             exp = skill_obj.get("expertise", False)
             if exp:
@@ -554,11 +757,53 @@ def derive_initiative(core: dict, abilities: dict, pb, effects: ActiveEffects,
     return dex_mod
 
 
-def derive_hp_effects(core: dict, effects: ActiveEffects, access) -> dict:
-    """Returns hit_points effects: {max_boost, max_reduction}."""
+def derive_hp_effects(core: dict, effects: ActiveEffects, ability_mods: dict, access) -> dict:
+    """Returns hit_points effects: {max_boost, max_reduction}.
+
+    Beyond the state-driven hp_boost/hp_reduction, the effective-CON change recomputes max HP as a
+    DELTA on those fields (the modifier sheet has no absolute max; effective max = CORE max +
+    max_boost − max_reduction). With ``core_con_mod`` from CORE.abilities and ``eff_con_mod`` the
+    already-derived effective CON modifier, ``hp_delta = (eff_con_mod − core_con_mod) × total_level``
+    adds max(0, hp_delta) to max_boost (on top of the state hp_boost) and max(0, −hp_delta) to
+    max_reduction."""
+    from validator.checks.vitals import CON_ABBREV
+
+    # Under a self-transform the character retains their OWN Hit Points/Hit Dice, so the
+    # effective-CON change from the form does NOT recompute max HP (the form's HP is a
+    # separate live-play Temporary-HP pool, not derived here — T60 fork 2). Only any state
+    # grant_hp (none for a transform state) still applies.
+    if effects.transform:
+        return {"max_boost": effects.hp_boost, "max_reduction": effects.hp_reduction}
+
+    core_abilities = core.get("abilities", {}) or {}
+    con_id = abilities_q.ability_id(access, CON_ABBREV)
+    core_con_mod = 0
+    eff_con_mod = 0
+    if con_id is not None and isinstance(core_abilities, dict):
+        for k, score_obj in core_abilities.items():
+            if abilities_q.ability_id(access, k) != con_id:
+                continue
+            if isinstance(score_obj, dict):
+                final = score_obj.get("final", 10)
+                if _int(final):
+                    core_con_mod = _ability_mod(final)
+            eff_con_mod = ability_mods.get(k, core_con_mod)
+            if not _int(eff_con_mod):
+                eff_con_mod = core_con_mod
+            break
+
+    ident = core.get("identity", {}) or {}
+    classes = ident.get("classes", []) if isinstance(ident, dict) else []
+    total_level = 0
+    if isinstance(classes, list):
+        for c in classes:
+            if isinstance(c, dict) and _int(c.get("level")):
+                total_level += c["level"]
+
+    hp_delta = (eff_con_mod - core_con_mod) * total_level
     return {
-        "max_boost": effects.hp_boost,
-        "max_reduction": effects.hp_reduction,
+        "max_boost": effects.hp_boost + max(0, hp_delta),
+        "max_reduction": effects.hp_reduction + max(0, -hp_delta),
     }
 
 
@@ -580,7 +825,22 @@ def derive_resource_state(core: dict, effects: ActiveEffects, access) -> dict:
 
 def derive_attacks(core: dict, inventory: dict | None, abilities: dict,
                    item_states: list, effects: ActiveEffects, access) -> list[dict]:
-    """Returns attacks: list of attack row dicts for each equipped weapon."""
+    """Returns attacks: list of attack row dicts for each equipped weapon.
+
+    Extra-damage riders append their own die term to a weapon's damage string via the existing
+    signed formatter. Two sources fold in: state-gated riders (``effects.extra_damage``) apply to
+    every weapon attack; an item-owned rider (a weapon-backed magic item owning exactly one
+    ``extra_damage`` grant, active per attunement/equip) folds only into THAT item's own attack.
+
+    A subtractive rider (negative die_count, e.g. a shrink effect → ``-1d4``) is emitted raw; the
+    "damage not below 1" floor such an effect may carry is applied at the render/roll layer on the
+    rolled total, and is intentionally not encoded in the static dice string.
+
+    Under a self-transform the character's attacks are the form's actions (gear melds into the
+    new form); the equipped-weapon attacks below do not apply."""
+    if effects.transform:
+        return _form_attacks(access, effects.transform["creature_id"])
+
     equipped = (inventory or {}).get("equipped", {}) or {}
     if not isinstance(equipped, dict):
         return []
@@ -589,6 +849,10 @@ def derive_attacks(core: dict, inventory: dict | None, abilities: dict,
     weapon_profs = set(profs.get("weapons", [])) if isinstance(profs, dict) else set()
     pb = core.get("proficiency_bonus", 0)
     masteries = set(core.get("weapon_masteries", []) or [])
+
+    # Attuned inventory refs (for gating an attunement-requiring item's own rider).
+    attuned_refs = {ist.get("inventory_ref") for ist in (item_states or [])
+                    if isinstance(ist, dict) and ist.get("attuned")}
 
     attacks = []
     for slot in ("main_hand", "off_hand"):
@@ -650,13 +914,32 @@ def derive_attacks(core: dict, inventory: dict | None, abilities: dict,
         # State-gated extra-damage riders append their own die term to the damage
         # string, consistent with how the flat bonus is formatted. A negative die_count
         # is a subtractive rider (e.g. a shrink effect → "-1d4"); the "not below 1" floor
-        # such an effect may carry is a runtime clamp, not encodable in the static term.
+        # such an effect may carry is a runtime clamp, not encodable in the static term
+        # (see the function docstring).
         for xd in effects.extra_damage:
             dc = xd.get("die_count")
             df = xd.get("die_faces")
             if _int(dc) and _int(df) and dc != 0:
                 sign = "+" if dc > 0 else "-"
                 damage += f"{sign}{abs(dc)}d{df}"
+
+        # Item-owned rider: this equipped weapon's OWN single-row, weapon-backed magic item folds
+        # its extra_damage die into THIS attack only (never character-wide), when active — attuned
+        # if the item requires attunement, else equipped (mirrors _accumulate_item_effects).
+        mid = access.resolve("magic_item", name)
+        if mid is not None:
+            xd_rows = inventory_q.extra_damage_grants(access, "magic_item", mid)
+            # Fold only an ungated single-row item rider — a condition_kind-gated item rider is
+            # state-scoped and belongs to the state path (mirrors that path's discipline); none
+            # exist today, so this is behaviour-preserving.
+            if len(xd_rows) == 1 and xd_rows[0]["condition_kind"] is None:
+                dc, df = xd_rows[0]["die_count"], xd_rows[0]["die_faces"]
+                if _int(dc) and _int(df) and dc != 0:
+                    active = (item.get("id") in attuned_refs
+                              if inventory_q.requires_attunement(access, mid) else True)
+                    if active:
+                        sign = "+" if dc > 0 else "-"
+                        damage += f"{sign}{abs(dc)}d{df}"
 
         mastery = wrow["mastery_id"]
         if mastery and mastery not in masteries:
@@ -683,7 +966,11 @@ def _weapon_properties(access, weapon_id: str) -> set[str]:
 
 
 def derive_senses(core: dict, effects: ActiveEffects, access) -> dict:
-    """Returns effective_senses: {sense_id: range_ft} from CORE permanent + active grants."""
+    """Returns effective_senses: {sense_id: range_ft} from CORE permanent + active grants.
+    Under a self-transform the form's senses replace the character's entirely."""
+    if effects.transform:
+        return _form_senses(access, effects.transform["creature_id"])
+
     perm = core.get("permanent_senses", {}) or {}
     if not isinstance(perm, dict):
         perm = {}

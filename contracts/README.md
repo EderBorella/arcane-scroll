@@ -15,6 +15,18 @@ is independently versioned via its `$id` URN and uses [JSON Schema Draft 2020-12
 
 All 5 schemas share `character_id` (UUID) and `character_name`.
 
+### Standalone monster sheet
+
+| Schema | URN | Purpose | When it changes |
+|--------|-----|---------|-----------------|
+| **MONSTER_SHEET** | `urn:arcane:contract:monster-sheet:1` | A sheet of one or more OWNER-LESS materialised monsters (concrete catalogued creatures). Each entry reuses the companion-modifier stat block shape (`$ref` to `companionModifier`) but carries its own `creature_id` instead of a CORE companion index. | New/changed catalogued creature stats. |
+
+A materialised monster is a concrete creature with no owner — essentially a concrete
+companion detached from a character. Templated (owner-scaled) creatures cannot appear
+on a monster sheet: their stats only exist relative to an owner's cast level, so they
+are rejected at materialisation and validation, never emitted with un-scaled zeros.
+This sheet has no `character_id` / `character_name` (there is no character).
+
 ## Derivation flow
 
 ```

@@ -9,6 +9,10 @@ def _clean_abilities():
         "x4": {"base": 13, "final": 13, "modifier": 1},
         "x5": {"base": 13, "final": 13, "modifier": 1},
         "x6": {"base": 13, "final": 13, "modifier": 1},
+        # 'wisdom' (abbrev 'wis') is present in the synthetic ability catalog so the
+        # companion owner-context resolver can bridge it; include it here so the
+        # all-abilities completeness check stays satisfied.
+        "wis": {"base": 13, "final": 13, "modifier": 1},
     }
 
 

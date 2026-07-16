@@ -275,7 +275,7 @@ def _subclass_for_class(classes: list, cid: str, access) -> str | None:
 
 def _effective_list_class(cid: str, classes: list, access) -> str:
     """The class id whose spell list actually governs `cid`'s spells: normally `cid` itself, but a
-    third-caster subclass (Eldritch Knight, Arcane Trickster, ...) has no list of its own -- it casts
+    third-caster subclass has no list of its own -- it casts
     from another class's list, per subclass_spellcasting.spell_list_class_id."""
     for c in classes:
         if not isinstance(c, dict):
@@ -327,7 +327,7 @@ def _check_spell_list_and_uniqueness(sheet: dict, ident: dict, classes: list, sp
             continue  # not a class source (feat/species/subclass/item) -- treat as granted, no list check
         list_cid = _effective_list_class(cid, classes, access)
         legal_lists = {list_cid}
-        # Magical-Secrets-style widening (e.g. Bard L10): a class_list grant on the source's OWN
+        # a list-widening grant (e.g. a class's level-gated "learn from any list" grant): a class_list grant on the source's OWN
         # class (not the effective/third-caster list) additionally legalises other class lists, but
         # only once the character has reached the grant's gained_at_level for that class.
         own_level = _level_for_class(classes, cid, access)

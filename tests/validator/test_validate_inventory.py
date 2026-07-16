@@ -26,7 +26,7 @@ def test_valid_empty(access):
 
 def test_valid_single_weapon(access):
     sheet = _make_sheet(
-        equipped={"main_hand": {"id": "w1", "name": "Greataxe"}},
+        equipped={"main_hand": {"id": "w1", "name": "Weapon A"}},
     )
     assert check(sheet, access) == []
 
@@ -34,8 +34,8 @@ def test_valid_single_weapon(access):
 def test_valid_armor_shield(access):
     sheet = _make_sheet(
         equipped={
-            "armor": {"id": "a1", "name": "chain-mail"},
-            "shield": {"id": "s1", "name": "Magic Shield"},
+            "armor": {"id": "a1", "name": "armor-a"},
+            "shield": {"id": "s1", "name": "Shield Alpha"},
         },
     )
     assert check(sheet, access) == []
@@ -44,8 +44,8 @@ def test_valid_armor_shield(access):
 def test_valid_backpack_items(access):
     sheet = _make_sheet(
         backpack=[
-            {"id": "b1", "name": "Greataxe"},
-            {"id": "b2", "name": "club"},
+            {"id": "b1", "name": "Weapon A"},
+            {"id": "b2", "name": "weapon-c"},
         ],
     )
     assert check(sheet, access) == []
@@ -54,24 +54,24 @@ def test_valid_backpack_items(access):
 def test_valid_magic_item(access):
     sheet = _make_sheet(
         equipped={
-            "main_hand": {"id": "m1", "name": "Magic Sword",
-                          "template_item": "tpl-weapon-1", "base_item": "greataxe"},
+            "main_hand": {"id": "m1", "name": "Sword Alpha",
+                          "template_item": "tpl-weapon-1", "base_item": "weapon-a"},
         },
     )
     assert check(sheet, access) == []
 
 
-def test_valid_spell_scroll(access):
+def test_valid_scroll(access):
     sheet = _make_sheet(
-        backpack=[{"id": "s1", "name": "Magic Scroll", "spell_id": "sp1"}],
+        backpack=[{"id": "s1", "name": "Scroll Alpha", "spell_id": "sp1"}],
     )
     assert check(sheet, access) == []
 
 
 def test_duplicate_id_equipped_backpack(access):
     sheet = _make_sheet(
-        equipped={"main_hand": {"id": "dup", "name": "Greataxe"}},
-        backpack=[{"id": "dup", "name": "club"}],
+        equipped={"main_hand": {"id": "dup", "name": "Weapon A"}},
+        backpack=[{"id": "dup", "name": "weapon-c"}],
     )
     assert "duplicate-item-id" in _codes(sheet, access)
 
@@ -79,8 +79,8 @@ def test_duplicate_id_equipped_backpack(access):
 def test_duplicate_id_same_backpack(access):
     sheet = _make_sheet(
         backpack=[
-            {"id": "dup", "name": "Greataxe"},
-            {"id": "dup", "name": "club"},
+            {"id": "dup", "name": "Weapon A"},
+            {"id": "dup", "name": "weapon-c"},
         ],
     )
     assert "duplicate-item-id" in _codes(sheet, access)
@@ -95,14 +95,14 @@ def test_unknown_catalog_item(access):
 
 def test_known_catalog_item(access):
     sheet = _make_sheet(
-        backpack=[{"id": "b1", "name": "Greataxe"}],
+        backpack=[{"id": "b1", "name": "Weapon A"}],
     )
     assert "unknown-catalog-item" not in _codes(sheet, access)
 
 
 def test_known_magic_item(access):
     sheet = _make_sheet(
-        equipped={"main_hand": {"id": "m1", "name": "Magic Sword"}},
+        equipped={"main_hand": {"id": "m1", "name": "Sword Alpha"}},
     )
     assert "unknown-catalog-item" not in _codes(sheet, access)
 
@@ -112,7 +112,7 @@ def test_known_magic_item(access):
 
 def test_invalid_slot_key(access):
     sheet = _make_sheet(
-        equipped={"nonexistent_slot": {"id": "w1", "name": "Greataxe"}},
+        equipped={"nonexistent_slot": {"id": "w1", "name": "Weapon A"}},
     )
     assert "invalid-slot" in _codes(sheet, access)
 
@@ -120,8 +120,8 @@ def test_invalid_slot_key(access):
 def test_two_handed_plus_shield(access):
     sheet = _make_sheet(
         equipped={
-            "main_hand": {"id": "w1", "name": "Greataxe"},
-            "off_hand": {"id": "s1", "name": "Magic Shield", "category": "shield"},
+            "main_hand": {"id": "w1", "name": "Weapon A"},
+            "off_hand": {"id": "s1", "name": "Shield Alpha", "category": "shield"},
         },
     )
     assert "two-handed-plus-shield" in _codes(sheet, access)
@@ -129,7 +129,7 @@ def test_two_handed_plus_shield(access):
 
 def test_two_handed_no_shield_valid(access):
     sheet = _make_sheet(
-        equipped={"main_hand": {"id": "w1", "name": "Greataxe"}},
+        equipped={"main_hand": {"id": "w1", "name": "Weapon A"}},
     )
     assert "two-handed-plus-shield" not in _codes(sheet, access)
 
@@ -137,8 +137,8 @@ def test_two_handed_no_shield_valid(access):
 def test_one_handed_with_shield_valid(access):
     sheet = _make_sheet(
         equipped={
-            "main_hand": {"id": "w1", "name": "handaxe"},
-            "off_hand": {"id": "s1", "name": "Magic Shield", "category": "shield"},
+            "main_hand": {"id": "w1", "name": "weapon-b"},
+            "off_hand": {"id": "s1", "name": "Shield Alpha", "category": "shield"},
         },
     )
     assert "two-handed-plus-shield" not in _codes(sheet, access)
@@ -149,16 +149,16 @@ def test_one_handed_with_shield_valid(access):
 
 def test_template_valid(access):
     sheet = _make_sheet(
-        equipped={"main_hand": {"id": "m1", "name": "Magic Sword",
-                                "template_item": "tpl-weapon-1", "base_item": "greataxe"}},
+        equipped={"main_hand": {"id": "m1", "name": "Sword Alpha",
+                                "template_item": "tpl-weapon-1", "base_item": "weapon-a"}},
     )
     assert "invalid-template" not in _codes(sheet, access)
 
 
 def test_template_wrong_kind(access):
     sheet = _make_sheet(
-        equipped={"main_hand": {"id": "m1", "name": "Magic Sword",
-                                "template_item": "tpl-shield", "base_item": "greataxe"}},
+        equipped={"main_hand": {"id": "m1", "name": "Sword Alpha",
+                                "template_item": "tpl-shield", "base_item": "weapon-a"}},
     )
     codes = _codes(sheet, access)
     assert "invalid-template" in codes
@@ -166,25 +166,25 @@ def test_template_wrong_kind(access):
 
 def test_template_unknown(access):
     sheet = _make_sheet(
-        equipped={"main_hand": {"id": "m1", "name": "Magic Sword",
+        equipped={"main_hand": {"id": "m1", "name": "Sword Alpha",
                                 "template_item": "nonexistent-template"}},
     )
     assert "invalid-template" in _codes(sheet, access)
 
 
-# ── C-I1d: spell scroll integrity ────────────────────────────────────────────
+# ── C-I1d: scroll integrity ──────────────────────────────────────────────────
 
 
-def test_spell_scroll_invalid_spell(access):
+def test_scroll_invalid_spell(access):
     sheet = _make_sheet(
-        backpack=[{"id": "s1", "name": "Magic Scroll", "spell_id": "nonexistent-spell"}],
+        backpack=[{"id": "s1", "name": "Scroll Alpha", "spell_id": "nonexistent-spell"}],
     )
     assert "invalid-spell-scroll" in _codes(sheet, access)
 
 
-def test_spell_scroll_valid(access):
+def test_scroll_valid(access):
     sheet = _make_sheet(
-        backpack=[{"id": "s1", "name": "Magic Scroll", "spell_id": "sp1"}],
+        backpack=[{"id": "s1", "name": "Scroll Alpha", "spell_id": "sp1"}],
     )
     assert "invalid-spell-scroll" not in _codes(sheet, access)
 
@@ -194,7 +194,7 @@ def test_spell_scroll_valid(access):
 
 def test_consumable_missing(access):
     sheet = _make_sheet(
-        equipped={"main_hand": {"id": "w1", "name": "Greataxe"}},
+        equipped={"main_hand": {"id": "w1", "name": "Weapon A"}},
         modifier={"item_states": [
             {"inventory_ref": "not-found", "consumable": True},
         ]},
@@ -204,7 +204,7 @@ def test_consumable_missing(access):
 
 def test_consumable_present(access):
     sheet = _make_sheet(
-        backpack=[{"id": "scroll1", "name": "Magic Scroll", "spell_id": "sp1"}],
+        backpack=[{"id": "scroll1", "name": "Scroll Alpha", "spell_id": "sp1"}],
         modifier={"item_states": [
             {"inventory_ref": "scroll1", "consumable": True},
         ]},
@@ -214,7 +214,7 @@ def test_consumable_present(access):
 
 def test_no_modifier_no_consumable_check(access):
     sheet = _make_sheet(
-        equipped={"main_hand": {"id": "w1", "name": "Greataxe"}},
+        equipped={"main_hand": {"id": "w1", "name": "Weapon A"}},
     )
     assert "consumable-missing-inventory" not in _codes(sheet, access)
 
@@ -239,6 +239,6 @@ def test_malformed_no_crash(access):
 
 def test_null_spell_id_no_crash(access):
     sheet = _make_sheet(
-        backpack=[{"id": "b1", "name": "Greataxe", "spell_id": None}],
+        backpack=[{"id": "b1", "name": "Weapon A", "spell_id": None}],
     )
     assert "invalid-spell-scroll" not in _codes(sheet, access)

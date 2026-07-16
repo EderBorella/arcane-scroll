@@ -219,3 +219,30 @@ def test_prepared_spells_never_derived(access):
     core = _core()
     sheet, meta = derive_modifier(core, None, None, None, "full", access)
     assert sheet["prepared_spells"] == []
+
+
+# ── effective-CON max-HP recompute (T50) ─────────────────────────────────────
+
+
+def _access_with_con(access):
+    """Alias a3's abbrev to 'con' in this test's private DB copy so the HP recompute resolves a3
+    as the constitution ability. rules_db is rebuilt per test, so this doesn't leak."""
+    import sqlite3
+    from access.validator import ValidatorAccess
+    con = sqlite3.connect(access.db.path)
+    con.execute("UPDATE ability SET abbrev='con' WHERE id='a3'")
+    con.commit()
+    con.close()
+    return ValidatorAccess(path=access.db.path)
+
+
+def test_hp_delta_in_max_boost(access):
+    access = _access_with_con(access)
+    core = _core()  # a3 final=12 (mod +1), Class A level 3
+    inventory = {"equipped": {"neck": {"id": "item-neck", "name": "Vigor Alpha"}}}
+    existing = {"item_states": [{"inventory_ref": "item-neck", "attuned": True}]}
+    sheet, meta = derive_modifier(core, inventory, None, existing, "fill", access)
+    # Vigor Alpha sets con to 18 (mod +4); delta = (4 - 1) * 3 = 9
+    assert sheet["hit_points"]["max_boost"] == 9
+    assert sheet["hit_points"]["max_reduction"] == 0
+    assert sheet["effective_abilities"]["a3"] == 18

@@ -33,8 +33,8 @@ def _class_contribution(first: dict | None, access) -> tuple[int, bool, set[str]
 def _secondary_class_contribution(classes: list, access) -> tuple[int, bool, set[str]]:
     """(budget, any_flag, pool) contributed by every class AFTER the first -- their reduced
     multiclass-only skill grants, not their full (primary-only) skill pool. Budget credits BOTH the
-    fixed count and the choose_n of every multiclass skill grant (e.g. a rogue-style secondary class
-    "choose 1 skill" grant) -- previously only fixed grants were credited, which false-flagged a
+    fixed count and the choose_n of every multiclass skill grant (e.g. a secondary class's
+    "choose 1 skill" multiclass grant) -- previously only fixed grants were credited, which false-flagged a
     fully-legal multiclass build as too-many-skill-proficiencies."""
     budget = 0
     any_flag = False
@@ -122,7 +122,7 @@ def _legal_universe_and_budget(sheet: dict, ident: dict, classes: list, access) 
     # proficiency -- it widens legality but does not cost a budget slot (it lands in `granted_fixed`
     # and is excluded from the chargeable count below). A CHOOSE-mode grant (e.g. a feat like
     # "choose 1 skill of your choice", DB fact gpr-0120; or a species "choose 1 of {a,b,c}", DB fact
-    # elf's gpr-0190; or "choose any skill", DB fact human's gpr-0193) is a real pick spent against
+    # gpr-0190; or "choose any skill", DB fact gpr-0193) is a real pick spent against
     # an ENLARGED budget -- it widens legality via `choose_pool`/any_flag but its choose_n is
     # credited to the budget directly, not folded into the free/automatic set.
     granted_fixed: set[str] = set()
@@ -210,8 +210,8 @@ def check(sheet: dict, access) -> list[Violation]:
                            f"{chargeable_count} proficient skills exceeds the budget of {budget}",
                            "skills"))
 
-    # Expertise budget sums EVERY class's own grants at that class's own level (a rogue picked up
-    # as a second class still grants its expertise, gated by the rogue's own level, not the first
+    # Expertise budget sums EVERY class's own grants at that class's own level (a class picked up
+    # as a second class still grants its expertise, gated by that class's own level, not the first
     # class's) -- plus each class's subclass, plus feats (gated by total character level, since a
     # feat isn't tied to any one class's level track).
     ex_budget = 0

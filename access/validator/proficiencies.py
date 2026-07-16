@@ -36,10 +36,10 @@ def _split_skill_grants(access: ValidatorAccess, headers: list) -> tuple[bool, l
     value pool). `fixed_skill_ids` is the union of values from unconditional (mode='fixed') grants --
     automatically-conferred proficiencies that cost no budget. `choose_pool_skill_ids` is the union
     of values from a choose-mode grant that DOES restrict to a limited pool (e.g. species-a-style
-    "choose 1 of {a,b,c}", DB fact: elf's gpr-0190 choosing 1 of insight/perception/survival) --
+    "choose 1 of {a,b,c}", DB fact: a species grant (gpr-0190) choosing 1 of a fixed skill set) --
     these widen legality but, unlike fixed grants, are real picks. `choose_n` is the sum of choose_n
-    across every choose-mode grant (whether its pool is limited or unrestricted, e.g. rogue's
-    multiclass gpr-0382 or human's species gpr-0193) -- the number of budget slots those grants
+    across every choose-mode grant (whether its pool is limited or unrestricted, e.g. a class's
+    multiclass grant (gpr-0382) or a species's "choose any skill" grant (gpr-0193)) -- the number of budget slots those grants
     actually cost, previously dropped on the floor entirely (a choose-mode grant is a pick spent
     against an enlarged budget, not a free, automatically-conferred proficiency)."""
     any_flag = False

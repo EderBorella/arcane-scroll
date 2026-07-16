@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:arcane:contract:monster-sheet:1",
+  "title": "MonsterSheet",
+  "description": "A standalone sheet of one or more materialised monsters. Each monster is a CONCRETE (fixed-stat) catalogued creature emitted as a companion-modifier-shaped stat block, but OWNER-LESS: there is no CORE character and no companions[] linkage. The creature identity is carried on each entry (creature_id) instead of via a CORE.companions[] index. Templated (owner-scaled) creatures cannot appear here — their stats only exist relative to an owner's cast level, so they are rejected at materialisation. Content-neutral: catalog-driven.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "monsters"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "monsters": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/monster"
+      }
+    }
+  },
+  "$defs": {
+    "monster": {
+      "description": "One materialised standalone monster: the creature it was materialised from, and its resolved stat block. The stat block reuses the companion-modifier statblock shape verbatim; its companion_index is the monster's index within monsters[] (there is no owner to link back to).",
+      "type": "object",
+      "required": [
+        "creature_id",
+        "stat_block"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "creature_id": {
+          "type": "string",
+          "description": "Catalog id of the concrete creature this monster was materialised from."
+        },
+        "stat_block": {
+          "$ref": "urn:arcane:contract:companion-modifier:1#/$defs/companionModifier"
+        }
+      }
+    }
+  }
+}
