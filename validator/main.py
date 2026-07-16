@@ -7,6 +7,7 @@ from fastapi import Body, FastAPI
 
 from access.validator import ValidatorAccess
 from validator.validate import validate
+from validator.validate_companion import validate_companion
 from validator.validate_core import validate_core
 from validator.validate_grimoire import validate_grimoire
 from validator.validate_inventory import validate_inventory
@@ -54,3 +55,10 @@ async def validate_modifier_sheet(body: dict = Body(...)) -> dict:
     return validate_modifier(body["core"], body["inventory"],
                               body["grimoire"], body["modifier"],
                               _state["access"])
+
+
+@app.post("/validate-companion")
+async def validate_companion_sheet(body: dict = Body(...)) -> dict:
+    # Concrete-companion slice: {core, companion}. Owner context (cast level /
+    # owner stats) is only needed for the templated scaling path (P2).
+    return validate_companion(body["core"], body["companion"], _state["access"])

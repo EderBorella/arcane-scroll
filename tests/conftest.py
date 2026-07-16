@@ -769,12 +769,42 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO creature (id,name,size_id,creature_type_id,source_kind) "
                 "VALUES ('creature-b','Creature B','size-a','type-b','appendix')")
 
+    # creature-c: a rich CONCRETE (fixed-stat) creature — NO creature_formula rows, so
+    # is_templated() is False. Exercises the concrete companion deriver/validator over a
+    # full statblock. Content-neutral: synthetic ids only.
+    cur.execute("INSERT INTO creature (id,name,size_id,creature_type_id,source_kind,ac_value,"
+                "hp_average,hp_dice,initiative_bonus,cr_text,xp,pb) "
+                "VALUES ('creature-c','Creature C','size-a','type-a','appendix',12,7,'2d6',2,'1/8',25,2)")
+    for aid, sc in [("a1", 8), ("a2", 16), ("a3", 12)]:
+        cur.execute("INSERT INTO creature_ability VALUES ('creature-c',?,?)", (aid, sc))
+    cur.execute("INSERT INTO creature_speed VALUES ('creature-c','walk',30,NULL)")
+    cur.execute("INSERT INTO creature_speed VALUES ('creature-c','fly',40,NULL)")
+    cur.execute("INSERT INTO creature_speed VALUES ('creature-c','swim',NULL,'equal to its Walk Speed')")
+    cur.execute("INSERT INTO creature_sense VALUES ('creature-c','darkvision',90)")
+    cur.execute("INSERT INTO creature_skill VALUES ('creature-c','sk1',4)")
+    cur.execute("INSERT INTO creature_skill VALUES ('creature-c','sk2',2)")
+    cur.execute("INSERT INTO creature_passive_perception VALUES ('creature-c',13)")
+    cur.execute("INSERT INTO creature_resistance VALUES ('creature-c','fire',NULL)")
+    cur.execute("INSERT INTO creature_immunity VALUES ('creature-c','poison',NULL,NULL)")
+    cur.execute("INSERT INTO creature_immunity VALUES ('creature-c',NULL,'poisoned',NULL)")
+    cur.execute("INSERT INTO creature_vulnerability VALUES ('creature-c','cold')")
+    cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name,body) "
+                "VALUES ('ct-c-trait','creature-c','trait','Trait C','render-only text')")
+    cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name,atk_bonus,reach_ft,"
+                "dmg_average,dmg_dice,damage_type_id) "
+                "VALUES ('ct-c-bite','creature-c','action','Bite',5,5,4,'1d6 + 3','fire')")
+    cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name,recharge_min,uses_per_day) "
+                "VALUES ('ct-c-recharge','creature-c','action','Recharge Move',5,2)")
+
     # companion links: a synthetic spell owner (always-on, at spell level 2, 1-hour
-    # duration) -> creature-a; a synthetic subclass owner gained at level 3 -> creature-b
+    # duration) -> creature-a; a synthetic subclass owner gained at level 3 -> creature-b;
+    # a synthetic spell owner (always-on, at spell level 1) -> concrete creature-c
     cur.execute("INSERT INTO grant_companion VALUES "
                 "('gc-syn-spell','spell','sp-companion','creature-a',NULL,1,'hour',2,'synthetic summon')")
     cur.execute("INSERT INTO grant_companion VALUES "
                 "('gc-syn-sub','subclass','sub-companion','creature-b',3,NULL,NULL,NULL,'synthetic subclass companion')")
+    cur.execute("INSERT INTO grant_companion VALUES "
+                "('gc-syn-concrete','spell','sp-comp-concrete','creature-c',NULL,NULL,NULL,1,'synthetic concrete companion')")
 
     # features domain: subclass_feature, species_trait, detail_option + additional class_feature rows
     # (class_feature table already exists from the feats domain section above)
