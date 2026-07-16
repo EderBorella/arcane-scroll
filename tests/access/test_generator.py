@@ -115,6 +115,13 @@ def test_class_primary_abilities(gen_access):
     assert [(r["ability_id"], r["kind"]) for r in rows] == [("a1", "spellcasting")]
 
 
+def test_class_primary_mode(gen_access):
+    # a class with several primaries joined by an OR relation reports that relation
+    assert classes.class_primary_mode(gen_access, "class-mc-or") == "or"
+    assert classes.class_primary_mode(gen_access, "class-mc-ok") == "single"
+    assert classes.class_primary_mode(gen_access, "nope") is None
+
+
 def test_class_saving_throws_ordered(gen_access):
     assert classes.class_saving_throws(gen_access, "class-a") == ["a1", "a2"]
 
@@ -268,9 +275,9 @@ def test_starting_equipment_entries_ordered(gen_access):
 
 def test_starting_equipment_entries_tool_category_choice(gen_access):
     rows = equipment.starting_equipment_entries(gen_access, "sa-bg")
-    assert len(rows) == 1
-    assert rows[0]["kind"] == "tool_category_choice"
-    assert rows[0]["tool_category_id"] == "tc-a"
+    tool_choice = [r for r in rows if r["kind"] == "tool_category_choice"]
+    assert len(tool_choice) == 1
+    assert tool_choice[0]["tool_category_id"] == "tc-a"
 
 
 def test_starting_equipment_entries_unknown_is_empty(gen_access):

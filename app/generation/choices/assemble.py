@@ -162,13 +162,17 @@ def apply_equipment(access, spec, resolved, eq_picks, choices):
     ``treasure``, and record the chosen bundle ids under ``starting_equipment`` for reference.
 
     The first item claiming a slot keeps it; a later item wanting an occupied slot (a second weapon)
-    falls to the backpack. Tool-category / focus / proficiency-choice entries carry no concrete item
-    and are not represented as inventory yet (a later card)."""
+    falls to the backpack. Items sharing a catalog id across bundles are merged into a single stacked
+    record (their quantities summed) so the inventory never carries a duplicate item id.
+    Tool-category / focus / proficiency-choice entries carry no concrete item and are not represented
+    as inventory yet (a later card)."""
     eq_picks = eq_picks or {}
     bundles: dict = {}
-    equipped: dict = {}
-    backpack: list = []
     gp = 0
+    # Merge the bundles' items by catalog id first (summing quantities), preserving first-seen order, so
+    # the same item granted by two bundles becomes one stacked record rather than a duplicate id.
+    merged: dict = {}
+    order: list = []
     for owner_kind, field in (("class", "equipment_class"), ("background", "equipment_background")):
         option_id = eq_picks.get(field)
         if not option_id:
@@ -176,11 +180,23 @@ def apply_equipment(access, spec, resolved, eq_picks, choices):
         bundles[owner_kind] = option_id
         gp += options.resolve_bundle_gp(access, option_id)
         for item in options.resolve_bundle_items(access, option_id):
-            slot = options.natural_slot(access, item["id"])
-            if slot and slot not in equipped:
-                equipped[slot] = item
+            iid = item["id"]
+            if iid in merged:
+                merged[iid]["quantity"] = merged[iid].get("quantity", 1) + item.get("quantity", 1)
             else:
-                backpack.append(item)
+                merged[iid] = dict(item)
+                order.append(iid)
+    # Then assign each stacked item to its natural slot; the first to claim a slot keeps it and the
+    # rest fall to the backpack.
+    equipped: dict = {}
+    backpack: list = []
+    for iid in order:
+        item = merged[iid]
+        slot = options.natural_slot(access, iid)
+        if slot and slot not in equipped:
+            equipped[slot] = item
+        else:
+            backpack.append(item)
     if bundles:
         choices["starting_equipment"] = bundles
     choices["equipment"] = {"equipped": equipped, "backpack": backpack}

@@ -71,6 +71,38 @@ def variant_option_names(access, species_id):
     return out
 
 
+# --------------------------------------------------------------------------- multiclass legality
+# The multiclassing rule requires a score of at least this in the primary ability of the new class and
+# every current class before an additional class may be taken. A rules constant (like the modifier-zero
+# baseline above), not a per-class DB fact — the abilities it applies to ARE read from the reference
+# data (a class's primary abilities and how they combine).
+_MULTICLASS_MIN_SCORE = 13
+
+
+def multiclass_prereq_shortfall(access, class_ids, scores):
+    """The class ids in a build whose multiclass ability prerequisite the given effective ``scores`` do
+    not meet — empty for a single-class build (the prerequisite gates a build only once it ADDS a
+    class) or when every class qualifies.
+
+    The rule: a score of at least the multiclass minimum in the primary ability of the new class AND
+    every current class. A class whose primary abilities combine with an OR relation qualifies on any
+    one of them; otherwise every primary ability must meet the minimum. A class with no primary ability
+    on record is skipped rather than wrongly rejected. ``class_ids`` is the build's classes in request
+    order; ``scores`` is ability-id keyed (base + background boost)."""
+    if len(class_ids) < 2:
+        return []
+    out = []
+    for cid in class_ids:
+        abilities = [r["ability_id"] for r in class_q.class_primary_abilities(access, cid)]
+        if not abilities:
+            continue
+        met = [scores.get(aid, 0) >= _MULTICLASS_MIN_SCORE for aid in abilities]
+        qualifies = any(met) if class_q.class_primary_mode(access, cid) == "or" else all(met)
+        if not qualifies:
+            out.append(cid)
+    return out
+
+
 # --------------------------------------------------------------------------- abilities
 def base_ability_scores(access, first_class_id):
     """Base ability scores (pre-boost), keyed by ability id — a class's suggested standard-array

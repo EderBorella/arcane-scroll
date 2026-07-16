@@ -50,6 +50,41 @@ def test_parse_request_rejects_unknown(gen_access, payload):
         parse_request(gen_access, payload)
 
 
+# ------------------------------------------------------- T89 multiclass-prerequisite legality
+
+def test_parse_request_accepts_legal_multiclass(gen_access):
+    # class-a's array puts a3 at 13 -> class-mc-ok (primary a3) meets the multiclass minimum
+    spec = parse_request(gen_access, {
+        "species": "species-a", "background": "bg-a",
+        "classes": [{"class": "class-a", "level": 3}, {"class": "class-mc-ok", "level": 2}]})
+    assert spec.classes == [("class-a", 3), ("class-mc-ok", 2)]
+
+
+def test_parse_request_accepts_legal_multiclass_or_relation(gen_access):
+    # class-mc-or needs the minimum in EITHER primary; a3 (13) qualifies though a4 (10) would not
+    spec = parse_request(gen_access, {
+        "species": "species-a", "background": "bg-a",
+        "classes": [{"class": "class-a", "level": 3}, {"class": "class-mc-or", "level": 2}]})
+    assert [cid for cid, _ in spec.classes] == ["class-a", "class-mc-or"]
+
+
+def test_parse_request_rejects_undermin_multiclass(gen_access):
+    # class-mc-bad's primary ability (a4) sits at the baseline 10 in class-a's array -> below the
+    # multiclass minimum, so the illegal combination is gated at parse time
+    with pytest.raises(ValueError):
+        parse_request(gen_access, {
+            "species": "species-a", "background": "bg-a",
+            "classes": [{"class": "class-a", "level": 3}, {"class": "class-mc-bad", "level": 2}]})
+
+
+def test_parse_request_single_class_not_gated_by_prereq(gen_access):
+    # a single-class build of the same class is legal — the prerequisite gates ADDITIONAL classes only
+    spec = parse_request(gen_access, {
+        "species": "species-a", "background": "bg-a",
+        "classes": [{"class": "class-mc-bad", "level": 3}]})
+    assert spec.classes == [("class-mc-bad", 3)]
+
+
 # --------------------------------------------------------------------------- DAL-sourced options
 
 def test_subclass_resolution_gated_by_unlock_level(gen_access):
@@ -102,6 +137,30 @@ def test_equipment_bundles_and_item_resolution(gen_access):
     assert [bid for bid, _ in bundles] == ["sa-a", "sa-b"]
     items = options.resolve_bundle_items(gen_access, "sa-a")
     assert items == [{"id": "blade-a", "name": "Blade A", "quantity": 1}]
+
+
+def test_apply_equipment_stacks_shared_item_ids(gen_access, access):
+    # a class bundle (sa-b) and a background bundle (sa-bg) both grant gear-a; assembly must merge the
+    # two grants into ONE stacked backpack record (summed quantity), never a duplicate item id
+    from validator.checks import inventory as inventory_check
+    spec = parse_request(gen_access, {
+        "species": "species-a", "classes": [{"class": "class-a", "level": 3}], "background": "bg-a",
+        "character_id": "char-eq", "character_name": "Eq"})
+    resolved = [("class-a", 3, "sub-a")]
+    choices = assemble.assemble_choices(gen_access, spec, resolved, {"name": "Eq"})
+    choices = assemble.apply_equipment(
+        gen_access, spec, resolved,
+        {"equipment_class": "sa-b", "equipment_background": "sa-bg"}, choices)
+
+    backpack = choices["equipment"]["backpack"]
+    stacked = [i for i in backpack if i["id"] == "gear-a"]
+    assert len(stacked) == 1                 # one merged record, not two duplicate ids
+    assert stacked[0]["quantity"] == 3       # 1 (class bundle) + 2 (background bundle)
+
+    # the inventory validator (unchanged) accepts the stacked record — no duplicate-item-id finding
+    sheet = {"equipped": choices["equipment"]["equipped"], "backpack": backpack}
+    violations = inventory_check.check(sheet, access)
+    assert not any(v.code == "duplicate-item-id" for v in violations), violations
 
 
 # --------------------------------------------------------------------------- grammar shape

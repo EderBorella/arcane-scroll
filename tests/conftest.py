@@ -1523,6 +1523,33 @@ def _build_rules_db(path: str) -> None:
     cur.execute("UPDATE catalog_item SET weight_lb=7.0 WHERE id='weapon-a'")
     cur.execute("UPDATE catalog_item SET weight_lb=8.0 WHERE id='armor-e'")
 
+    # --- generation-legality fixtures (bundle 9: T89 multiclass prerequisite) ---
+    # The multiclassing rule gates an ADDITIONAL class on a minimum score in the primary ability of
+    # the new class AND every current class. class-a (first class) suggests a1:15 / a2:14 / a3:13 (the
+    # rest fall to the modifier-zero baseline of 10), so from a class-a base:
+    #   * class-mc-ok's primary ability (a3) sits at 13 -> a legal multiclass;
+    #   * class-mc-bad's primary ability (a4) falls to 10 -> an illegal one;
+    #   * class-mc-or joins two primaries with an OR relation and qualifies on either (a3=13 meets the
+    #     minimum though a4=10 does not) -> a legal multiclass.
+    cur.execute("INSERT INTO class VALUES ('class-mc-ok','Class MC OK',8,3,'none','single',2,0,'')")
+    cur.execute("INSERT INTO class_primary_ability VALUES ('class-mc-ok','a3','attack')")
+    cur.execute("INSERT INTO class VALUES ('class-mc-bad','Class MC Bad',8,3,'none','single',2,0,'')")
+    cur.execute("INSERT INTO class_primary_ability VALUES ('class-mc-bad','a4','attack')")
+    cur.execute("INSERT INTO class VALUES ('class-mc-or','Class MC Or',8,3,'none','or',2,0,'')")
+    cur.execute("INSERT INTO class_primary_ability VALUES ('class-mc-or','a3','attack')")
+    cur.execute("INSERT INTO class_primary_ability VALUES ('class-mc-or','a4','attack')")
+
+    # --- equipment-assembly fixtures (bundle 9: T92 stack duplicate item ids) ---
+    # A gear item (no natural body slot -> the backpack) granted by BOTH a class bundle (sa-b) and a
+    # background bundle (sa-bg), so assembling both must merge the two grants into one stacked backpack
+    # record rather than emit a duplicate item id. sa-b grants 1, sa-bg grants 2 -> merged quantity 3.
+    cur.execute("INSERT OR IGNORE INTO catalog_item (id, name, kind, category_id) "
+                "VALUES ('gear-a','Gear A','gear',NULL)")
+    cur.execute("INSERT INTO start_equipment_entry VALUES "
+                "('se-b2','sa-b',2,'item','gear-a',1,NULL,NULL,NULL,NULL)")
+    cur.execute("INSERT INTO start_equipment_entry VALUES "
+                "('se-bg2','sa-bg',2,'item','gear-a',2,NULL,NULL,NULL,NULL)")
+
     con.commit()
     con.close()
 

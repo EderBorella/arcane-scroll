@@ -47,6 +47,13 @@ def class_primary_abilities(access: GeneratorAccess, class_id: str) -> list:
         class_id)
 
 
+def class_primary_mode(access: GeneratorAccess, class_id: str) -> str | None:
+    """The relation between a class's primary abilities: 'single' (one primary), 'and' (all required),
+    or 'or' (any one suffices). None for an unknown class. A consumer pairs this with
+    :func:`class_primary_abilities` to read a class's ability requirement. Pure DB read."""
+    return access.db.scalar("SELECT primary_mode FROM class WHERE id=?", class_id)
+
+
 def class_saving_throws(access: GeneratorAccess, class_id: str) -> list[str]:
     """The ability ids a class grants saving-throw proficiency in, ordered by ability_id."""
     return [r["ability_id"] for r in access.db.q(
