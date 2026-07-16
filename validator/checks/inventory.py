@@ -1,7 +1,8 @@
 """Inventory domain (inventory:1 shape): validates equipped items and backpack entries against
 the DB. 7 violations across 5 subtasks: item identity (duplicate-id, unknown-item), slot legality
-(invalid-slot, two-handed-plus-shield), template resolution (invalid-template), spell scroll
-integrity (invalid-spell-scroll), and consumable attribution (consumable-missing-inventory).
+(invalid-slot, two-handed-plus-shield), template resolution (invalid-template), single-use
+casting item integrity (invalid-casting-consumable), and consumable attribution
+(consumable-missing-inventory).
 
 Violation paths point directly into the inventory:1 shape: ``equipped.<slot>``, ``backpack[<i>]``."""
 from access.validator import inventory as q
@@ -139,11 +140,11 @@ def _check_templates(items: list[tuple[str | None, dict, str]],
                                err, f"{path}.template_item"))
 
 
-# ── C-I1d: spell scroll integrity ────────────────────────────────────────────
+# ── C-I1d: single-use casting item integrity ─────────────────────────────────
 
 
-def _check_spell_scrolls(items: list[tuple[str | None, dict, str]],
-                         access, v: list[Violation]) -> None:
+def _check_casting_consumables(items: list[tuple[str | None, dict, str]],
+                               access, v: list[Violation]) -> None:
     for slot, item, path in items:
         spell_id = item.get("spell_id")
         if spell_id is None:
@@ -151,7 +152,7 @@ def _check_spell_scrolls(items: list[tuple[str | None, dict, str]],
         if not isinstance(spell_id, str):
             continue
         if access.resolve("spell", spell_id) is None:
-            v.append(Violation(DOMAIN, "invalid-spell-scroll", "illegal",
+            v.append(Violation(DOMAIN, "invalid-casting-consumable", "illegal",
                                f"unknown spell_id: {spell_id!r}", f"{path}.spell_id"))
 
 
@@ -203,7 +204,7 @@ def check(sheet: dict, access) -> list[Violation]:
     _check_item_names(items, access, v)
     _check_slot_legality(sheet, items, access, v)
     _check_templates(items, access, v)
-    _check_spell_scrolls(items, access, v)
+    _check_casting_consumables(items, access, v)
     _check_consumable_attribution(sheet, items, access, v)
 
     return v

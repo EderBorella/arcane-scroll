@@ -1,5 +1,5 @@
 """Inventory-domain DB facts: catalog item identity, weapon properties, template validation,
-and spell-scroll integrity. Pure DB queries — no business rules."""
+and single-use casting item integrity. Pure DB queries — no business rules."""
 from access.validator import ValidatorAccess
 
 
