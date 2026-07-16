@@ -103,6 +103,11 @@ def creature_actions(access: ValidatorAccess, creature_id: str) -> list:
         "AND kind IN ('action','bonus_action','reaction') ORDER BY id", creature_id)
 
 
+def creature_trait_by_id(access: ValidatorAccess, trait_id: str):
+    """The single creature_trait row with this id (any kind), or None."""
+    return access.db.one("SELECT * FROM creature_trait WHERE id=?", trait_id)
+
+
 def creature_formulas(access: ValidatorAccess, creature_id: str) -> list:
     """Raw typed-formula header rows for a creature (creature_formula)."""
     return access.db.q(
@@ -132,3 +137,13 @@ def companion_grants(access: ValidatorAccess, owner_kind: str, owner_id: str,
         params.append(at_level)
     sql += " ORDER BY id"
     return access.db.q(sql, *params)
+
+
+def companion_grants_for_creature(access: ValidatorAccess, creature_id: str) -> list:
+    """Raw grant_companion rows that confer this creature, keyed from the creature
+    side of the linkage (the reverse of :func:`companion_grants`). Used to resolve a
+    companion's owner (a spell or a subclass) so the scaling context can be built."""
+    return access.db.q(
+        "SELECT id, owner_kind, owner_id, creature_id, gained_at_level, "
+        "duration_amount, duration_unit_id, at_spell_level, notes "
+        "FROM grant_companion WHERE creature_id=? ORDER BY id", creature_id)

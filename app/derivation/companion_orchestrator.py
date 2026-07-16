@@ -117,8 +117,10 @@ def _merge_companion_entry(base_item: dict, exist_item: dict, path: str) -> dict
 
 
 def derive_companions(core: dict, existing_companion: dict | None, mode: str,
-                      access) -> tuple[dict, dict]:
-    """Produce a companion-modifier:1 dict. Returns (sheet, meta)."""
+                      access, grimoire: dict | None = None) -> tuple[dict, dict]:
+    """Produce a companion-modifier:1 dict. Returns (sheet, meta). ``grimoire``
+    supplies the owner spell attack/save context needed to scale templated
+    companions (ignored for concrete creatures)."""
     meta = {"mode": mode, "derived": mode != "validate"}
 
     if mode == "validate":
@@ -126,7 +128,7 @@ def derive_companions(core: dict, existing_companion: dict | None, mode: str,
             return {}, meta
         return dict(existing_companion), meta
 
-    modifiers = derive_companion_modifiers(core, access)
+    modifiers = derive_companion_modifiers(core, access, grimoire)
 
     full = {
         "schema_version": 1,

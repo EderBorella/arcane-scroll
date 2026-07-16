@@ -346,6 +346,10 @@ def _build_rules_db(path: str) -> None:
         cur.execute("INSERT INTO xp_level VALUES (?,?)", (lvl, xp))
     for i in range(1, 7):
         cur.execute("INSERT INTO ability VALUES (?,?,?)", (f"a{i}", f"Ability {i}", f"x{i}"))
+    # Ability whose full DB id ('wisdom') is referenced by the scaling-formula variable
+    # owner_wisdom_modifier and whose short abbrev ('wis') is how CORE keys it —
+    # exercises the abbrev bridge in the companion owner-context resolver.
+    cur.execute("INSERT INTO ability VALUES ('wisdom','Wisdom','wis')")
     for aid, ordinal in [("a1", 1), ("a2", 2), ("a3", 3)]:
         cur.execute("INSERT INTO background_ability VALUES ('bg-a',?,?)", (aid, ordinal))
     for aid in ("a1", "a2"):
@@ -796,15 +800,117 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name,recharge_min,uses_per_day) "
                 "VALUES ('ct-c-recharge','creature-c','action','Recharge Move',5,2)")
 
+    # creature-t: a TEMPLATED spirit-like creature — NULL header ac/hp/pb, every
+    # scaled stat driven by creature_formula rows. Exercises spell_level scaling,
+    # spell_level_above_base thresholds, form_note gating (alternative forms),
+    # multiattack (round down), and a save-forcing action. Owned by a synthetic
+    # SPELL (base spell level 3). Content-neutral: synthetic ids only.
+    cur.execute("INSERT INTO creature (id,name,size_id,creature_type_id,source_kind) "
+                "VALUES ('creature-t','Creature T','size-a','type-a','spell')")
+    cur.execute("INSERT INTO creature_speed VALUES ('creature-t','walk',30,NULL)")
+    cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name,atk_bonus_note) "
+                "VALUES ('ctr-t-atk','creature-t','action','Strike','equals owner spell attack')")
+    cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name) "
+                "VALUES ('ctr-t-save','creature-t','action','Burst')")
+    cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name) "
+                "VALUES ('ctr-t-multi','creature-t','action','Multiattack')")
+    # a save-forcing AURA (kind='trait', NOT an action): its scaled save DC must be
+    # emitted by the deriver AND independently re-checked by the validator.
+    cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name) "
+                "VALUES ('ctr-t-aura','creature-t','trait','Aura')")
+    # ac = 10 + spell_level
+    cur.execute("INSERT INTO creature_formula (id,creature_id,target,trait_id,form_note,base,"
+                "die_count,die_faces,round_mode) "
+                "VALUES ('cf-t-ac','creature-t','ac',NULL,NULL,10,NULL,NULL,NULL)")
+    cur.execute("INSERT INTO creature_formula_term VALUES ('cf-t-ac',1.0,'spell_level',NULL)")
+    # hp: two mutually-exclusive form variants (Form-X only / Form-Y only)
+    cur.execute("INSERT INTO creature_formula (id,creature_id,target,trait_id,form_note,base,"
+                "die_count,die_faces,round_mode) "
+                "VALUES ('cf-t-hpx','creature-t','hp',NULL,'Form-X only',20,NULL,NULL,NULL)")
+    cur.execute("INSERT INTO creature_formula_term VALUES ('cf-t-hpx',5.0,'spell_level_above_base',3)")
+    cur.execute("INSERT INTO creature_formula (id,creature_id,target,trait_id,form_note,base,"
+                "die_count,die_faces,round_mode) "
+                "VALUES ('cf-t-hpy','creature-t','hp',NULL,'Form-Y only',30,NULL,NULL,NULL)")
+    cur.execute("INSERT INTO creature_formula_term VALUES ('cf-t-hpy',5.0,'spell_level_above_base',3)")
+    # pb = owner proficiency bonus
+    cur.execute("INSERT INTO creature_formula (id,creature_id,target,trait_id,form_note,base,"
+                "die_count,die_faces,round_mode) "
+                "VALUES ('cf-t-pb','creature-t','pb',NULL,NULL,NULL,NULL,NULL,NULL)")
+    cur.execute("INSERT INTO creature_formula_term VALUES ('cf-t-pb',1.0,'owner_proficiency_bonus',NULL)")
+    # attack: bonus = spell attack modifier; damage = 1d8 + 3 + spell_level
+    cur.execute("INSERT INTO creature_formula (id,creature_id,target,trait_id,form_note,base,"
+                "die_count,die_faces,round_mode) "
+                "VALUES ('cf-t-atk','creature-t','attack_bonus','ctr-t-atk',NULL,NULL,NULL,NULL,NULL)")
+    cur.execute("INSERT INTO creature_formula_term VALUES ('cf-t-atk',1.0,'spell_attack_modifier',NULL)")
+    cur.execute("INSERT INTO creature_formula (id,creature_id,target,trait_id,form_note,base,"
+                "die_count,die_faces,round_mode) "
+                "VALUES ('cf-t-dmg','creature-t','attack_damage','ctr-t-atk',NULL,3,1,8,NULL)")
+    cur.execute("INSERT INTO creature_formula_term VALUES ('cf-t-dmg',1.0,'spell_level',NULL)")
+    # save DC = owner spell save DC
+    cur.execute("INSERT INTO creature_formula (id,creature_id,target,trait_id,form_note,base,"
+                "die_count,die_faces,round_mode) "
+                "VALUES ('cf-t-save','creature-t','save_dc','ctr-t-save',NULL,NULL,NULL,NULL,NULL)")
+    cur.execute("INSERT INTO creature_formula_term VALUES ('cf-t-save',1.0,'spell_save_dc',NULL)")
+    # aura save DC (on the NON-action trait ctr-t-aura) = owner spell save DC
+    cur.execute("INSERT INTO creature_formula (id,creature_id,target,trait_id,form_note,base,"
+                "die_count,die_faces,round_mode) "
+                "VALUES ('cf-t-aura','creature-t','save_dc','ctr-t-aura',NULL,NULL,NULL,NULL,NULL)")
+    cur.execute("INSERT INTO creature_formula_term VALUES ('cf-t-aura',1.0,'spell_save_dc',NULL)")
+    # multiattack = floor(spell_level / 2)
+    cur.execute("INSERT INTO creature_formula (id,creature_id,target,trait_id,form_note,base,"
+                "die_count,die_faces,round_mode) "
+                "VALUES ('cf-t-multi','creature-t','multiattack_count','ctr-t-multi',NULL,NULL,NULL,NULL,'down')")
+    cur.execute("INSERT INTO creature_formula_term VALUES ('cf-t-multi',0.5,'spell_level',NULL)")
+
+    # creature-tb: a TEMPLATED beast-like creature — fixed ability scores (concrete),
+    # but ac/hp/attack scaled by the OWNER's class level, wisdom modifier, and
+    # proficiency bonus (no spell_level). Owned by a synthetic SUBCLASS.
+    cur.execute("INSERT INTO creature (id,name,size_id,creature_type_id,source_kind) "
+                "VALUES ('creature-tb','Creature TB','size-a','type-a','subclass')")
+    cur.execute("INSERT INTO creature_speed VALUES ('creature-tb','walk',40,NULL)")
+    for aid, sc in [("a1", 12), ("a2", 14), ("a3", 10)]:
+        cur.execute("INSERT INTO creature_ability VALUES ('creature-tb',?,?)", (aid, sc))
+    cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name,atk_bonus_note) "
+                "VALUES ('ctr-tb-atk','creature-tb','action','Maul','equals owner spell attack')")
+    # ac = 13 + owner wisdom modifier
+    cur.execute("INSERT INTO creature_formula (id,creature_id,target,trait_id,form_note,base,"
+                "die_count,die_faces,round_mode) "
+                "VALUES ('cf-tb-ac','creature-tb','ac',NULL,NULL,13,NULL,NULL,NULL)")
+    cur.execute("INSERT INTO creature_formula_term VALUES ('cf-tb-ac',1.0,'owner_wisdom_modifier',NULL)")
+    # hp = 5 + 5 * owner class level
+    cur.execute("INSERT INTO creature_formula (id,creature_id,target,trait_id,form_note,base,"
+                "die_count,die_faces,round_mode) "
+                "VALUES ('cf-tb-hp','creature-tb','hp',NULL,NULL,5,NULL,NULL,NULL)")
+    cur.execute("INSERT INTO creature_formula_term VALUES ('cf-tb-hp',5.0,'owner_class_level',NULL)")
+    # pb = owner proficiency bonus
+    cur.execute("INSERT INTO creature_formula (id,creature_id,target,trait_id,form_note,base,"
+                "die_count,die_faces,round_mode) "
+                "VALUES ('cf-tb-pb','creature-tb','pb',NULL,NULL,NULL,NULL,NULL,NULL)")
+    cur.execute("INSERT INTO creature_formula_term VALUES ('cf-tb-pb',1.0,'owner_proficiency_bonus',NULL)")
+    # attack: bonus = spell attack modifier; damage = 1d8 + 2 + owner wisdom modifier
+    cur.execute("INSERT INTO creature_formula (id,creature_id,target,trait_id,form_note,base,"
+                "die_count,die_faces,round_mode) "
+                "VALUES ('cf-tb-atk','creature-tb','attack_bonus','ctr-tb-atk',NULL,NULL,NULL,NULL,NULL)")
+    cur.execute("INSERT INTO creature_formula_term VALUES ('cf-tb-atk',1.0,'spell_attack_modifier',NULL)")
+    cur.execute("INSERT INTO creature_formula (id,creature_id,target,trait_id,form_note,base,"
+                "die_count,die_faces,round_mode) "
+                "VALUES ('cf-tb-dmg','creature-tb','attack_damage','ctr-tb-atk',NULL,2,1,8,NULL)")
+    cur.execute("INSERT INTO creature_formula_term VALUES ('cf-tb-dmg',1.0,'owner_wisdom_modifier',NULL)")
+
     # companion links: a synthetic spell owner (always-on, at spell level 2, 1-hour
     # duration) -> creature-a; a synthetic subclass owner gained at level 3 -> creature-b;
-    # a synthetic spell owner (always-on, at spell level 1) -> concrete creature-c
+    # a synthetic spell owner (always-on, at spell level 1) -> concrete creature-c;
+    # templated owners for creature-t (spell) and creature-tb (subclass).
     cur.execute("INSERT INTO grant_companion VALUES "
                 "('gc-syn-spell','spell','sp-companion','creature-a',NULL,1,'hour',2,'synthetic summon')")
     cur.execute("INSERT INTO grant_companion VALUES "
                 "('gc-syn-sub','subclass','sub-companion','creature-b',3,NULL,NULL,NULL,'synthetic subclass companion')")
     cur.execute("INSERT INTO grant_companion VALUES "
                 "('gc-syn-concrete','spell','sp-comp-concrete','creature-c',NULL,NULL,NULL,1,'synthetic concrete companion')")
+    cur.execute("INSERT INTO grant_companion VALUES "
+                "('gc-syn-t','spell','sp-t','creature-t',NULL,1,'hour',3,'synthetic templated summon')")
+    cur.execute("INSERT INTO grant_companion VALUES "
+                "('gc-syn-tb','subclass','sub-t','creature-tb',3,NULL,NULL,NULL,'synthetic templated subclass companion')")
 
     # features domain: subclass_feature, species_trait, detail_option + additional class_feature rows
     # (class_feature table already exists from the feats domain section above)

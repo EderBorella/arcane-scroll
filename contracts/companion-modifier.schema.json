@@ -95,6 +95,11 @@
           "type": "integer",
           "default": 0
         },
+        "multiattack": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Number of attacks the companion's multi-attack action makes. Formula-scaled by the summoning spell level for templated creatures; null/absent when the creature has no multi-attack action."
+        },
         "proficiency_bonus": {
           "type": ["integer", "null"],
           "minimum": 2,
@@ -208,6 +213,10 @@
               },
               "damage_type": {
                 "type": ["string", "null"]
+              },
+              "save_dc": {
+                "type": ["integer", "null"],
+                "description": "Save DC for an action/ability that forces a saving throw. Formula-scaled from the owner's spell save DC for templated creatures."
               },
               "properties": {
                 "type": "array",

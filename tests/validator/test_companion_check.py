@@ -1,8 +1,9 @@
-"""Tests for the COMPANION validator (concrete-creature slice).
+"""Tests for the COMPANION validator.
 
-Content-neutral: synthetic creatures only (creature-a templated, creature-b empty,
-creature-c a rich concrete statblock). The check re-derives each fixed-stat field
-from the creature catalog independently of any deriver output.
+Content-neutral: synthetic creatures only (creature-c a rich concrete statblock;
+creature-t / creature-tb fully templated/formula-scaled). The check re-derives
+each value from the creature catalog + owner context independently of any deriver
+output.
 """
 from app.derivation.companion_orchestrator import derive_companions
 from validator.checks.companion import check
@@ -189,18 +190,207 @@ class TestStateCompatibility:
         assert not any(v.code == "companion-state-incompatible" for v in violations)
 
 
-# ── templated creature is deferred (no numeric checks) ───────────────────────
+# ── templated creatures: independent re-derivation of the scaled values ──────
 
 
-class TestTemplatedDeferred:
-    def test_templated_creature_skips_numeric_checks(self, access):
-        # creature-a carries a creature_formula row -> templated -> numeric re-derivation
-        # is deferred. A stub with only the required fields must NOT fire numeric codes.
-        core = _core(companions=[{"name": "Templated", "db_creature_id": "creature-a"}])
-        stub = {"companion_index": 0,
-                "hit_points": {"max": 10, "current": 10, "temp": 0},
-                "speed": {"walk": 30}}
-        violations = check(_sheet([stub], core=core), access)
-        numeric = {"companion-hp-mismatch", "companion-speed-mismatch",
-                   "companion-attack-missing", "companion-abilities-mismatch"}
-        assert not (numeric & {v.code for v in violations})
+# GRIMOIRE source ability is the full DB id ('wisdom'); CORE keys abilities by the
+# SHORT code ('wis') as real sheets do — the resolver must bridge the two.
+_GRIM = {"sources": {"class:class-a": {"kind": "class", "ability": "wisdom", "cantrips_known": 0}},
+         "spells": []}
+
+
+def _spirit_core(cast_level=5, form="Form-Y"):
+    return {
+        "character_id": "cid", "character_name": "Test",
+        "proficiency_bonus": 3,
+        "abilities": {"wis": {"final": 18}},
+        "identity": {"classes": [{"class": "class-a", "level": 5}], "total_level": 5},
+        "companions": [{"name": "Spirit", "db_creature_id": "creature-t",
+                        "cast_level": cast_level, "form": form}],
+    }
+
+
+def _beast_core(level=4):
+    return {
+        "character_id": "cid", "character_name": "Test",
+        "proficiency_bonus": 2,
+        "abilities": {"wis": {"final": 16}},
+        "identity": {"classes": [{"class": "class-a", "level": level, "subclass": "sub-t"}],
+                     "total_level": level},
+        "companions": [{"name": "Beast", "db_creature_id": "creature-tb"}],
+    }
+
+
+def _templated_sheet(cm, core):
+    return {"core": core, "grimoire": _GRIM,
+            "companion": {"schema_version": 1, "character_id": "cid",
+                          "character_name": "Test", "companion_modifiers": [cm]}}
+
+
+def _clean_spirit_modifier(cast_level=5, form="Form-Y"):
+    # Values re-derived by hand from the formulas + owner ctx (cast 5, form Y, pb 3, wis 18):
+    #   ac=15, hp=40, pb=3, Strike bonus 7 dmg "1d8 + 8", Burst (action) save_dc 15,
+    #   Aura (non-action) save_dc 15, multiattack 2.
+    return {
+        "companion_index": 0,
+        "armor_class": 15,
+        "hit_points": {"max": 40, "current": 40, "temp": 0},
+        "speed": {"walk": 30},
+        "proficiency_bonus": 3,
+        "multiattack": 2,
+        "attacks": [
+            {"name": "Strike", "attack_bonus": 7, "damage": "1d8 + 8"},
+            {"name": "Burst", "save_dc": 15},
+            {"name": "Aura", "save_dc": 15},
+        ],
+        "character_states": [],
+    }
+
+
+def _clean_beast_modifier():
+    # cast N/A, owner level 4, pb 2, wis 16: ac=16, hp=25, pb=2, Maul bonus 5 dmg "1d8 + 5".
+    return {
+        "companion_index": 0,
+        "armor_class": 16,
+        "hit_points": {"max": 25, "current": 25, "temp": 0},
+        "speed": {"walk": 40},
+        "proficiency_bonus": 2,
+        "ability_scores": {"a1": 12, "a2": 14, "a3": 10},
+        "saving_throws": [
+            {"ability": "a1", "modifier": 1},
+            {"ability": "a2", "modifier": 2},
+            {"ability": "a3", "modifier": 0},
+        ],
+        "attacks": [{"name": "Maul", "attack_bonus": 5, "damage": "1d8 + 5"}],
+        "character_states": [],
+    }
+
+
+class TestTemplatedReDerivationFires:
+    def test_wrong_scaled_hp_fires(self, access):
+        cm = _clean_spirit_modifier()
+        cm["hit_points"]["max"] = 99
+        codes = {v.code for v in check(_templated_sheet(cm, _spirit_core()), access)}
+        assert "companion-hp-mismatch" in codes
+
+    def test_wrong_scaled_ac_fires(self, access):
+        cm = _clean_spirit_modifier()
+        cm["armor_class"] = 99
+        codes = {v.code for v in check(_templated_sheet(cm, _spirit_core()), access)}
+        assert "companion-ac-mismatch" in codes
+
+    def test_wrong_scaled_attack_bonus_fires(self, access):
+        cm = _clean_spirit_modifier()
+        cm["attacks"][0]["attack_bonus"] = 99
+        codes = {v.code for v in check(_templated_sheet(cm, _spirit_core()), access)}
+        assert "companion-attack-bonus-mismatch" in codes
+
+    def test_wrong_scaled_damage_fires(self, access):
+        cm = _clean_spirit_modifier()
+        cm["attacks"][0]["damage"] = "1d8 + 99"
+        codes = {v.code for v in check(_templated_sheet(cm, _spirit_core()), access)}
+        assert "companion-attack-damage-mismatch" in codes
+
+    def test_wrong_scaled_action_save_dc_fires(self, access):
+        cm = _clean_spirit_modifier()
+        cm["attacks"][1]["save_dc"] = 99          # Burst is an ACTION-scoped save
+        codes = {v.code for v in check(_templated_sheet(cm, _spirit_core()), access)}
+        assert "companion-attack-save-dc-mismatch" in codes
+
+    def test_wrong_aura_save_dc_fires(self, access):
+        # BLOCKER regression: a save DC on a NON-action (aura) trait must be re-checked,
+        # not emitted-but-ignored. 'Aura' is a trait-kind save-forcing ability.
+        cm = _clean_spirit_modifier()
+        cm["attacks"][2]["save_dc"] = 99          # Aura is a trait-kind (non-action) save
+        codes = {v.code for v in check(_templated_sheet(cm, _spirit_core()), access)}
+        assert "companion-attack-save-dc-mismatch" in codes
+
+    def test_wrong_multiattack_fires(self, access):
+        cm = _clean_spirit_modifier()
+        cm["multiattack"] = 9
+        codes = {v.code for v in check(_templated_sheet(cm, _spirit_core()), access)}
+        assert "companion-multiattack-mismatch" in codes
+
+    def test_wrong_form_variant_hp_fires(self, access):
+        # sheet HP is correct for Form-Y (40) but the companion was cast as Form-X (30)
+        cm = _clean_spirit_modifier(form="Form-X")
+        cm["hit_points"]["max"] = 40
+        codes = {v.code for v in check(_templated_sheet(cm, _spirit_core(form="Form-X")), access)}
+        assert "companion-hp-mismatch" in codes
+
+    def test_wrong_beast_hp_scales_with_owner_level(self, access):
+        cm = _clean_beast_modifier()          # correct for level 4 (25)
+        codes = {v.code for v in check(_templated_sheet(cm, _beast_core(level=6)), access)}
+        assert "companion-hp-mismatch" in codes    # level 6 expects 35
+
+
+class TestTemplatedExpectedButOmittedFires:
+    """A scaled field that the formula produces but the sheet OMITS is flagged
+    incomplete — symmetry with the concrete slice's gap enforcement and AC's
+    existing -missing branch."""
+
+    def test_omitted_hp_fires(self, access):
+        cm = _clean_spirit_modifier()
+        cm["hit_points"] = {"current": 40, "temp": 0}      # no max
+        codes = {v.code for v in check(_templated_sheet(cm, _spirit_core()), access)}
+        assert "companion-hp-missing" in codes
+
+    def test_omitted_pb_fires(self, access):
+        cm = _clean_spirit_modifier()
+        del cm["proficiency_bonus"]
+        codes = {v.code for v in check(_templated_sheet(cm, _spirit_core()), access)}
+        assert "companion-pb-missing" in codes
+
+    def test_omitted_multiattack_fires(self, access):
+        cm = _clean_spirit_modifier()
+        del cm["multiattack"]
+        codes = {v.code for v in check(_templated_sheet(cm, _spirit_core()), access)}
+        assert "companion-multiattack-missing" in codes
+
+    def test_omitted_attack_bonus_fires(self, access):
+        cm = _clean_spirit_modifier()
+        del cm["attacks"][0]["attack_bonus"]               # Strike
+        codes = {v.code for v in check(_templated_sheet(cm, _spirit_core()), access)}
+        assert "companion-attack-bonus-missing" in codes
+
+    def test_omitted_attack_damage_fires(self, access):
+        cm = _clean_spirit_modifier()
+        del cm["attacks"][0]["damage"]                     # Strike
+        codes = {v.code for v in check(_templated_sheet(cm, _spirit_core()), access)}
+        assert "companion-attack-damage-missing" in codes
+
+    def test_omitted_action_save_dc_fires(self, access):
+        cm = _clean_spirit_modifier()
+        del cm["attacks"][1]["save_dc"]                    # Burst (action)
+        codes = {v.code for v in check(_templated_sheet(cm, _spirit_core()), access)}
+        assert "companion-attack-save-dc-missing" in codes
+
+    def test_omitted_aura_entry_fires(self, access):
+        cm = _clean_spirit_modifier()
+        cm["attacks"] = [a for a in cm["attacks"] if a["name"] != "Aura"]
+        codes = {v.code for v in check(_templated_sheet(cm, _spirit_core()), access)}
+        assert "companion-attack-missing" in codes
+
+
+class TestTemplatedCleanPasses:
+    def test_clean_spirit_has_no_violations(self, access):
+        assert check(_templated_sheet(_clean_spirit_modifier(), _spirit_core()), access) == []
+
+    def test_clean_beast_has_no_violations(self, access):
+        assert check(_templated_sheet(_clean_beast_modifier(), _beast_core()), access) == []
+
+    # NOTE: the two round-trip tests below are WIRING checks — they feed deriver
+    # output straight into the check, and the deriver and validator hold DUPLICATE
+    # (independent) copies of the owner-context + formula math, so agreement here only
+    # proves the pipeline is wired. The genuine independence guarantee comes from the
+    # hand-computed oracles in TestTemplatedReDerivationFires / _clean_*_modifier
+    # (wrong value fires, correct passes), which never consult the deriver.
+    def test_derived_spirit_round_trips_clean(self, access):
+        core = _spirit_core()
+        sheet, _ = derive_companions(core, None, "fill", access, _GRIM)
+        assert check({"core": core, "grimoire": _GRIM, "companion": sheet}, access) == []
+
+    def test_derived_beast_round_trips_clean(self, access):
+        core = _beast_core()
+        sheet, _ = derive_companions(core, None, "fill", access, _GRIM)
+        assert check({"core": core, "grimoire": _GRIM, "companion": sheet}, access) == []

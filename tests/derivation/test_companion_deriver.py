@@ -1,8 +1,8 @@
-"""Tests for the concrete-companion derivation engine + orchestrator.
+"""Tests for the companion derivation engine + orchestrator.
 
 Content-neutral: synthetic creatures only. creature-c is a rich CONCRETE
-statblock; creature-a carries a creature_formula row (templated → stubbed);
-creature-b is header-only.
+statblock; creature-a is a header+one-formula hybrid; creature-b is header-only;
+creature-t / creature-tb are fully TEMPLATED (formula-scaled) creatures.
 """
 import json
 import pathlib
@@ -74,17 +74,151 @@ class TestConcreteDerivation:
         assert cm["speed"] and "hit_points" in cm
 
 
-class TestTemplatedStub:
-    def test_templated_creature_is_stubbed(self, access):
-        # creature-a has a creature_formula row → templated → minimal stub only.
+class TestTemplatedDetection:
+    def test_creature_with_formula_is_templated(self, access):
         assert comp.is_templated(access, "creature-a") is True
-        cm = comp.derive_companion_modifier(access, 0, "creature-a")
-        assert set(cm) == {"companion_index", "hit_points", "speed"}
-        assert cm["hit_points"]["max"] == 10   # from header hp_average, no formula eval
-        assert cm["speed"]  # at least one mode
+        assert comp.is_templated(access, "creature-t") is True
+        assert comp.is_templated(access, "creature-tb") is True
 
     def test_concrete_creature_is_not_templated(self, access):
         assert comp.is_templated(access, "creature-c") is False
+
+
+# ── owner CORE + GRIMOIRE builders for templated scaling ─────────────────────
+
+
+def _spirit_core(cast_level=5, form="Form-Y"):
+    # CORE keys abilities by SHORT code ('wis'), as real sheets do — the owner-context
+    # resolver must bridge that to the DB full id ('wisdom').
+    return {
+        "character_id": "cid", "character_name": "Test",
+        "proficiency_bonus": 3,
+        "abilities": {"wis": {"final": 18}},
+        "identity": {"classes": [{"class": "class-a", "level": 5}], "total_level": 5},
+        "companions": [{"name": "Spirit", "db_creature_id": "creature-t",
+                        "cast_level": cast_level, "form": form}],
+    }
+
+
+def _beast_core(level=4):
+    return {
+        "character_id": "cid", "character_name": "Test",
+        "proficiency_bonus": 2,
+        "abilities": {"wis": {"final": 16}},
+        "identity": {"classes": [{"class": "class-a", "level": level, "subclass": "sub-t"}],
+                     "total_level": level},
+        "companions": [{"name": "Beast", "db_creature_id": "creature-tb"}],
+    }
+
+
+# GRIMOIRE source ability is the full DB id ('wisdom'); resolution bridges it to the
+# CORE short key ('wis').
+_GRIM = {"sources": {"class:class-a": {"kind": "class", "ability": "wisdom", "cantrips_known": 0}},
+         "spells": []}
+
+
+class TestTemplatedSpiritScaling:
+    """creature-t: a spirit-like block scaled by the summoning spell level."""
+
+    def _cm(self, access, core):
+        comp_entry = core["companions"][0]
+        return comp.derive_companion_modifier(access, 0, comp_entry["db_creature_id"],
+                                              comp_entry, core, _GRIM)
+
+    def test_ac_scales_with_spell_level(self, access):
+        cm = self._cm(access, _spirit_core(cast_level=5))
+        assert cm["armor_class"] == 15          # 10 + spell_level(5)
+
+    def test_hp_uses_form_variant_and_above_base_threshold(self, access):
+        # Form-Y hp = 30 + 5 * max(0, cast_level - 3); at 5 -> 30 + 10 = 40
+        assert self._cm(access, _spirit_core(cast_level=5, form="Form-Y"))["hit_points"]["max"] == 40
+        # Form-X hp base is 20 -> 20 + 10 = 30
+        assert self._cm(access, _spirit_core(cast_level=5, form="Form-X"))["hit_points"]["max"] == 30
+
+    def test_hp_above_base_floors_at_zero(self, access):
+        # cast at the base level (3): no levels above base -> just the base
+        assert self._cm(access, _spirit_core(cast_level=3, form="Form-Y"))["hit_points"]["max"] == 30
+
+    def test_pb_from_owner(self, access):
+        assert self._cm(access, _spirit_core())["proficiency_bonus"] == 3
+
+    def test_attack_bonus_and_damage_scale(self, access):
+        cm = self._cm(access, _spirit_core(cast_level=5))
+        strike = next(a for a in cm["attacks"] if a["name"] == "Strike")
+        assert strike["attack_bonus"] == 7      # spell_attack = pb(3) + wis_mod(4)
+        assert strike["damage"] == "1d8 + 8"     # 3 + spell_level(5)
+
+    def test_save_dc_scales(self, access):
+        cm = self._cm(access, _spirit_core(cast_level=5))
+        burst = next(a for a in cm["attacks"] if a["name"] == "Burst")
+        assert burst["save_dc"] == 15            # 8 + pb(3) + wis_mod(4)
+
+    def test_multiattack_rounds_down(self, access):
+        assert self._cm(access, _spirit_core(cast_level=5))["multiattack"] == 2   # floor(5/2)
+        assert self._cm(access, _spirit_core(cast_level=4))["multiattack"] == 2
+        assert self._cm(access, _spirit_core(cast_level=3))["multiattack"] == 1
+
+    def test_multiattack_action_excluded_from_attacks(self, access):
+        names = {a["name"] for a in self._cm(access, _spirit_core())["attacks"]}
+        assert "Multiattack" not in names
+
+    def test_aura_save_dc_emitted_from_non_action_trait(self, access):
+        # 'Aura' is a trait-kind (non-action) save-forcing ability; its scaled DC must
+        # still be emitted (name + save_dc), not dropped for being a non-action.
+        aura = next(a for a in self._cm(access, _spirit_core())["attacks"] if a["name"] == "Aura")
+        assert aura == {"name": "Aura", "save_dc": 15}   # 8 + pb(3) + wis_mod(4)
+
+    def test_summon_spell_source_ability_wins_over_first_source(self, access):
+        # When the GRIMOIRE lists the summon spell (name == grant owner_id 'sp-t'), its
+        # source's ability is used — NOT the first source (fallback). src-a is first
+        # (ability 'a1', score 8 -> mod -1); the spell points at src-w (ability
+        # 'wisdom', score 18 -> mod 4), which must win. CORE keys by short code.
+        core = _spirit_core()
+        core["abilities"] = {"wis": {"final": 18}, "x1": {"final": 8}}
+        grim = {"sources": {"src-a": {"kind": "class", "ability": "a1", "cantrips_known": 0},
+                            "src-w": {"kind": "class", "ability": "wisdom", "cantrips_known": 0}},
+                "spells": [{"name": "sp-t", "source": "src-w"}]}
+        comp_entry = core["companions"][0]
+        cm = comp.derive_companion_modifier(access, 0, "creature-t", comp_entry, core, grim)
+        strike = next(a for a in cm["attacks"] if a["name"] == "Strike")
+        assert strike["attack_bonus"] == 7      # pb(3) + wis_mod(4); the a1 fallback would give 2
+        burst = next(a for a in cm["attacks"] if a["name"] == "Burst")
+        assert burst["save_dc"] == 15            # 8 + pb(3) + wis_mod(4); a1 fallback would give 10
+
+    def test_schema_conformance(self, access):
+        sheet, _ = derive_companions(_spirit_core(), None, "fill", access, _GRIM)
+        assert _schema_errors(sheet) == []
+
+
+class TestTemplatedBeastScaling:
+    """creature-tb: a beast-like block scaled by the owner's class level + stats."""
+
+    def _cm(self, access, core):
+        comp_entry = core["companions"][0]
+        return comp.derive_companion_modifier(access, 0, comp_entry["db_creature_id"],
+                                              comp_entry, core, _GRIM)
+
+    def test_hp_scales_with_owner_class_level(self, access):
+        assert self._cm(access, _beast_core(level=4))["hit_points"]["max"] == 25    # 5 + 5*4
+        assert self._cm(access, _beast_core(level=6))["hit_points"]["max"] == 35    # 5 + 5*6
+
+    def test_ac_scales_with_owner_wisdom(self, access):
+        assert self._cm(access, _beast_core())["armor_class"] == 16                 # 13 + wis_mod(3)
+
+    def test_attack_scales_with_owner_stats(self, access):
+        maul = next(a for a in self._cm(access, _beast_core())["attacks"] if a["name"] == "Maul")
+        assert maul["attack_bonus"] == 5        # spell_attack = pb(2) + wis_mod(3)
+        assert maul["damage"] == "1d8 + 5"       # 2 + wis_mod(3)
+
+    def test_fixed_ability_scores_and_saves_still_emitted(self, access):
+        cm = self._cm(access, _beast_core())
+        assert cm["ability_scores"] == {"a1": 12, "a2": 14, "a3": 10}
+        saves = {s["ability"]: s["modifier"] for s in cm["saving_throws"]}
+        assert saves == {"a1": 1, "a2": 2, "a3": 0}
+
+    def test_schema_conformance(self, access):
+        sheet, _ = derive_companions(_beast_core(), None, "fill", access, _GRIM)
+        assert _schema_errors(sheet) == []
 
 
 class TestEmptyCreature:
@@ -169,7 +303,8 @@ class TestSchemaConformance:
         sheet, _ = derive_companions(core, None, "fill", access)
         assert _schema_errors(sheet) == []
 
-    def test_templated_stub_output_schema_validates(self, access):
+    def test_templated_hybrid_output_schema_validates(self, access):
+        # creature-a: header stats + one attack_bonus formula → templated hybrid.
         core = _core(companions=[{"name": "A", "db_creature_id": "creature-a"}])
         sheet, _ = derive_companions(core, None, "fill", access)
         assert _schema_errors(sheet) == []

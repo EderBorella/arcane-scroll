@@ -59,6 +59,8 @@ async def validate_modifier_sheet(body: dict = Body(...)) -> dict:
 
 @app.post("/validate-companion")
 async def validate_companion_sheet(body: dict = Body(...)) -> dict:
-    # Concrete-companion slice: {core, companion}. Owner context (cast level /
-    # owner stats) is only needed for the templated scaling path (P2).
-    return validate_companion(body["core"], body["companion"], _state["access"])
+    # {core, grimoire, companion}. GRIMOIRE supplies the owner spell attack/save
+    # context needed to re-derive a templated companion's scaled values; concrete
+    # creatures ignore it.
+    return validate_companion(body["core"], body.get("grimoire"),
+                              body["companion"], _state["access"])
