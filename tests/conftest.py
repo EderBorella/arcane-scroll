@@ -1430,6 +1430,29 @@ def _build_rules_db(path: str) -> None:
                 "(id,owner_kind,owner_id,target_kind,value,die_count,die_faces,damage_type_id) "
                 "VALUES ('gb-blade-xd','magic_item','mi-blade','extra_damage',NULL,1,6,'fire')")
 
+    # T56 fixtures: a magic weapon catalogued WITHOUT its own base weapon-stats row. Its underlying
+    # base weapon is recorded via magic_item_template.base_item_id, so the deriver/validator resolve
+    # the base stats and still materialise an attack. 'mi-relic-blade' maps to the single base
+    # 'weapon-a' (martial, 1d12, two-handed) and owns one ungated extra_damage rider (+1d6 radiant),
+    # no attunement -- so both the attack AND the item rider materialise while equipped.
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-relic-blade','Relic Blade Alpha','weapon',NULL)")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) "
+                "VALUES ('mi-relic-blade','rare',0)")
+    cur.execute("INSERT INTO magic_item_template (template_id,base_kind,base_item_id) "
+                "VALUES ('mi-relic-blade','weapon','weapon-a')")
+    cur.execute("INSERT INTO grant_bonus "
+                "(id,owner_kind,owner_id,target_kind,value,die_count,die_faces,damage_type_id) "
+                "VALUES ('gb-relic-xd','magic_item','mi-relic-blade','extra_damage',NULL,1,6,'radiant')")
+    # 'mi-ambi-blade': a stats-less magic weapon with an AMBIGUOUS base (two distinct template
+    # bases) -> the base cannot be resolved, so NO attack is materialised (the deriver never guesses).
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-ambi-blade','Ambi Blade Alpha','weapon',NULL)")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) "
+                "VALUES ('mi-ambi-blade','rare',0)")
+    cur.execute("INSERT INTO magic_item_template (template_id,base_kind,base_item_id) "
+                "VALUES ('mi-ambi-blade','weapon','weapon-a')")
+    cur.execute("INSERT INTO magic_item_template (template_id,base_kind,base_item_id) "
+                "VALUES ('mi-ambi-blade','weapon','weapon-b')")
+
     # T50 fixtures: a CON-set item (amulet-of-health analog) + a state-gated HP boost feature +
     # an always-on (non-state) grant_hp that must stay INERT in the effective-CON max-HP recompute.
     # Vigor Alpha SETs a3 to 18 while attuned; tests alias a3's abbrev to 'con' in their own private

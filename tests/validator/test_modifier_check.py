@@ -645,6 +645,42 @@ def test_item_rider_not_flagged_on_different_weapon(access):
     assert "Blade Alpha" in misses[0].message
 
 
+# ── stats-less magic weapon attack validation (T56) ──────────────────────────
+
+
+def _relic_sheet(attack_bonus, damage):
+    """A sheet wielding 'Relic Blade Alpha' (mi-relic-blade) in main_hand: a magic weapon with no
+    base stats row, backed by base weapon-a (martial 1d12), owning one ungated +1d6 rider, no
+    attunement. The validator resolves the base facts to re-derive the attack (F05-T56)."""
+    sheet = _sheet()
+    sheet["core"]["proficiencies"] = {"armor": [], "weapons": ["martial weapons"], "tools": []}
+    sheet["inventory"] = {"equipped": {"main_hand": {"id": "w-relic", "name": "Relic Blade Alpha"}}}
+    sheet["modifier"]["abilities"]["strength"] = {"modifier": 2, "reduction": 0}
+    sheet["modifier"]["abilities"]["dexterity"] = {"modifier": 3, "reduction": 0}
+    sheet["modifier"]["attacks"] = [
+        {"name": "Relic Blade Alpha", "attack_bonus": attack_bonus, "damage": damage}]
+    return sheet
+
+
+def test_stats_less_magic_weapon_attack_validated(access):
+    """The validator re-derives the base-weapon facts for a stats-less magic weapon and passes a
+    correct attack (Str 2 + PB 2) carrying the item's +1d6 rider."""
+    codes = _codes(_relic_sheet(4, "1d12+2+1d6"), access)
+    assert "attack-bonus-mismatch" not in codes
+    assert "item-attack-damage-rider-missing" not in codes
+
+
+def test_stats_less_magic_weapon_wrong_bonus_fires(access):
+    """A wrong attack bonus on a stats-less magic weapon is now caught (previously skipped as the
+    weapon had no direct stats row)."""
+    assert "attack-bonus-mismatch" in _codes(_relic_sheet(99, "1d12+2+1d6"), access)
+
+
+def test_stats_less_magic_weapon_missing_rider_fires(access):
+    """The item's own +1d6 rider missing from its materialised attack is flagged."""
+    assert "item-attack-damage-rider-missing" in _codes(_relic_sheet(4, "1d12+2"), access)
+
+
 # ── effective-CON max-HP recompute (T50) ─────────────────────────────────────
 
 

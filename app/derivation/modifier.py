@@ -911,13 +911,27 @@ def derive_attacks(core: dict, inventory: dict | None, abilities: dict,
         if weapon_id is None:
             continue
 
+        # `stats_id` is the id whose base weapon-stats row (dice/tier/properties) drives the attack.
+        # For a mundane weapon it is the weapon itself; for a magic weapon catalogued without its own
+        # stats row it resolves to the underlying base weapon (F05-T56), so the attack still
+        # materialises. Proficiency and the item-owned rider keep matching on the magic item's own
+        # id/name below.
+        stats_id = weapon_id
         wrow = access.db.one(
             "SELECT tier_id, range_class_id, dmg_dice_count, dmg_die_faces, "
-            "dmg_flat, damage_type_id, mastery_id FROM weapon WHERE id=?", weapon_id)
+            "dmg_flat, damage_type_id, mastery_id FROM weapon WHERE id=?", stats_id)
         if wrow is None:
-            continue
+            base_id = inventory_q.base_weapon_id_for_item(access, weapon_id)
+            if base_id is None:
+                continue
+            stats_id = base_id
+            wrow = access.db.one(
+                "SELECT tier_id, range_class_id, dmg_dice_count, dmg_die_faces, "
+                "dmg_flat, damage_type_id, mastery_id FROM weapon WHERE id=?", stats_id)
+            if wrow is None:
+                continue
 
-        props = _weapon_properties(access, weapon_id)
+        props = _weapon_properties(access, stats_id)
         tier = wrow["tier_id"] or ""
         is_ranged = wrow["range_class_id"] == "ranged"
         is_finesse = "finesse" in props

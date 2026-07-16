@@ -409,6 +409,34 @@ def test_item_rider_only_on_owning_weapon(access):
     assert by_name["Weapon A"] == "1d12+2"   # rider does NOT leak to the other weapon
 
 
+# ── stats-less magic weapon attack materialization (T56) ─────────────────────
+
+
+def test_stats_less_magic_weapon_materializes_attack(access):
+    """A magic weapon with no base weapon-stats row still materialises an attack from its
+    unambiguous base weapon (F05-T56); the item's own +1d6 rider then folds into it."""
+    core = _core()
+    inv = {"equipped": {"main_hand": {"id": "w-relic", "name": "Relic Blade Alpha"}}}
+    effects = resolve_active_effects(core, inv, [], [], access)
+    attacks = derive_attacks(core, inv, {"strength": 2, "dexterity": 3}, [], effects, access)
+    assert len(attacks) == 1
+    a = attacks[0]
+    assert a["name"] == "Relic Blade Alpha"      # the magic item's name, not the base weapon's
+    assert a["attack_bonus"] == 4                # base weapon-a: martial 1d12, Str(2) + PB(2)
+    assert a["damage"] == "1d12+2+1d6"           # base 1d12 + Str, then the item's ungated rider
+    assert "two-handed" in a["properties"]       # base weapon's properties resolve too
+
+
+def test_ambiguous_base_magic_weapon_no_attack(access):
+    """A stats-less magic weapon with more than one candidate base weapon is ambiguous — no attack
+    is materialised (the deriver must not guess a base)."""
+    core = _core()
+    inv = {"equipped": {"main_hand": {"id": "w-ambi", "name": "Ambi Blade Alpha"}}}
+    effects = resolve_active_effects(core, inv, [], [], access)
+    attacks = derive_attacks(core, inv, {"strength": 2, "dexterity": 3}, [], effects, access)
+    assert attacks == []
+
+
 # ── derive_saving_throws ─────────────────────────────────────────────────────
 
 
