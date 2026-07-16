@@ -437,6 +437,29 @@ def test_ambiguous_base_magic_weapon_no_attack(access):
     assert attacks == []
 
 
+# ── multi-row item extra-damage disambiguation (T57) ─────────────────────────
+
+
+def test_multi_row_item_folds_only_ungated_rider(access):
+    """A magic weapon owning several extra_damage rows folds ONLY the single ungated row into its
+    own attack; the condition-gated variant is state-scoped and never leaks in (F05-T57)."""
+    core = _blade_core()
+    inv = {"equipped": {"main_hand": {"id": "w-multi", "name": "Multi Blade Alpha"}}}
+    effects = resolve_active_effects(core, inv, [], [], access)
+    attacks = derive_attacks(core, inv, {"strength": 2, "dexterity": 3}, [], effects, access)
+    # base 1d8 + Str(2), then only the ungated +1d6 base rider — NOT the gated +3d6.
+    assert attacks[0]["damage"] == "1d8+2+1d6"
+
+
+def test_multiple_ungated_rows_fold_nothing(access):
+    """Two UNGATED extra_damage rows remain ambiguous — the deriver folds nothing (never sums)."""
+    core = _blade_core()
+    inv = {"equipped": {"main_hand": {"id": "w-twin", "name": "Twin Blade Alpha"}}}
+    effects = resolve_active_effects(core, inv, [], [], access)
+    attacks = derive_attacks(core, inv, {"strength": 2, "dexterity": 3}, [], effects, access)
+    assert attacks[0]["damage"] == "1d8+2"   # no rider folded, and definitely not 1d6+2d6 summed
+
+
 # ── derive_saving_throws ─────────────────────────────────────────────────────
 
 

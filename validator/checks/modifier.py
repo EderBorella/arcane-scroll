@@ -477,12 +477,14 @@ def _check_attack_damage(sheet: dict, access, v: list[Violation]) -> None:
         if mid is None:
             continue
         rows = inventory_q.extra_damage_grants(access, "magic_item", mid)
-        # fold only an UNGATED single-row item rider — multi-row items are carded separately, and a
-        # condition_kind-gated item rider is state-scoped (the state path owns it). Mirror the state
-        # path's discipline so a future gated item rider isn't silently blessed; none exist today.
-        if len(rows) != 1 or rows[0]["condition_kind"] is not None:
+        # Re-derive the disambiguation independently (F05-T57): among the item's extra-damage rows,
+        # the single UNGATED row is the always-on rider; condition_kind-gated rows are state-scoped
+        # (the state path owns them). Assert only that one ungated rider — more than one is ambiguous
+        # (folds nothing) and a lone gated row belongs to the state path, so neither is asserted here.
+        ungated = [r for r in rows if r["condition_kind"] is None]
+        if len(ungated) != 1:
             continue
-        dc, df = rows[0]["die_count"], rows[0]["die_faces"]
+        dc, df = ungated[0]["die_count"], ungated[0]["die_faces"]
         if not (_int(dc) and _int(df) and dc != 0):
             continue
         if not _item_rider_active(sheet, access, name, mid):

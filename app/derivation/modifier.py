@@ -987,11 +987,14 @@ def derive_attacks(core: dict, inventory: dict | None, abilities: dict,
         mid = access.resolve("magic_item", name)
         if mid is not None:
             xd_rows = inventory_q.extra_damage_grants(access, "magic_item", mid)
-            # Fold only an ungated single-row item rider — a condition_kind-gated item rider is
-            # state-scoped and belongs to the state path (mirrors that path's discipline); none
-            # exist today, so this is behaviour-preserving.
-            if len(xd_rows) == 1 and xd_rows[0]["condition_kind"] is None:
-                dc, df = xd_rows[0]["die_count"], xd_rows[0]["die_faces"]
+            # Select the single UNGATED item rider (F05-T57): an item may own several extra-damage
+            # rows (a base rider plus condition-gated variants); the condition_kind gate is the
+            # disambiguator. The gated rows are state-scoped (they belong to the state path, mirroring
+            # that path's discipline), so an always-on item attack folds exactly the one ungated row.
+            # More than one ungated row is still ambiguous and folds nothing (never silently summed).
+            ungated = [r for r in xd_rows if r["condition_kind"] is None]
+            if len(ungated) == 1:
+                dc, df = ungated[0]["die_count"], ungated[0]["die_faces"]
                 if _int(dc) and _int(df) and dc != 0:
                     active = (item.get("id") in attuned_refs
                               if inventory_q.requires_attunement(access, mid) else True)

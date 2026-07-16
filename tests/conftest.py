@@ -1453,6 +1453,32 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO magic_item_template (template_id,base_kind,base_item_id) "
                 "VALUES ('mi-ambi-blade','weapon','weapon-b')")
 
+    # T57 fixtures: a magic weapon owning MULTIPLE extra_damage rows, disambiguated by condition_kind.
+    # 'mi-multi-blade' (martial melee, no attunement) owns an ungated base rider (+1d6) and a gated
+    # variant (+3d6, condition_kind 'gated-variant'). The deriver/validator fold ONLY the single
+    # ungated row into the item's own attack; the gated row is state-scoped and never folds here.
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-multi-blade','Multi Blade Alpha','weapon',NULL)")
+    cur.execute("INSERT INTO weapon VALUES ('mi-multi-blade','martial','melee',1,8,NULL,'slashing',NULL)")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) "
+                "VALUES ('mi-multi-blade','rare',0)")
+    cur.execute("INSERT INTO grant_bonus "
+                "(id,owner_kind,owner_id,target_kind,value,die_count,die_faces,damage_type_id) "
+                "VALUES ('gb-multi-xd-base','magic_item','mi-multi-blade','extra_damage',NULL,1,6,'fire')")
+    cur.execute("INSERT INTO grant_bonus "
+                "(id,owner_kind,owner_id,target_kind,value,die_count,die_faces,damage_type_id,condition_kind) "
+                "VALUES ('gb-multi-xd-var','magic_item','mi-multi-blade','extra_damage',NULL,3,6,'fire','gated-variant')")
+    # 'mi-twin-blade': TWO ungated extra_damage rows -> still ambiguous -> folds nothing (never summed).
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-twin-blade','Twin Blade Alpha','weapon',NULL)")
+    cur.execute("INSERT INTO weapon VALUES ('mi-twin-blade','martial','melee',1,8,NULL,'slashing',NULL)")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) "
+                "VALUES ('mi-twin-blade','rare',0)")
+    cur.execute("INSERT INTO grant_bonus "
+                "(id,owner_kind,owner_id,target_kind,value,die_count,die_faces,damage_type_id) "
+                "VALUES ('gb-twin-xd-1','magic_item','mi-twin-blade','extra_damage',NULL,1,6,'fire')")
+    cur.execute("INSERT INTO grant_bonus "
+                "(id,owner_kind,owner_id,target_kind,value,die_count,die_faces,damage_type_id) "
+                "VALUES ('gb-twin-xd-2','magic_item','mi-twin-blade','extra_damage',NULL,2,6,'fire')")
+
     # T50 fixtures: a CON-set item (amulet-of-health analog) + a state-gated HP boost feature +
     # an always-on (non-state) grant_hp that must stay INERT in the effective-CON max-HP recompute.
     # Vigor Alpha SETs a3 to 18 while attuned; tests alias a3's abbrev to 'con' in their own private

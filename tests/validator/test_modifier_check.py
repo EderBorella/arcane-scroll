@@ -681,6 +681,47 @@ def test_stats_less_magic_weapon_missing_rider_fires(access):
     assert "item-attack-damage-rider-missing" in _codes(_relic_sheet(4, "1d12+2"), access)
 
 
+# ── multi-row item extra-damage disambiguation (T57) ─────────────────────────
+
+
+def _multi_blade_sheet(name, damage):
+    """A sheet wielding a magic weapon that owns multiple extra_damage rows, in main_hand (no
+    attunement). The validator re-derives the disambiguation and asserts the single ungated rider."""
+    sheet = _sheet()
+    sheet["core"]["proficiencies"] = {"armor": [], "weapons": ["martial weapons"], "tools": []}
+    sheet["inventory"] = {"equipped": {"main_hand": {"id": "w-multi", "name": name}}}
+    sheet["modifier"]["abilities"]["strength"] = {"modifier": 2, "reduction": 0}
+    sheet["modifier"]["abilities"]["dexterity"] = {"modifier": 3, "reduction": 0}
+    sheet["modifier"]["attacks"] = [{"name": name, "attack_bonus": 4, "damage": damage}]
+    return sheet
+
+
+def test_multi_row_item_ungated_rider_asserted(access):
+    """The validator asserts the single ungated rider (+1d6) of a multi-row item; the gated +3d6
+    variant is not required (F05-T57)."""
+    codes = _codes(_multi_blade_sheet("Multi Blade Alpha", "1d8+2+1d6"), access)
+    assert "item-attack-damage-rider-missing" not in codes
+
+
+def test_multi_row_item_missing_ungated_rider_fires(access):
+    """The single ungated rider missing from a multi-row item's own attack is flagged."""
+    assert "item-attack-damage-rider-missing" in _codes(
+        _multi_blade_sheet("Multi Blade Alpha", "1d8+2"), access)
+
+
+def test_multi_row_item_gated_variant_not_required(access):
+    """The gated +3d6 variant must NOT be demanded on the always-on attack — only the ungated rider
+    is asserted, so an attack carrying just +1d6 is clean."""
+    codes = _codes(_multi_blade_sheet("Multi Blade Alpha", "1d8+2+1d6"), access)
+    assert "item-attack-damage-rider-missing" not in codes
+
+
+def test_two_ungated_rows_assert_nothing(access):
+    """Two ungated rows are ambiguous — the validator asserts no item rider at all (never sums)."""
+    codes = _codes(_multi_blade_sheet("Twin Blade Alpha", "1d8+2"), access)
+    assert "item-attack-damage-rider-missing" not in codes
+
+
 # ── effective-CON max-HP recompute (T50) ─────────────────────────────────────
 
 
