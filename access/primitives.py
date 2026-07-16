@@ -45,15 +45,43 @@ def grants_for(db: RulesDB, table: str, owner_kind: str, owner_id: str,
     if at_level is not None:
         sql += " AND (gained_at_level IS NULL OR gained_at_level<=?)"
         params.append(at_level)
+    # Deterministic row order: every grant table has `id` as its primary key,
+    # so ordering by it keeps grant rows stable across DB rebuilds (order only).
+    sql += " ORDER BY id"
     return db.q(sql, *params)
 
 
+# Cache of a child table's column list, so the deterministic ORDER BY is built
+# once per table rather than re-introspected on every read.
+_CHILD_COLS: dict[str, list[str]] = {}
+
+
+def _child_columns(db: RulesDB, table: str) -> list[str]:
+    """Column names of a grant child table (from the schema), cached. Used to build a
+    fully deterministic ORDER BY — child tables have no single `id` PK like the header
+    tables, so ordering over every column is the stable, always-present key."""
+    cols = _CHILD_COLS.get(table)
+    if cols is None:
+        # `table` is validated against GRANT_TABLES by the caller; PRAGMA cannot bind params.
+        cols = [r["name"] for r in db.q(f"PRAGMA table_info({table})")]
+        _CHILD_COLS[table] = cols
+    return cols
+
+
 def children_of(db: RulesDB, header_table: str, grant_id: str) -> dict[str, list]:
-    """The child value rows of one grant header row, grouped by child table name."""
+    """The child value rows of one grant header row, grouped by child table name.
+    Rows are ordered deterministically (by every column) so child-row order is stable
+    across DB rebuilds — order only, no value change."""
     if header_table not in GRANT_TABLES:
         raise ValueError(f"unknown grant table: {header_table!r}")
-    return {child: db.q(f"SELECT * FROM {child} WHERE grant_id=?", grant_id)
-            for child in GRANT_TABLES[header_table]}
+    out = {}
+    for child in GRANT_TABLES[header_table]:
+        order_by = ", ".join(_child_columns(db, child))
+        sql = f"SELECT * FROM {child} WHERE grant_id=?"
+        if order_by:
+            sql += f" ORDER BY {order_by}"
+        out[child] = db.q(sql, grant_id)
+    return out
 
 
 def all_grants_for(db: RulesDB, owner_kind: str, owner_id: str,

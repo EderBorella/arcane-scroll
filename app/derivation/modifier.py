@@ -448,13 +448,15 @@ def derive_defenses(core: dict, effects: ActiveEffects, access) -> dict:
     if not isinstance(perm, dict):
         perm = {}
 
+    # Sort each set union so emitted order is stable (alphabetical by id string).
+    # Only ORDER changes here; the set contents (values) are unchanged.
     result = {
-        "resistances": list(set(perm.get("resistances", [])) | effects.resistances),
-        "immunities": list(set(perm.get("immunities", [])) | effects.immunities),
-        "vulnerabilities": list(set(perm.get("vulnerabilities", [])) | effects.vulnerabilities),
-        "condition_immunities": list(
+        "resistances": sorted(set(perm.get("resistances", [])) | effects.resistances),
+        "immunities": sorted(set(perm.get("immunities", [])) | effects.immunities),
+        "vulnerabilities": sorted(set(perm.get("vulnerabilities", [])) | effects.vulnerabilities),
+        "condition_immunities": sorted(
             set(perm.get("condition_immunities", [])) | effects.condition_immunities),
-        "save_advantages": list(
+        "save_advantages": sorted(
             set(perm.get("save_advantages", [])) | effects.save_advantages),
         "condition_advantages": perm.get("condition_advantages", []) or [],
     }

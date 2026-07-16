@@ -33,7 +33,10 @@ def _resolve_speeds(grant_rows: list, base_walk: int, class_bonuses: list[int]) 
     if class_bonuses:
         phases["walk"] = phases.get("walk", 0) + max(class_bonuses)
 
-    for mode in equals_walk_modes:
+    # Iterate in a stable order so the resulting speed-dict key order is
+    # deterministic (a raw set iterates in hash-seed-dependent order across
+    # processes). Order only — the values written are unchanged.
+    for mode in sorted(equals_walk_modes):
         if mode != "walk":
             phases[mode] = phases.get("walk", 0)
 

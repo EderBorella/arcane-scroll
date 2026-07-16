@@ -407,8 +407,11 @@ def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access)
 
 def _grant_spell_fixed_ids(access, grant_id: str) -> list[str]:
     """Return spell_ids for fixed-grant spells for a given grant_spell id."""
+    # ORDER BY spell_id for a deterministic, rebuild-stable order (the table's
+    # composite PK is (grant_id, spell_id); order only, no value change).
     rows = access.db.q(
-        "SELECT spell_id FROM grant_spell_fixed WHERE grant_id = ?", grant_id
+        "SELECT spell_id FROM grant_spell_fixed WHERE grant_id = ? ORDER BY spell_id",
+        grant_id
     )
     return [r[0] for r in rows]
 
