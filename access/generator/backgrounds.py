@@ -25,6 +25,13 @@ def background_skills(access: GeneratorAccess, background_id: str) -> list[str]:
         "SELECT skill_id FROM background_skill WHERE background_id=? ORDER BY skill_id", background_id)]
 
 
+def background_tool(access: GeneratorAccess, background_id: str) -> str | None:
+    """The single fixed tool id a background grants via its `tool_id` column, or None. (A background's
+    tool_category_id — a choice from a category — is a separate, choose-mode grant, not returned
+    here.)"""
+    return access.db.scalar("SELECT tool_id FROM background WHERE id=?", background_id)
+
+
 def background_origin_feat(access: GeneratorAccess, background_id: str) -> tuple[str, object] | None:
     """(feat_id, feat_choice) the background confers as its origin feat, or None if it grants none.
     `feat_choice` qualifies a feat that itself carries a sub-choice (which list/option), or None."""

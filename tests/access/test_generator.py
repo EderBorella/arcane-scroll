@@ -127,6 +127,13 @@ def test_background_origin_feat_absent(gen_access):
     assert backgrounds.background_origin_feat(gen_access, "nope") is None
 
 
+def test_background_tool(gen_access):
+    # bg-a/bg-b declare no fixed tool_id column value (their tool proficiency, if any, comes via the
+    # grant spine / a category choice), so the direct-column reader returns None.
+    assert backgrounds.background_tool(gen_access, "bg-a") is None
+    assert backgrounds.background_tool(gen_access, "nope") is None
+
+
 # --- feats -----------------------------------------------------------------
 
 def test_list_feats_all_ordered(gen_access):

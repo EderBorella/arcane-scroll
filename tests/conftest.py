@@ -402,6 +402,10 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO class VALUES ('class-r','Class R',8,3,'none','all',4,0,'')")
     cur.execute("INSERT INTO grant_proficiency VALUES "
                 "('gp-class-r-multiclass-skill','class','class-r',NULL,'skill','choose',0,1,1,NULL)")
+    # class-any: a choose-ANY-skill class (skill_from_any=1, no explicit class_skill_option pool) --
+    # mirrors the real bard row (choose N of ANY skill). Its base skill picks are attributed 'class'
+    # even though no explicit pool lists them (the CORE-deriver skill-source any-flag fix's fixture).
+    cur.execute("INSERT INTO class VALUES ('class-any','Class Any',8,3,'none','all',3,1,'')")
     # sub-skills (class-a's subclass): a College-of-Lore-style grant -- choose 3 skills of your
     # choice (mode='choose', from_any=1, choose_n=3, no restricted value pool) via the
     # owner_kind='subclass' proficiency grant spine -- the subclass-skill-grant fix's fixture.
