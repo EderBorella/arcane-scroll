@@ -692,8 +692,89 @@ def _build_rules_db(path: str) -> None:
                 "('gsz-shrink','spell','sp-grow',NULL,'step',-1,NULL,'shrink',NULL)")
     cur.execute("INSERT INTO spell VALUES ('sp-grow','Spell-Grow',3,0)")
 
-    cur.execute("CREATE TABLE creature (id TEXT PRIMARY KEY, name TEXT, size_id TEXT)")
-    cur.execute("INSERT INTO creature VALUES ('creat-a','Creature A','size-l')")
+    # ── creature catalog (L15) + companion linkage (L21) ─────────────────────
+    # Full creature statblock shape (mirrors the reference schema), plus the
+    # grant_companion owner->creature spine. Content-neutral: SYNTHETIC creatures
+    # only. 'creat-a' is retained (size-l) for the set-from-creature size lookups
+    # used by the MODIFIER tests + size.py::creature_size.
+    cur.execute("CREATE TABLE creature ("
+                "id TEXT PRIMARY KEY, name TEXT NOT NULL, size_id TEXT NOT NULL, "
+                "creature_type_id TEXT NOT NULL, alignment_id TEXT, "
+                "source_kind TEXT NOT NULL CHECK (source_kind IN ('appendix','subclass','spell')), "
+                "source_id TEXT, ac_value INTEGER, ac_formula_note TEXT, hp_average INTEGER, "
+                "hp_dice TEXT, hp_formula_note TEXT, initiative_bonus INTEGER, cr_text TEXT, "
+                "xp INTEGER, pb INTEGER, description TEXT)")
+    cur.execute("CREATE TABLE creature_ability (creature_id TEXT, ability_id TEXT, score INTEGER, "
+                "PRIMARY KEY (creature_id, ability_id))")
+    cur.execute("CREATE TABLE creature_speed (creature_id TEXT, movement_mode_id TEXT, feet INTEGER, "
+                "formula_note TEXT, PRIMARY KEY (creature_id, movement_mode_id))")
+    cur.execute("CREATE TABLE creature_sense (creature_id TEXT, sense_id TEXT, range_ft INTEGER, "
+                "PRIMARY KEY (creature_id, sense_id))")
+    cur.execute("CREATE TABLE creature_skill (creature_id TEXT, skill_id TEXT, bonus INTEGER, "
+                "PRIMARY KEY (creature_id, skill_id))")
+    cur.execute("CREATE TABLE creature_passive_perception (creature_id TEXT PRIMARY KEY, value INTEGER)")
+    cur.execute("CREATE TABLE creature_resistance (creature_id TEXT, damage_type_id TEXT, note TEXT, "
+                "PRIMARY KEY (creature_id, damage_type_id))")
+    cur.execute("CREATE TABLE creature_immunity (creature_id TEXT, damage_type_id TEXT, "
+                "condition_id TEXT, note TEXT, "
+                "CHECK ((damage_type_id IS NULL) != (condition_id IS NULL)))")
+    cur.execute("CREATE TABLE creature_vulnerability (creature_id TEXT, damage_type_id TEXT, "
+                "PRIMARY KEY (creature_id, damage_type_id))")
+    cur.execute("CREATE TABLE creature_trait (id TEXT PRIMARY KEY, creature_id TEXT, "
+                "kind TEXT NOT NULL CHECK (kind IN ('trait','action','bonus_action','reaction')), "
+                "name TEXT NOT NULL, body TEXT, atk_bonus INTEGER, atk_bonus_note TEXT, "
+                "reach_ft INTEGER, range_text TEXT, dmg_average INTEGER, dmg_dice TEXT, "
+                "damage_type_id TEXT, recharge_min INTEGER, uses_per_day INTEGER)")
+    cur.execute("CREATE TABLE creature_formula (id TEXT PRIMARY KEY, creature_id TEXT, "
+                "target TEXT NOT NULL, trait_id TEXT, form_note TEXT, base INTEGER, "
+                "die_count INTEGER, die_faces INTEGER, round_mode TEXT)")
+    cur.execute("CREATE TABLE creature_formula_term (formula_id TEXT, coefficient REAL, "
+                "variable TEXT, above_level INTEGER, PRIMARY KEY (formula_id, variable))")
+    cur.execute("CREATE TABLE grant_companion (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
+                "creature_id TEXT, gained_at_level INTEGER, duration_amount INTEGER, "
+                "duration_unit_id TEXT, at_spell_level INTEGER, notes TEXT)")
+
+    # retained set-from-creature target (size lookups)
+    cur.execute("INSERT INTO creature (id,name,size_id,creature_type_id,source_kind) "
+                "VALUES ('creat-a','Creature A','size-l','type-a','appendix')")
+
+    # creature-a: a rich statblock exercising every child reader
+    cur.execute("INSERT INTO creature (id,name,size_id,creature_type_id,source_kind,ac_value,"
+                "hp_average,hp_dice,initiative_bonus,cr_text,xp,pb) "
+                "VALUES ('creature-a','Creature A2','size-a','type-a','appendix',13,10,'(3d6)',2,'1/4',50,2)")
+    for aid, sc in [("a1", 12), ("a2", 14), ("a3", 10)]:
+        cur.execute("INSERT INTO creature_ability VALUES ('creature-a',?,?)", (aid, sc))
+    cur.execute("INSERT INTO creature_speed VALUES ('creature-a','walk',30,NULL)")
+    cur.execute("INSERT INTO creature_speed VALUES ('creature-a','fly',60,NULL)")
+    cur.execute("INSERT INTO creature_speed VALUES ('creature-a','swim',NULL,'equal to its Walk Speed')")
+    cur.execute("INSERT INTO creature_sense VALUES ('creature-a','darkvision',60)")
+    cur.execute("INSERT INTO creature_skill VALUES ('creature-a','sk1',4)")
+    cur.execute("INSERT INTO creature_passive_perception VALUES ('creature-a',12)")
+    cur.execute("INSERT INTO creature_resistance VALUES ('creature-a','fire',NULL)")
+    cur.execute("INSERT INTO creature_immunity VALUES ('creature-a','poison',NULL,NULL)")
+    cur.execute("INSERT INTO creature_immunity VALUES ('creature-a',NULL,'poisoned',NULL)")
+    cur.execute("INSERT INTO creature_vulnerability VALUES ('creature-a','cold')")
+    cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name,body) "
+                "VALUES ('ct-a-trait','creature-a','trait','Trait A','render-only text')")
+    cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name,atk_bonus,reach_ft,"
+                "dmg_average,dmg_dice,damage_type_id) "
+                "VALUES ('ct-a-act','creature-a','action','Action A',4,5,5,'1d6 + 2','fire')")
+    cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name,recharge_min,uses_per_day) "
+                "VALUES ('ct-a-recharge','creature-a','action','Action B',5,3)")
+    cur.execute("INSERT INTO creature_formula (id,creature_id,target,trait_id,base) "
+                "VALUES ('cf-a-atk','creature-a','attack_bonus','ct-a-act',4)")
+    cur.execute("INSERT INTO creature_formula_term VALUES ('cf-a-atk',1.0,'owner_proficiency_bonus',NULL)")
+
+    # creature-b: header-only (exercises the empty-child cases)
+    cur.execute("INSERT INTO creature (id,name,size_id,creature_type_id,source_kind) "
+                "VALUES ('creature-b','Creature B','size-a','type-b','appendix')")
+
+    # companion links: a synthetic spell owner (always-on, at spell level 2, 1-hour
+    # duration) -> creature-a; a synthetic subclass owner gained at level 3 -> creature-b
+    cur.execute("INSERT INTO grant_companion VALUES "
+                "('gc-syn-spell','spell','sp-companion','creature-a',NULL,1,'hour',2,'synthetic summon')")
+    cur.execute("INSERT INTO grant_companion VALUES "
+                "('gc-syn-sub','subclass','sub-companion','creature-b',3,NULL,NULL,NULL,'synthetic subclass companion')")
 
     # features domain: subclass_feature, species_trait, detail_option + additional class_feature rows
     # (class_feature table already exists from the feats domain section above)

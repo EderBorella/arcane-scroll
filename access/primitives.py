@@ -17,6 +17,7 @@ GRANT_TABLES: dict[str, list[str]] = {
     "grant_ability_increase": ["grant_ability_increase_value"],
     "grant_ability_set": [],
     "grant_bonus": [],
+    "grant_companion": [],
     "grant_condition": [],
     "grant_d20_modifier": [],
     "grant_expertise": ["grant_expertise_value"],
