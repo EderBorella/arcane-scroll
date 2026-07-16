@@ -698,17 +698,20 @@ def _con_hp_delta(sheet: dict, access, total_level: int) -> int:
     return (eff_con_mod - core_con_mod) * total_level
 
 
-def _state_hp_boost(sheet: dict, access) -> int:
-    """Total flat/per-level HP from grant_hp rows owned by ACTIVE character_states' owners.
+def _state_hp(sheet: dict, access) -> tuple[int, int]:
+    """Total (boost, reduction) from grant_hp rows owned by ACTIVE character_states' owners.
 
-    Mirrors the deriver's state-only HP accumulation: only a state's owner contributes (an always-on
-    owner's grant_hp never does). Combined with the CON-delta to reconstruct max_boost — omitting it
-    would false-positive whenever a state legitimately boosts HP."""
+    Mirrors the deriver's state-only HP accumulation and its gate + sign rule: only a state's owner
+    contributes (an always-on owner's grant_hp never does), a grant applies when ungated or its
+    condition_kind matches the state's id, and a NEGATIVE amount is a drain/curse into max_reduction
+    while a positive one raises max_boost (F05-T58). Combined with the CON-delta to reconstruct
+    max_boost / max_reduction — omitting either would false-positive on a legitimate state effect."""
     mod = sheet.get("modifier", {}) or {}
     states = mod.get("character_states", []) or []
     if not isinstance(states, list):
-        return 0
-    total = 0
+        return 0, 0
+    boost = 0
+    reduction = 0
     for st in states:
         if not isinstance(st, dict):
             continue
@@ -718,9 +721,17 @@ def _state_hp_boost(sheet: dict, access) -> int:
         owner_id = access.resolve(owner_kind, st.get("source"))
         if owner_id is None:
             continue
-        for row in vitals_q.hp_grants(access, owner_kind, owner_id):
-            total += (row["flat"] or 0) + (row["per_level"] or 0)
-    return total
+        state_id = st.get("state")
+        for row in vitals_q.state_hp_grants(access, owner_kind, owner_id):
+            gate = row["condition_kind"]
+            if gate is not None and gate != state_id:
+                continue
+            amount = (row["flat"] or 0) + (row["per_level"] or 0)
+            if amount >= 0:
+                boost += amount
+            else:
+                reduction += -amount
+    return boost, reduction
 
 
 def _check_hp(sheet: dict, access, v: list[Violation], transform: dict | None = None) -> None:
@@ -746,10 +757,10 @@ def _check_hp(sheet: dict, access, v: list[Violation], transform: dict | None = 
 
     total_level = _total_level(core)
     hp_delta = 0 if transform else _con_hp_delta(sheet, access, total_level)
-    state_hp = _state_hp_boost(sheet, access)
+    state_boost, state_reduction = _state_hp(sheet, access)
 
-    expected_boost = state_hp + max(0, hp_delta)
-    expected_reduction = max(0, -hp_delta)
+    expected_boost = state_boost + max(0, hp_delta)
+    expected_reduction = state_reduction + max(0, -hp_delta)
 
     if actual_boost != expected_boost:
         v.append(Violation(DOMAIN, "hp-max-boost-mismatch", "illegal",

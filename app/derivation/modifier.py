@@ -207,7 +207,7 @@ def resolve_active_effects(core: dict, inventory: dict | None,
         _accumulate_save_advantages(effects, access, owner_kind, owner_id)
         _accumulate_speeds(effects, access, owner_kind, owner_id)
         _accumulate_ability_sets(effects, access, owner_kind, owner_id)
-        _accumulate_hp(effects, access, owner_kind, owner_id)
+        _accumulate_hp(effects, access, owner_kind, owner_id, state)
         _accumulate_senses(effects, access, owner_kind, owner_id)
         _accumulate_size(effects, access, owner_kind, owner_id, state)
         _accumulate_extra_damage(effects, access, owner_kind, owner_id, state)
@@ -376,9 +376,22 @@ def _accumulate_owner_ability_sets(effects: ActiveEffects, core: dict, access):
                 _collect("subclass", access.resolve("subclass", sub), at)
 
 
-def _accumulate_hp(effects: ActiveEffects, access, owner_kind, owner_id):
+def _accumulate_hp(effects: ActiveEffects, access, owner_kind, owner_id, state: dict):
+    """Accumulate a state's owner's HP grants. A grant_hp row applies when it is ungated
+    (condition_kind None) or its condition_kind matches this state's id — mirroring the extra-damage
+    rider gate so a drain owned alongside other effects does not leak across states. A positive
+    amount raises the max (max_boost); a NEGATIVE amount is a drain/curse that lowers the max
+    (max_reduction) — the state-gated maximum-HP reduction mechanism (F05-T58)."""
+    state_id = state.get("state") if isinstance(state, dict) else None
     for row in grants_for(access.db, "grant_hp", owner_kind, owner_id):
-        effects.hp_boost += (row["flat"] or 0) + (row["per_level"] or 0)
+        gate = row["condition_kind"]
+        if gate is not None and gate != state_id:
+            continue
+        amount = (row["flat"] or 0) + (row["per_level"] or 0)
+        if amount >= 0:
+            effects.hp_boost += amount
+        else:
+            effects.hp_reduction += -amount
 
 
 def _accumulate_senses(effects: ActiveEffects, access, owner_kind, owner_id):

@@ -795,6 +795,29 @@ def test_hp_non_state_grant_inert(access):
     assert "hp-max-boost-mismatch" not in _codes(_hp_sheet(con_final=12, level=3, max_boost=9), access)
 
 
+# ── state-gated max-HP reduction (drain/curse) (T58) ─────────────────────────
+
+
+def test_state_gated_max_hp_reduction_expected(access):
+    """The HP check re-derives a state-gated max-HP drain: the 'drained' state's owner has a −6
+    grant_hp, so max_reduction 6 is clean and 0 is flagged (F05-T58)."""
+    access = _access_with_con(access)
+    state = {"state": "drained", "source": "HP Drain Feature A", "source_type": "feature"}
+    # con 12, level 3, no CON-changing item -> CON delta 0; the drain drives max_reduction 6.
+    assert "hp-max-reduction-mismatch" not in _codes(
+        _hp_sheet(con_final=12, level=3, vigor=False, states=[state], max_reduction=6), access)
+    assert "hp-max-reduction-mismatch" in _codes(
+        _hp_sheet(con_final=12, level=3, vigor=False, states=[state], max_reduction=0), access)
+
+
+def test_max_hp_reduction_gate_no_leak_in_check(access):
+    """A reduction gated to a different state id must not be expected for the 'drained' state."""
+    access = _access_with_con(access)
+    state = {"state": "drained", "source": "HP Drain Feature B", "source_type": "feature"}
+    assert "hp-max-reduction-mismatch" not in _codes(
+        _hp_sheet(con_final=12, level=3, vigor=False, states=[state], max_reduction=0), access)
+
+
 # ── smoke ────────────────────────────────────────────────────────────────────
 
 

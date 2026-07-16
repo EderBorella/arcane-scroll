@@ -1489,10 +1489,22 @@ def _build_rules_db(path: str) -> None:
     # a class feature that grants +5 max HP only while its state is active (high level so no
     # owner-enumeration reaches it) -- lets a test combine a state grant_hp WITH the CON-delta.
     cur.execute("INSERT INTO class_feature VALUES ('cf-hp-state','class-a',99,'HP State Feature A')")
-    cur.execute("INSERT INTO grant_hp VALUES ('ghp-state','class_feature','cf-hp-state',NULL,5,NULL,'state-active')")
+    # ungated state HP boost (condition_kind NULL): applies whenever its owner's state is active,
+    # consistent with the gate rule (None = always-on) shared by the deriver and the HP check.
+    cur.execute("INSERT INTO grant_hp VALUES ('ghp-state','class_feature','cf-hp-state',NULL,5,NULL,NULL)")
     # an always-on grant_hp on feat-gen -- never gathered under an active state, so it must NOT
     # reach max_boost (guards the deriver's and validator's state-only HP accumulation).
     cur.execute("INSERT INTO grant_hp VALUES ('ghp-feat','feat','feat-gen',NULL,7,NULL,NULL)")
+
+    # T58 fixtures: a state-gated maximum-HP REDUCTION (drain/curse). A class feature owns a grant_hp
+    # with a NEGATIVE flat, gated by condition_kind matching the drain state's id ('drained'). While
+    # that state is active the max HP drops by 6 (folds into hit_points.max_reduction). A second
+    # feature carries a reduction gated to a DIFFERENT state id, so it stays inert for 'drained'.
+    cur.execute("INSERT INTO class_feature VALUES ('cf-hp-drain','class-a',99,'HP Drain Feature A')")
+    cur.execute("INSERT INTO grant_hp VALUES ('ghp-drain','class_feature','cf-hp-drain',NULL,-6,NULL,'drained')")
+    cur.execute("INSERT INTO class_feature VALUES ('cf-hp-drain-gated','class-a',99,'HP Drain Feature B')")
+    cur.execute("INSERT INTO grant_hp VALUES "
+                "('ghp-drain-gated','class_feature','cf-hp-drain-gated',NULL,-4,NULL,'other-state')")
 
     # generator choice-space enumeration (F05-T66): the option/list tables the choice grammar reads
     # to enumerate a single-class character's base choices. Content-neutral synthetic ids only.

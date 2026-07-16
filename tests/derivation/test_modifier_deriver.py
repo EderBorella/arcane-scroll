@@ -548,6 +548,40 @@ def test_derive_hp_effects_baseline(access):
     assert hp["max_reduction"] == 0
 
 
+# ── state-gated max-HP reduction (drain/curse) (T58) ─────────────────────────
+
+
+def _drain_state(source="HP Drain Feature A"):
+    return {"state": "drained", "source": source, "source_type": "feature"}
+
+
+def test_state_gated_max_hp_reduction_materializes(access):
+    """A state-gated NEGATIVE grant_hp lowers max HP: while the 'drained' state is active the drain
+    folds into hit_points.max_reduction (F05-T58)."""
+    core = _core()
+    effects = resolve_active_effects(core, None, [_drain_state()], [], access)
+    assert effects.hp_reduction == 6
+    assert effects.hp_boost == 0
+    hp = derive_hp_effects(core, effects, {}, access)
+    assert hp["max_reduction"] == 6
+    assert hp["max_boost"] == 0
+
+
+def test_max_hp_reduction_absent_without_state(access):
+    """No active drain state → no reduction (the drain half is inert until its state is active)."""
+    core = _core()
+    effects = resolve_active_effects(core, None, [], [], access)
+    assert effects.hp_reduction == 0
+    assert derive_hp_effects(core, effects, {}, access)["max_reduction"] == 0
+
+
+def test_max_hp_reduction_gate_no_leak(access):
+    """A reduction gated to a different state id must not fire for the 'drained' state."""
+    core = _core()
+    effects = resolve_active_effects(core, None, [_drain_state("HP Drain Feature B")], [], access)
+    assert effects.hp_reduction == 0
+
+
 # ── derive_resource_state ────────────────────────────────────────────────────
 
 
