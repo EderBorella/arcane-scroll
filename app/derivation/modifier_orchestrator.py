@@ -55,7 +55,9 @@ def _deep_merge(base: dict, existing: dict, path: str = "") -> dict:
     features/feats, inventory_ref for item_states. Non-overwritable sub-fields
     within matched array elements are preserved from existing."""
     result = {}
-    for key in set(base) | set(existing):
+    # Insertion-order-preserving union: base's keys in order, then existing-only
+    # keys in existing's order. Fixes top-level and nested key order run-to-run.
+    for key in list(base) + [k for k in existing if k not in base]:
         child_path = f"{path}.{key}" if path else key
         base_val = base.get(key)
         exist_val = existing.get(key)
