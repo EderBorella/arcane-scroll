@@ -126,6 +126,50 @@ def test_within_cap_passes_without_a_modifier_field(access):
     assert "modifier-mismatch" not in codes
 
 
+def _capstone_sheet(final, ability="x1", level=20, feats=None):
+    ab = _core_abilities()
+    ab[ability]["final"] = final
+    s = {"identity": {"classes": [{"class": "Class A", "level": level, "subclass": None}]},
+         "abilities": ab}
+    if feats is not None:
+        s["feats"] = feats
+    return s
+
+
+def test_over_cap_credits_class_capstone(access):
+    # class-a's level-20 capstone raises a1 (x1) to a maximum of 25; a final of 24 is within it.
+    assert "ability-over-cap" not in _codes(_capstone_sheet(24), access)
+
+
+def test_over_cap_beyond_capstone_still_flagged(access):
+    # 26 exceeds even the capstone-raised ceiling of 25.
+    assert "ability-over-cap" in _codes(_capstone_sheet(26), access)
+
+
+def test_capstone_ceiling_gated_by_level(access):
+    # the capstone is gained at level 20 — at level 19 the ceiling is still the standard 20.
+    assert "ability-over-cap" in _codes(_capstone_sheet(24, level=19), access)
+
+
+def test_capstone_only_raises_its_named_abilities(access):
+    # the capstone raises a1 and a3 only; a2 (x2) keeps the standard cap of 20.
+    assert "ability-over-cap" in _codes(_capstone_sheet(24, ability="x2"), access)
+
+
+def test_epic_boon_raises_chosen_ability_ceiling(access):
+    # the Epic-Boon feat raises the ability the sheet records it as increasing (a4/x4) to 30.
+    feats = [{"name": "Feat Boon", "ability_increase": {"ability": "a4", "amount": 1}}]
+    assert "ability-over-cap" not in _codes(
+        _capstone_sheet(25, ability="x4", level=1, feats=feats), access)
+
+
+def test_epic_boon_does_not_raise_a_different_ability(access):
+    # the boon boosts a4; a5 (x5) is untouched and keeps the standard cap of 20.
+    feats = [{"name": "Feat Boon", "ability_increase": {"ability": "a4", "amount": 1}}]
+    assert "ability-over-cap" in _codes(
+        _capstone_sheet(25, ability="x5", level=1, feats=feats), access)
+
+
 def test_ability_id_returns_none_for_non_string_key_list(access):
     from access.validator.abilities import ability_id
     assert ability_id(access, ["x1"]) is None

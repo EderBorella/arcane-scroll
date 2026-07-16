@@ -55,6 +55,26 @@ def item_ability_sets(access: ValidatorAccess, magic_item_id: str) -> list[dict]
     return granted_ability_sets(access, "magic_item", magic_item_id)
 
 
+def ability_increase_caps(access: ValidatorAccess, owner_kind: str, owner_id: str,
+                          at_level: int | None = None) -> list[dict]:
+    """grant_ability_increase rows an owner confers, each as {cap, from_any, ability_ids}.
+
+    ``cap`` is the maximum score the increase may raise an ability to (the ability's ceiling for
+    this owner); ``from_any`` True means the boosted ability is a player choice (any ability, or
+    any within the value-row pool if present) rather than a fixed target; ``ability_ids`` are the
+    fixed target abilities (from_any False) or the eligible pool (from_any True). Level-gated like
+    the other grant queries — a NULL gained_at_level always applies. Pure DB read; the per-ability
+    ceiling arithmetic (base cap raised by class capstones and Epic-Boon grants) lives in the
+    check."""
+    out: list[dict] = []
+    for r in primitives.grants_for(access.db, "grant_ability_increase", owner_kind, owner_id,
+                                   at_level):
+        vals = [row["ability_id"] for row in access.db.q(
+            "SELECT ability_id FROM grant_ability_increase_value WHERE grant_id=?", r["id"])]
+        out.append({"cap": r["cap"], "from_any": bool(r["from_any"]), "ability_ids": vals})
+    return out
+
+
 def standard_ability_cap(access: ValidatorAccess) -> int | None:
     """The standard ability score cap (falls back to 20 if the ASI grant row is missing)."""
     cap = access.db.scalar(

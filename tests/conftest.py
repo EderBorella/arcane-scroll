@@ -360,6 +360,13 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE grant_ability_increase_value (grant_id TEXT, ability_id TEXT)")
     cur.execute("INSERT INTO grant_ability_increase VALUES "
                 "('gai-asi','feat','ability-score-improvement',NULL,2,2,20,1,NULL)")
+    # class-a's level-20 capstone: raises abilities a1 and a3 to a maximum of 25 (a fixed-target,
+    # cap-raising grant owned by the class, gained at level 20). Exercises the ability-cap check's
+    # per-ability ceiling re-derivation from the grant spine (a raised cap, not the flat standard 20).
+    cur.execute("INSERT INTO grant_ability_increase VALUES "
+                "('gai-cap','class','class-a',20,8,4,25,0,NULL)")
+    cur.execute("INSERT INTO grant_ability_increase_value VALUES ('gai-cap','a1')")
+    cur.execute("INSERT INTO grant_ability_increase_value VALUES ('gai-cap','a3')")
 
     # proficiencies domain: skills catalog + class/background skill pools + skill/expertise grants
     cur.execute("CREATE TABLE skill (id TEXT PRIMARY KEY, name TEXT, ability_id TEXT)")
@@ -482,6 +489,12 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO grant_ability_increase VALUES "
                 "('gai-inc','feat','feat-inc',NULL,1,1,20,0,NULL)")
     cur.execute("INSERT INTO grant_ability_increase_value VALUES ('gai-inc','a2')")
+    # feat-boon: an Epic-Boon feat raising an ability of the player's choice to a maximum of 30
+    # (from_any). The ability-cap check credits the raised ceiling to whichever ability the sheet's
+    # feat entry records this feat as increasing.
+    cur.execute("INSERT INTO feat VALUES ('feat-boon','Feat Boon','epic-boon',0)")
+    cur.execute("INSERT INTO grant_ability_increase VALUES "
+                "('gai-boon','feat','feat-boon',NULL,1,1,30,1,NULL)")
     # feat-save (e.g. Resilient) grants saving-throw proficiency in ability a3 via the proficiency
     # grant spine (target_kind='saving_throw') -- the saving-throws domain's feat-granted-save fix
     cur.execute("INSERT INTO grant_proficiency VALUES "
@@ -544,6 +557,13 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO class_resource VALUES ('unarmored-movement','class','class-a','Unarmored Movement')")
     cur.execute("INSERT INTO class_resource_level VALUES ('unarmored-movement',2,NULL,NULL,NULL,10)")
     cur.execute("INSERT INTO class_resource_level VALUES ('unarmored-movement',6,NULL,NULL,NULL,15)")
+    # class-a-pool: a COUNT-ladder resource (a whole-number use pool) — exercises resource_budgets
+    # derivation and its independent cross-check. 'unarmored-movement' above is a BONUS ladder (no
+    # count) and must NOT become a budget entry.
+    cur.execute("INSERT INTO class_resource VALUES ('class-a-pool','class','class-a','Pool A')")
+    for _lvl, _cnt in [(1, 2), (3, 3), (5, 4)]:
+        cur.execute("INSERT INTO class_resource_level VALUES ('class-a-pool',?,?,NULL,NULL,NULL)",
+                    (_lvl, _cnt))
 
     # recharge_cadence — referenced by grant_spell.recharge_id (e.g. short-rest)
     cur.execute("CREATE TABLE recharge_cadence (id TEXT PRIMARY KEY, name TEXT)")

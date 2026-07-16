@@ -11,7 +11,7 @@ from access.generator import GeneratorAccess
 _NAME_TABLES = {
     "species", "class", "subclass", "background", "feat", "size", "creature_type",
     "armor_category", "weapon_tier", "tool", "skill", "ability", "lineage", "damage_type",
-    "condition", "sense", "movement_mode",
+    "condition", "sense", "movement_mode", "detail_option",
 }
 
 

@@ -44,6 +44,7 @@ from access.validator import defenses as defenses_q
 from access.validator import features as features_q
 from access.validator import movement as movement_q
 from access.validator import proficiencies as prof_q
+from access.validator import resources as resources_q
 from access.validator import saving_throws as saves_q
 from access.validator import vitals as vitals_q
 from validator.checks import defenses as defenses_check
@@ -135,6 +136,16 @@ def _identity(access, choices: Choices) -> dict:
             # the corpus keys subclass by display name (unlike the id-keyed sibling fields)
             "subclass": catalog.name_of(access, "subclass", sub_id) if sub_id else None,
         }
+        # Per-class/per-subclass detail choices (a class-level detail choice, a subclass sub-option). These are
+        # player selections, not derivable from the DB alone, and are consumed downstream by the
+        # GRIMOIRE deriver for spell-list widening; emit them as display strings when the choice
+        # supplies one, so a widening-relevant build round-trips through CORE. Omitted when absent.
+        detail_id = c.get("class_detail")
+        if detail_id is not None:
+            entry["class_detail"] = _display(access, "detail_option", detail_id)
+        sub_detail_id = c.get("subclass_detail")
+        if sub_detail_id is not None:
+            entry["subclass_detail"] = _display(access, "detail_option", sub_detail_id)
         classes_out.append(entry)
 
     species_id = choices.get("species")
@@ -548,6 +559,36 @@ def _permanent_speed(access, choices: Choices, partial: dict) -> dict:
     return _derive_speeds(grants, _base_walk(access, choices), bonuses)
 
 
+def _resource_budgets(access, choices: Choices) -> dict:
+    """Per-resource maximums from the class-resource ladder.
+
+    For each class (and its subclass) the build takes, every resource with a COUNT ladder — a
+    whole-number use pool (a per-rest use count), as opposed to a die or a flat bonus — contributes
+    its maximum at that class's level, keyed by the resource's display name.
+    On a name collision across a multiclass the larger maximum wins. Dice/bonus resources and
+    formula-based feature uses are not on this ladder and are intentionally not emitted here."""
+    out: dict[str, dict] = {}
+
+    def add(owner_kind: str, owner_id: str, level: int) -> None:
+        for res in resources_q.count_class_resources(access, owner_kind, owner_id):
+            count = resources_q.resource_count_at(access, res["id"], level)
+            if count is None:
+                continue
+            name = res["name"]
+            prev = out.get(name, {}).get("max")
+            out[name] = {"max": count if prev is None else max(prev, count)}
+
+    for c in _classes(choices):
+        level = int(c.get("level", 0))
+        cid = c.get("class")
+        if cid:
+            add("class", cid, level)
+        sub_id = c.get("subclass")
+        if sub_id:
+            add("subclass", sub_id, level)
+    return out
+
+
 def _permanent_defenses(access, partial: dict) -> dict:
     res_rows = defenses_check._gather_owner_grants(access, partial, defenses_q.resistance_grants)
     resistances = sorted({r["damage_type_id"] for r in res_rows
@@ -616,4 +657,9 @@ def derive_core(choices: Choices, access) -> dict:
         "features": _features(access, choices),
         "feats": feats,
     }
+    # Per-resource maximums from the class-resource ladder — emitted only when the build has at least
+    # one count-ladder resource, matching the corpus (an optional, absent-when-empty block).
+    resource_budgets = _resource_budgets(access, choices)
+    if resource_budgets:
+        sheet["resource_budgets"] = resource_budgets
     return sheet

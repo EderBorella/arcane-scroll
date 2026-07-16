@@ -165,6 +165,46 @@ def test_senses_and_speed_resolved_independently(core_sheet):
     assert "walk" in core_sheet["permanent_speed"]
 
 
+# --------------------------------------------------------------------------- resource budgets (T74)
+
+def test_resource_budgets_from_count_ladder(core_sheet):
+    # class-a has a COUNT-ladder resource ('Pool A': 2/3/4 at levels 1/3/5); at level 3 the
+    # budget maximum is 3. The BONUS-ladder resource ('Unarmored Movement') is NOT a budget entry.
+    budgets = core_sheet["resource_budgets"]
+    assert budgets["Pool A"] == {"max": 3}
+    assert "Unarmored Movement" not in budgets
+
+
+def test_resource_budgets_pass_validate_core(core_sheet, access):
+    # the independent resource check re-derives the same maximum from the ladder and agrees.
+    report = validate_core(core_sheet, access)
+    assert report["legal"] is True, report["violations"]
+
+
+def test_resource_budgets_omitted_when_no_count_ladder(gen_access):
+    # a build whose class owns no count-ladder resource carries no resource_budgets block.
+    choices = _choices()
+    choices["classes"] = [{"class": "class-b", "level": 2}]
+    sheet = derive_core(choices, gen_access)
+    assert "resource_budgets" not in sheet
+
+
+# --------------------------------------------------------------------------- class_detail (T76)
+
+def test_class_detail_emitted_from_choice(gen_access):
+    # a per-class detail choice is emitted as its display string (consumed downstream by GRIMOIRE).
+    choices = _choices()
+    choices["classes"] = [{"class": "class-a", "level": 3, "subclass": "sub-a",
+                           "class_detail": "do-sch-a"}]
+    sheet = derive_core(choices, gen_access)
+    assert sheet["identity"]["classes"][0]["class_detail"] == "School A"
+
+
+def test_class_detail_omitted_when_absent(core_sheet):
+    # absent from the choice -> omitted (not serialised as null).
+    assert "class_detail" not in core_sheet["identity"]["classes"][0]
+
+
 # --------------------------------------------------------------------------- RED: malformed CORE
 
 def test_ungranted_proficiency_is_flagged_illegal(core_sheet, access):
