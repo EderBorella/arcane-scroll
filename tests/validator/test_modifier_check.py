@@ -236,7 +236,9 @@ def test_deriver_validator_agree_per_ability_save(access):
     from app.derivation.modifier_orchestrator import derive_modifier
     core = {
         "character_id": "t", "character_name": "T",
-        "identity": {"size": "medium", "species": "Species A", "lineage": None,
+        # Species Slotless carries no ability-set grant, so a2 is not overridden — this test is
+        # about a per-ability ITEM save bonus, not an always-on ability set (species-a would SET a2).
+        "identity": {"size": "medium", "species": "Species Slotless", "lineage": None,
                      "classes": [{"class": "Class A", "level": 3, "subclass": None}]},
         "abilities": {"a1": {"final": 14}, "a2": {"final": 16}, "a3": {"final": 12}},
         "proficiency_bonus": 2,

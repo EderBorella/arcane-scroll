@@ -176,6 +176,13 @@ def resolve_active_effects(core: dict, inventory: dict | None,
     """Resolve all active effects from character_states[] and item_states[]. Returns
     ActiveEffects with accumulated bonuses, resistances, etc. Empty states → empty effects."""
     effects = ActiveEffects()
+    # Always-on ability sets from the character's PERMANENT owners (species/feats/classes/subclasses)
+    # apply unconditionally — they are not gated by an active state. This mirrors the validator's
+    # independently rule-grounded owner re-derivation, so a grant_ability_set on a permanent owner
+    # (not just an attuned magic item) reaches effective abilities and never trips a false
+    # effective-ability mismatch (reconciliation debt (b)). Runs before the empty-state fast path so
+    # a gearless, stateless build still resolves its permanent ability sets.
+    _accumulate_owner_ability_sets(effects, core, access)
     has_equipped = isinstance(inventory, dict) and bool(inventory.get("equipped"))
     if not states and not item_states and not has_equipped:
         return effects
@@ -324,6 +331,49 @@ def _accumulate_ability_sets(effects: ActiveEffects, access, owner_kind, owner_i
     for row in grants_for(access.db, "grant_ability_set", owner_kind, owner_id):
         if row["mode"] in ("set", "floor"):
             effects.ability_sets.append(dict(row))
+
+
+def _accumulate_owner_ability_sets(effects: ActiveEffects, core: dict, access):
+    """Always-on ability-set/floor grants from the character's permanent owners — species, each feat,
+    each class, and each subclass — gated by class-entry level. Mirrors the validator's independently
+    rule-grounded owner set (``validator.checks.modifier._owner_ability_sets``): the deriver applies
+    ``grant_ability_set`` across a state-driven owner set + attuned items, so a grant on a permanent
+    owner would otherwise be missed and produce a false effective-ability mismatch. No non-item grants
+    exist in the reference dataset today, so this is inert there; the synthetic ruleset carries one on
+    a species, which this reconciles."""
+    if not isinstance(core, dict):
+        return
+    ident = core.get("identity", {}) or {}
+    if not isinstance(ident, dict):
+        ident = {}
+
+    def _collect(owner_kind: str, owner_id, at_level=None) -> None:
+        """Append an owner's ability-set/floor grants, gated by ``at_level`` (None = level-agnostic)."""
+        if owner_id is None:
+            return
+        for row in grants_for(access.db, "grant_ability_set", owner_kind, owner_id, at_level):
+            if row["mode"] in ("set", "floor"):
+                effects.ability_sets.append(dict(row))
+
+    _collect("species", access.resolve("species", ident.get("species")))
+
+    feats = core.get("feats")
+    if isinstance(feats, list):
+        for f in feats:
+            name = f if isinstance(f, str) else (f.get("name") if isinstance(f, dict) else None)
+            _collect("feat", access.resolve("feat", name))
+
+    classes = ident.get("classes")
+    if isinstance(classes, list):
+        for c in classes:
+            if not isinstance(c, dict):
+                continue
+            lvl = c.get("level")
+            at = lvl if isinstance(lvl, int) and not isinstance(lvl, bool) else 0
+            _collect("class", access.resolve("class", c.get("class")), at)
+            sub = c.get("subclass")
+            if sub:
+                _collect("subclass", access.resolve("subclass", sub), at)
 
 
 def _accumulate_hp(effects: ActiveEffects, access, owner_kind, owner_id):
