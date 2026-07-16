@@ -933,7 +933,7 @@ def _build_rules_db(path: str) -> None:
     # features domain: subclass_feature, species_trait, detail_option + additional class_feature rows
     # (class_feature table already exists from the feats domain section above)
     cur.execute("CREATE TABLE subclass_feature (id TEXT PRIMARY KEY, subclass_id TEXT, class_level INT, name TEXT)")
-    cur.execute("CREATE TABLE species_trait (id TEXT PRIMARY KEY, species_id TEXT, name TEXT)")
+    cur.execute("CREATE TABLE species_trait (id TEXT PRIMARY KEY, species_id TEXT, ordinal INT, name TEXT)")
     cur.execute("CREATE TABLE detail_option (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, axis TEXT, name TEXT, rechoose TEXT)")
 
     cur.execute("INSERT INTO class_feature VALUES ('cf-a1','class-a',1,'Feat A')")
@@ -946,7 +946,7 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO subclass_feature VALUES ('sf-a2','sub-a',6,'Sub Feat B')")
     cur.execute("INSERT INTO subclass_feature VALUES ('sf-a3','sub-a',3,'Aspect of the Wilds')")
 
-    cur.execute("INSERT INTO species_trait VALUES ('st-a1','species-a','Species Trait A')")
+    cur.execute("INSERT INTO species_trait VALUES ('st-a1','species-a',1,'Species Trait A')")
 
     cur.execute("INSERT INTO detail_option VALUES ('do-owl','subclass','sub-a','aspect','Owl',NULL)")
     cur.execute("INSERT INTO detail_option VALUES ('do-panther','subclass','sub-a','aspect','Panther',NULL)")
@@ -1335,6 +1335,40 @@ def _build_rules_db(path: str) -> None:
     # reach max_boost (guards the deriver's and validator's state-only HP accumulation).
     cur.execute("INSERT INTO grant_hp VALUES ('ghp-feat','feat','feat-gen',NULL,7,NULL,NULL)")
 
+    # generator choice-space enumeration (F05-T66): the option/list tables the choice grammar reads
+    # to enumerate a single-class character's base choices. Content-neutral synthetic ids only.
+    cur.execute("CREATE TABLE species_size (species_id TEXT, size_id TEXT)")
+    cur.execute("CREATE TABLE class_primary_ability (class_id TEXT, ability_id TEXT, kind TEXT)")
+    cur.execute("CREATE TABLE class_standard_array (class_id TEXT, ability_id TEXT, score INT)")
+    cur.execute("CREATE TABLE start_equipment_option (id TEXT PRIMARY KEY, owner_kind TEXT, "
+                "owner_id TEXT, label TEXT)")
+    cur.execute("CREATE TABLE start_equipment_entry (id TEXT PRIMARY KEY, option_id TEXT, "
+                "sort_order INT, kind TEXT, catalog_item_id TEXT, quantity INT, gp_amount INT, "
+                "tool_category_id TEXT, focus_type_id TEXT, note TEXT)")
+    # species-a offers two sizes (a species may be one of several) -- exercises multi-size ordering
+    cur.execute("INSERT INTO species_size VALUES ('species-a','size-a')")
+    cur.execute("INSERT INTO species_size VALUES ('species-a','size-s')")
+    # a second trait on species-a so trait ordinal ordering is observable
+    cur.execute("INSERT INTO species_trait VALUES ('st-a2','species-a',2,'Species Trait B')")
+    # class-a primary ability + suggested standard array + (saving throws already inserted above)
+    cur.execute("INSERT INTO class_primary_ability VALUES ('class-a','a1','spellcasting')")
+    for aid, score in [("a1", 15), ("a2", 14), ("a3", 13)]:
+        cur.execute("INSERT INTO class_standard_array VALUES ('class-a',?,?)", (aid, score))
+    # class-a starting-equipment bundles: option 'sa-a' (an item + gp), option 'sa-b' (gp only) --
+    # the grammar picks one bundle; entries within it are ordered by sort_order
+    cur.execute("INSERT INTO start_equipment_option VALUES ('sa-a','class','class-a','Bundle A')")
+    cur.execute("INSERT INTO start_equipment_option VALUES ('sa-b','class','class-a','Bundle B')")
+    cur.execute("INSERT INTO start_equipment_entry VALUES "
+                "('se-a1','sa-a',1,'item','blade-a',1,NULL,NULL,NULL,NULL)")
+    cur.execute("INSERT INTO start_equipment_entry VALUES "
+                "('se-a2','sa-a',2,'gp',NULL,1,15,NULL,NULL,NULL)")
+    cur.execute("INSERT INTO start_equipment_entry VALUES "
+                "('se-b1','sa-b',1,'gp',NULL,1,50,NULL,NULL,NULL)")
+    # bg-a starting-equipment bundle (owner_kind='background') -- a tool-category choice entry
+    cur.execute("INSERT INTO start_equipment_option VALUES ('sa-bg','background','bg-a','Bundle BG')")
+    cur.execute("INSERT INTO start_equipment_entry VALUES "
+                "('se-bg1','sa-bg',1,'tool_category_choice',NULL,1,NULL,'tc-a',NULL,NULL)")
+
     con.commit()
     con.close()
 
@@ -1350,3 +1384,9 @@ def rules_db(tmp_path) -> str:
 def access(rules_db):
     from access.validator import ValidatorAccess   # lazy: the package is created in this task
     return ValidatorAccess(path=rules_db)
+
+
+@pytest.fixture
+def gen_access(rules_db):
+    from access.generator import GeneratorAccess   # generator DAL package (F05-T66)
+    return GeneratorAccess(path=rules_db)
