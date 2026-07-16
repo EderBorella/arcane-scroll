@@ -53,15 +53,22 @@ def _ability_caps(sheet: dict, access, base_cap: int | None) -> dict[str, int]:
         fid = access.resolve("feat", name)
         if not fid:
             continue
+        # A feat's ability increase is either a single {ability, amount} or a list of them (a +1/+1
+        # split across two abilities); normalise to the chosen ability ids before crediting ceilings.
         inc = f.get("ability_increase") if isinstance(f, dict) else None
-        chosen_aid = q.ability_id(access, inc.get("ability")) if isinstance(inc, dict) else None
+        inc_list = inc if isinstance(inc, list) else ([inc] if isinstance(inc, dict) else [])
+        chosen_aids = [aid for aid in
+                       (q.ability_id(access, one.get("ability")) for one in inc_list
+                        if isinstance(one, dict))
+                       if aid]
         for g in q.ability_increase_caps(access, "feat", fid):
             if g["from_any"]:
                 # A boon that boosts an ability of the player's choice raises the ceiling of the
-                # ability the sheet records this feat as increasing (constrained to the eligible pool
-                # when the grant lists one).
-                if chosen_aid and (not g["ability_ids"] or chosen_aid in g["ability_ids"]):
-                    bump(chosen_aid, g["cap"])
+                # ability(ies) the sheet records this feat as increasing (constrained to the eligible
+                # pool when the grant lists one).
+                for chosen_aid in chosen_aids:
+                    if not g["ability_ids"] or chosen_aid in g["ability_ids"]:
+                        bump(chosen_aid, g["cap"])
             else:
                 for aid in g["ability_ids"]:
                     bump(aid, g["cap"])

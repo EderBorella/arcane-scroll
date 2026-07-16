@@ -448,3 +448,190 @@ def test_assemble_passes_variant_pick_into_choices(gen_access):
     bad = assemble.assemble_choices(
         gen_access, spec, resolved, {"name": "V", "species_variant": "Nope"})
     assert bad["species_variant"] is None
+
+
+# --------------------------------------------------------------------------- T87 top-tier boon slot
+
+def _domains(report):
+    return {v["domain"] for v in report["violations"]}
+
+
+def test_boon_slot_count_gated_at_top_tier(gen_access):
+    # the top-tier boon slot is a distinct feature gated at the top of the level range (level 19 in
+    # the fixture); below it the build opens none, at/above it exactly one for a single-class build.
+    assert options.boon_slot_count(gen_access, [("class-a", 8, None)]) == 0
+    assert options.boon_slot_count(gen_access, [("class-a", 19, None)]) == 1
+    # counted per class at its own level, summed across a multiclass
+    assert options.boon_slot_count(
+        gen_access, [("class-a", 19, None), ("class-m", 4, None)]) == 1
+
+
+def test_pass1_grammar_offers_boon_slot_from_own_category(gen_access):
+    spec = parse_request(gen_access, {
+        "species": "species-a", "classes": [{"class": "class-a", "level": 19}], "background": "bg-a"})
+    resolved = [("class-a", 19, "sub-a")]
+    schema = grammar.build_pass1_grammar(
+        gen_access, spec, resolved,
+        feat_slots=options.ability_feat_slot_count(gen_access, resolved),
+        boon_slots=options.boon_slot_count(gen_access, resolved))
+    boons = schema["properties"]["boons"]
+    assert boons["minItems"] == 1 and boons["maxItems"] == 1
+    # the boon slot draws from its OWN category (epic-boon: feat-boon), NOT the general feat pool
+    assert boons["items"]["enum"] == ["feat-boon"]
+    assert "feat-boon" not in schema["properties"]["feats"]["items"]["enum"]
+    assert "boons" in schema["required"]
+    # a build below the gating level offers no boon field at all
+    below = grammar.build_pass1_grammar(gen_access, spec, [("class-a", 8, "sub-a")],
+                                        feat_slots=2, boon_slots=0)
+    assert "boons" not in below["properties"]
+
+
+def test_boon_pick_flows_into_core(gen_access, access):
+    from app.derivation.core import derive_core
+    spec = parse_request(gen_access, {
+        "species": "species-a", "classes": [{"class": "class-a", "level": 19}],
+        "subclasses": {"class-a": "sub-a"}, "background": "bg-a",
+        "character_id": "char-boon", "character_name": "Omega"})
+    pick = _stub_pick(
+        {"name": "Omega", "skills": ["sk1", "sk2"],
+         "background_increase": {"shape": "two-one", "plus_two": "a1", "plus_one": "a2"},
+         "spells": {"cantrips": ["sp1"], "spells": ["sp3"]},
+         "boons": ["feat-boon"]})
+    choices = generate_choices(gen_access, spec, pick=pick)
+
+    # the boon feat is folded into the choices' feat list (its own category slot)
+    assert "feat-boon" in [f["feat"] for f in choices["feats"]]
+
+    core = derive_core(choices, gen_access)
+    assert "feat-boon" in [f["name"] for f in core["feats"]]
+    # feat-boon confers a from-any +1; the deterministic allocation raises the highest ability (a1):
+    # base 15 + background +2 + boon +1 = 18
+    assert core["abilities"]["x1"]["final"] == 18
+    assert validate_core(core, access)["legal"] is True
+
+
+# ------------------------------------------------------------------- T88 model-chosen increase target
+
+def test_pass1_grammar_offers_ability_increase_targets(gen_access):
+    spec = parse_request(gen_access, {
+        "species": "species-a", "classes": [{"class": "class-a", "level": 8}], "background": "bg-a"})
+    resolved = [("class-a", 8, "sub-a")]
+    schema = grammar.build_pass1_grammar(
+        gen_access, spec, resolved,
+        feat_slots=options.ability_feat_slot_count(gen_access, resolved))
+    inc = schema["properties"]["ability_increases"]
+    assert inc["maxItems"] == 2
+    shapes = {b["properties"]["shape"]["const"] for b in inc["items"]["oneOf"]}
+    assert shapes == {"two", "split"}
+    # targets are constrained to actual ability ids (legality by construction)
+    two_branch = next(b for b in inc["items"]["oneOf"] if b["properties"]["shape"]["const"] == "two")
+    assert set(two_branch["properties"]["ability"]["enum"]) >= {"a1", "a2", "a3"}
+    # the target field is offered but not forced (a slot may take a feat instead of an increase)
+    assert "ability_increases" not in schema["required"]
+
+
+def test_model_chosen_increase_target_replaces_heuristic(gen_access, access):
+    # the raw ability-score increase would default to the HIGHEST ability (a1); the model instead
+    # targets a3, and the chosen target — not the heuristic — lands in the CORE ability final.
+    from app.derivation.core import derive_core
+    spec = parse_request(gen_access, {
+        "species": "species-a", "classes": [{"class": "class-a", "level": 8}],
+        "subclasses": {"class-a": "sub-a"}, "background": "bg-a",
+        "character_id": "char-t88", "character_name": "Theta"})
+    pick = _stub_pick(
+        {"name": "Theta", "skills": ["sk1", "sk2"],
+         "background_increase": {"shape": "two-one", "plus_two": "a1", "plus_one": "a2"},
+         "spells": {"cantrips": ["sp1"], "spells": ["sp3"]},
+         "feats": ["ability-score-improvement"],
+         "ability_increases": [{"shape": "two", "ability": "a3"}]})
+    choices = generate_choices(gen_access, spec, pick=pick)
+    inc = choices["feats"][0]["ability_increase"]
+    assert inc == {"ability": "a3", "amount": 2}
+
+    core = derive_core(choices, gen_access)
+    # a3: base 13 + chosen +2 = 15 (NOT a1, which the highest-ability heuristic would have picked)
+    assert core["abilities"]["x3"]["final"] == 15
+    assert core["abilities"]["x1"]["final"] == 17    # a1: base 15 + background +2, no ASI here
+    assert validate_core(core, access)["legal"] is True
+
+
+def test_model_chosen_split_increase(gen_access, access):
+    # a split increase (+1 / +1 across two abilities) is representable and applied to BOTH abilities.
+    from app.derivation.core import derive_core
+    spec = parse_request(gen_access, {
+        "species": "species-a", "classes": [{"class": "class-a", "level": 8}],
+        "subclasses": {"class-a": "sub-a"}, "background": "bg-a",
+        "character_id": "char-split", "character_name": "Iota"})
+    pick = _stub_pick(
+        {"name": "Iota", "skills": ["sk1", "sk2"],
+         "background_increase": {"shape": "two-one", "plus_two": "a1", "plus_one": "a2"},
+         "spells": {"cantrips": ["sp1"], "spells": ["sp3"]},
+         "feats": ["ability-score-improvement"],
+         "ability_increases": [{"shape": "split", "abilities": ["a2", "a3"]}]})
+    choices = generate_choices(gen_access, spec, pick=pick)
+    inc = choices["feats"][0]["ability_increase"]
+    assert inc == [{"ability": "a2", "amount": 1}, {"ability": "a3", "amount": 1}]
+
+    core = derive_core(choices, gen_access)
+    # a2: base 14 + background +1 + split +1 = 16 ; a3: base 13 + split +1 = 14
+    assert core["abilities"]["x2"]["final"] == 16
+    assert core["abilities"]["x3"]["final"] == 14
+    assert validate_core(core, access)["legal"] is True
+
+
+# --------------------------------------------------------------------------- T94 weapon-mastery choice
+
+def test_weapon_mastery_choice_enumerated_from_dal(gen_access):
+    # a build with the weapon-mastery feature is offered its pick count (2 at level 1) from the
+    # masterable-weapon pool (the weapons carrying a mastery property); a build without it gets none.
+    n, pool = options.weapon_mastery_choice(gen_access, [("class-wm", 1, None)])
+    assert n == 2
+    assert pool == ["weapon-a", "weapon-b", "weapon-c"]
+    # the count follows the resource ladder (3 from level 5)
+    n5, _ = options.weapon_mastery_choice(gen_access, [("class-wm", 5, None)])
+    assert n5 == 3
+    assert options.weapon_mastery_choice(gen_access, [("class-a", 3, None)]) == (0, [])
+
+
+def test_pass1_grammar_offers_weapon_mastery(gen_access):
+    spec = parse_request(gen_access, {
+        "species": "species-a", "classes": [{"class": "class-wm", "level": 1}], "background": "bg-a"})
+    resolved = [("class-wm", 1, None)]
+    schema = grammar.build_pass1_grammar(gen_access, spec, resolved)
+    wm = schema["properties"]["weapon_masteries"]
+    assert wm["items"]["enum"] == ["weapon-a", "weapon-b", "weapon-c"]
+    assert wm["minItems"] == 2 and wm["maxItems"] == 2 and wm["uniqueItems"] is True
+    assert "weapon_masteries" in schema["required"]
+
+
+def test_weapon_mastery_picks_flow_into_core_and_validate_complete(gen_access, access):
+    from app.derivation.core import derive_core
+    spec = parse_request(gen_access, {
+        "species": "species-a", "classes": [{"class": "class-wm", "level": 1}], "background": "bg-a",
+        "character_id": "char-wm", "character_name": "Kappa"})
+    pick = _stub_pick(
+        {"name": "Kappa", "skills": [],
+         "background_increase": {"shape": "two-one", "plus_two": "a1", "plus_one": "a2"},
+         "weapon_masteries": ["weapon-a", "weapon-b"]})
+    choices = generate_choices(gen_access, spec, pick=pick)
+    assert choices["weapon_masteries"] == ["weapon-a", "weapon-b"]
+
+    core = derive_core(choices, gen_access)
+    assert core["weapon_masteries"] == ["weapon-a", "weapon-b"]
+    assert "Weapon Mastery" in [f["name"] for f in core["features"]]
+    report = validate_core(core, access)
+    assert report["legal"] is True
+    # the weapon-mastery completeness gap is closed: no finding in that domain
+    assert "weapon_mastery" not in _domains(report)
+
+
+def test_weapon_mastery_pick_constrained_to_masterable_pool(gen_access):
+    # a stray pick outside the masterable pool is dropped; picks are capped at the granted count.
+    spec = parse_request(gen_access, {
+        "species": "species-a", "classes": [{"class": "class-wm", "level": 1}], "background": "bg-a"})
+    resolved = [("class-wm", 1, None)]
+    choices = assemble.assemble_choices(
+        gen_access, spec, resolved,
+        {"name": "K", "weapon_masteries": ["weapon-a", "not-a-weapon", "weapon-b", "weapon-c"]})
+    # 'not-a-weapon' dropped, capped at the count of 2
+    assert choices["weapon_masteries"] == ["weapon-a", "weapon-b"]

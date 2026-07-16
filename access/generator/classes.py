@@ -71,3 +71,25 @@ def ability_feat_slots(access: GeneratorAccess, class_id: str, level: int) -> in
     return access.db.scalar(
         "SELECT COUNT(*) FROM class_feature WHERE class_id=? AND level<=? "
         "AND name='Ability Score Improvement'", class_id, level) or 0
+
+
+def top_tier_boon_slots(access: GeneratorAccess, class_id: str, level: int) -> int:
+    """The number of distinct top-tier boon slots a class has opened by ``level`` — the count of its
+    highest-tier feat-slot features (a capstone-tier slot gated at the top of the level range that
+    draws from its OWN feat category rather than the general pool), read from the class-feature spine
+    by name, never assumed. Separate from :func:`ability_feat_slots` (which counts the general
+    ability-increase slots), so a max-level build offers both. Pure DB read."""
+    return access.db.scalar(
+        "SELECT COUNT(*) FROM class_feature WHERE class_id=? AND level<=? "
+        "AND name='Epic Boon'", class_id, level) or 0
+
+
+def weapon_mastery_count(access: GeneratorAccess, class_id: str, level: int) -> int:
+    """The number of weapon-mastery picks a class grants by ``level`` — the count on its
+    'Weapon Mastery' resource ladder at the highest ladder step at or below ``level`` (the ladder is
+    flat for some classes and scales for others, so the step is read from the ruleset, never
+    assumed). Returns 0 when the class grants no weapon-mastery feature. Pure DB read."""
+    return access.db.scalar(
+        "SELECT l.count FROM class_resource_level l JOIN class_resource r ON r.id=l.resource_id "
+        "WHERE r.owner_kind='class' AND r.owner_id=? AND r.name='Weapon Mastery' AND l.level<=? "
+        "ORDER BY l.level DESC LIMIT 1", class_id, level) or 0

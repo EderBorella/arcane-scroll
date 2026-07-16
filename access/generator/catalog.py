@@ -35,3 +35,11 @@ def list_skills(access: GeneratorAccess) -> list:
     """Every skill in the rulebook, as (id, name, ability_id) rows ordered by id — the deriver emits
     one skill entry per row."""
     return access.db.q("SELECT id, name, ability_id FROM skill ORDER BY id")
+
+
+def masterable_weapons(access: GeneratorAccess) -> list:
+    """Every weapon that carries a mastery property (a non-NULL mastery), as (id, name) rows ordered
+    by id — the pool the weapon-mastery choice picks from. Pure DB read."""
+    return access.db.q(
+        "SELECT w.id, ci.name FROM weapon w JOIN catalog_item ci ON ci.id=w.id "
+        "WHERE w.mastery_id IS NOT NULL ORDER BY w.id")

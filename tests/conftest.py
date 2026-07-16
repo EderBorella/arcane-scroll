@@ -1497,6 +1497,28 @@ def _build_rules_db(path: str) -> None:
     # reader degrades gracefully when the column is absent; a couple of rows carry a weight so the
     # enrichment path can be asserted. Items left without a weight exercise the omit-when-null path.
     cur.execute("ALTER TABLE catalog_item ADD COLUMN weight_lb REAL")
+
+    # --- generation-grammar-completeness fixtures (bundle 8: T87 / T88 / T94) ---
+    # T87 top-tier boon slot: class-a gains a distinct capstone-tier slot at the top of the level
+    # range (level 19), drawing from its OWN feat category (epic-boon: feat-boon above) rather than
+    # the general pool. It is a separate feature name from 'Ability Score Improvement', so a level-19
+    # single-class build opens ONE boon slot on top of its two ability-increase slots (levels 4/8).
+    cur.execute("INSERT INTO class_feature VALUES ('cf-boon19','class-a',19,'Epic Boon')")
+    # T94 weapon mastery: class-wm is a martial (non-caster) class whose level-1 'Weapon Mastery'
+    # feature entitles the build to a number of weapon-mastery picks read from a 'Weapon Mastery'
+    # resource ladder (2 at level 1, 3 from level 5). Its masterable pool is the weapons carrying a
+    # mastery property (weapon-a/b/c above). Kept separate from class-a/class-m so the existing
+    # end-to-end builds — which carry no weapon-mastery feature — stay complete.
+    cur.execute("INSERT INTO class VALUES ('class-wm','Class WM',10,3,'none','all',2,0,'')")
+    for aid, score in [("a1", 15), ("a2", 14), ("a3", 13)]:
+        cur.execute("INSERT INTO class_standard_array VALUES ('class-wm',?,?)", (aid, score))
+    for aid in ("a1", "a2"):
+        cur.execute("INSERT INTO class_saving_throw VALUES ('class-wm',?)", (aid,))
+    cur.execute("INSERT INTO class_feature VALUES ('cf-wm1','class-wm',1,'Weapon Mastery')")
+    cur.execute("INSERT INTO class_resource VALUES "
+                "('class-wm-weapon-mastery','class','class-wm','Weapon Mastery')")
+    cur.execute("INSERT INTO class_resource_level VALUES ('class-wm-weapon-mastery',1,2,NULL,NULL,NULL)")
+    cur.execute("INSERT INTO class_resource_level VALUES ('class-wm-weapon-mastery',5,3,NULL,NULL,NULL)")
     cur.execute("UPDATE catalog_item SET weight_lb=3.0 WHERE id='blade-a'")
     cur.execute("UPDATE catalog_item SET weight_lb=7.0 WHERE id='weapon-a'")
     cur.execute("UPDATE catalog_item SET weight_lb=8.0 WHERE id='armor-e'")

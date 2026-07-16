@@ -69,7 +69,8 @@ from validator.checks import senses as senses_check
 #   "background_increase":{ ability_key: amount_int, ... },  # the +2/+1 or +1/+1/+1 distribution
 #   "skills":             [ skill_id, ... ],   # first-class pool picks + any choose-grant picks
 #   "expertise":          [ skill_id, ... ],   # optional
-#   "feats": [ {"feat": feat_id, "ability_increase": {"ability": key, "amount": int} | None}, ... ],
+#   "feats": [ {"feat": feat_id, "ability_increase": {"ability": key, "amount": int}
+#                                     | [ {"ability": key, "amount": int}, ... ] | None}, ... ],
 #   "tools":              [ tool_id, ... ],    # optional chosen tools (category-choice picks)
 #   "weapon_masteries":   [ str, ... ],        # required when a Weapon Mastery feature is present
 #   "languages":          [ str, ... ],        # player choice; unvalidated in CORE
@@ -212,10 +213,13 @@ def _abilities(access, choices: Choices, key_of: dict) -> dict:
     feat_inc_by_aid: dict[str, int] = {}
     for f in choices.get("feats") or []:
         inc = f.get("ability_increase") if isinstance(f, dict) else None
-        if isinstance(inc, dict) and inc.get("ability") is not None:
-            aid = _resolve_ability(access, inc["ability"])
-            if aid is not None:
-                feat_inc_by_aid[aid] = feat_inc_by_aid.get(aid, 0) + int(inc.get("amount", 0))
+        # A feat's ability increase is either a single {ability, amount} (a +2 to one ability) or a
+        # list of them (a +1/+1 split across two abilities); normalise to a list before folding.
+        for one in _increase_list(inc):
+            if isinstance(one, dict) and one.get("ability") is not None:
+                aid = _resolve_ability(access, one["ability"])
+                if aid is not None:
+                    feat_inc_by_aid[aid] = feat_inc_by_aid.get(aid, 0) + int(one.get("amount", 0))
 
     # The final score is clamped to the ruleset's standard cap (read from the DB, 20 by default): base
     # + background bonus + any feat/ASI increase, never above the cap.
@@ -477,13 +481,30 @@ def _feats(access, choices: Choices) -> list[dict]:
             continue
         entry = {"name": f.get("feat"), "source": f.get("source", "class")}
         inc = f.get("ability_increase")
-        if isinstance(inc, dict):
+        if isinstance(inc, list):
+            # A split increase (+1/+1) — carry each well-formed target as its own {ability, amount}.
+            built = [{"ability": one["ability"], "amount": int(one.get("amount", 0))}
+                     for one in inc
+                     if isinstance(one, dict) and _resolve_ability(access, one.get("ability")) is not None]
+            if built:
+                entry["ability_increase"] = built
+        elif isinstance(inc, dict):
             aid = _resolve_ability(access, inc.get("ability"))
             if aid is not None:
                 entry["ability_increase"] = {"ability": inc["ability"],
                                              "amount": int(inc.get("amount", 0))}
         out.append(entry)
     return out
+
+
+def _increase_list(inc) -> list:
+    """Normalise a feat's ``ability_increase`` to a list of ``{ability, amount}`` entries: a single
+    object becomes a one-item list, a list is returned as-is, anything else becomes empty."""
+    if isinstance(inc, list):
+        return inc
+    if isinstance(inc, dict):
+        return [inc]
+    return []
 
 
 def _derive_senses(grant_rows: list) -> dict:

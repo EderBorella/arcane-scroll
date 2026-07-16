@@ -11,7 +11,7 @@ the model's picks refine the fields it is allowed to choose.
 from app.generation.choices import options
 
 
-def assemble_choices(access, spec, resolved, picks, *, feat_slots=0):
+def assemble_choices(access, spec, resolved, picks, *, feat_slots=0, boon_slots=0):
     """The pass-1 choices object from the spec + the model's pass-1 picks. Equipment is added later
     (``apply_equipment``) so the two-pass seam stays intact; until then ``equipment`` is absent."""
     picks = picks or {}
@@ -36,8 +36,9 @@ def assemble_choices(access, spec, resolved, picks, *, feat_slots=0):
         "ability_scores": base_scores,
         "background_increase": background_increase,
         "skills": list(picks.get("skills") or []),
-        "feats": _feats(access, picks, feat_slots, effective_scores),
+        "feats": _feats(access, picks, feat_slots, boon_slots, effective_scores),
         "spells": _spells(picks),
+        "weapon_masteries": _weapon_masteries(access, resolved, picks),
         "languages": [],
     }
     if spec.alignment is not None:
@@ -85,22 +86,62 @@ def _background_increase(access, spec, picks):
     return options.default_background_boost(access, spec.background)
 
 
-def _feats(access, picks, feat_slots, effective_scores):
-    """Class/level-slot feats as ``[{feat: id, ability_increase?}, ...]``. A slot is spent on a general
-    feat OR a raw ability-score increase (which is itself a general feat), so each pick is a general
-    feat; when that feat confers an ability-score increase it is folded in as ``ability_increase`` (a
-    DB-grounded allocation the CORE deriver adds to the ability's final). The ORIGIN feat is
-    deliberately absent — CORE adds it from the background automatically, so listing it here would
-    double-count it."""
-    if feat_slots <= 0:
-        return []
+def _feats(access, picks, feat_slots, boon_slots, effective_scores):
+    """Slot feats as ``[{feat: id, ability_increase?}, ...]`` — the general ability-increase/feat
+    slots followed by the top-tier boon slots (each drawing from its own category). A slot is spent
+    on a feat OR a raw ability-score increase (which is itself a feat), so each pick is a feat; when
+    it confers an ability-score increase that increase is folded in as ``ability_increase`` (a
+    DB-grounded allocation the CORE deriver adds to the ability's final).
+
+    For a general slot spent on a raw (from-any) increase, the model's per-slot target pick from
+    ``ability_increases`` decides which ability(ies) rise — a single-target +2 or a +1/+1 split —
+    consumed positionally across the choosable feats; a slot without a supplied (or with an illegal)
+    target falls back to the deterministic allocation. The ORIGIN feat is deliberately absent — CORE
+    adds it from the background automatically, so listing it here would double-count it."""
     out = []
-    for fid in options.dedupe_slot_feats(access, picks.get("feats") or []):
-        entry = {"feat": fid}
-        increase = options.feat_increase_allocation(access, fid, effective_scores)
-        if increase is not None:
-            entry["ability_increase"] = increase
-        out.append(entry)
+    if feat_slots > 0:
+        increase_picks = list(picks.get("ability_increases") or [])
+        ic_idx = 0
+        for fid in options.dedupe_slot_feats(access, picks.get("feats") or []):
+            entry = {"feat": fid}
+            if options.increase_is_choosable(access, fid):
+                choice = increase_picks[ic_idx] if ic_idx < len(increase_picks) else None
+                ic_idx += 1
+                increase = options.increase_from_choice(access, fid, choice, effective_scores)
+            else:
+                increase = options.feat_increase_allocation(access, fid, effective_scores)
+            if increase is not None:
+                entry["ability_increase"] = increase
+            out.append(entry)
+    if boon_slots > 0:
+        # A top-tier boon draws from its own category; its increase (when any) uses the deterministic
+        # allocation — the model chooses the boon, not its ability target.
+        for fid in options.dedupe_slot_feats(access, picks.get("boons") or []):
+            entry = {"feat": fid, "source": "boon"}
+            increase = options.feat_increase_allocation(access, fid, effective_scores)
+            if increase is not None:
+                entry["ability_increase"] = increase
+            out.append(entry)
+    return out
+
+
+def _weapon_masteries(access, resolved, picks):
+    """The chosen masterable-weapon ids, validated against the build's masterable pool and capped at
+    the count the build's weapon-mastery feature grants. Empty when the build gains no such feature
+    or the model picked none — a stray or over-count pick is dropped rather than passed to the
+    deriver, so the CORE ``weapon_masteries`` is legal by construction."""
+    n, pool = options.weapon_mastery_choice(access, resolved)
+    if n <= 0:
+        return []
+    allowed = set(pool)
+    seen: set = set()
+    out: list = []
+    for wid in (picks.get("weapon_masteries") or []):
+        if wid in allowed and wid not in seen:
+            seen.add(wid)
+            out.append(wid)
+        if len(out) >= n:
+            break
     return out
 
 

@@ -118,6 +118,28 @@ def ability_feat_slot_count(access, resolved):
     return sum(class_q.ability_feat_slots(access, cid, lv) for cid, lv, _sub in resolved)
 
 
+def boon_slot_count(access, resolved):
+    """Total top-tier boon slots the build has opened, summed across its classes — each counted at its
+    OWN class level (a per-class progression). Distinct from :func:`ability_feat_slot_count`; a build
+    that reaches the gating level offers this on top of its general ability-increase slots.
+    ``resolved`` is ``[(class_id, level, subclass_id), ...]``."""
+    return sum(class_q.top_tier_boon_slots(access, cid, lv) for cid, lv, _sub in resolved)
+
+
+def weapon_mastery_choice(access, resolved):
+    """``(n, weapon_ids)`` the build may fill with weapon-mastery picks: ``n`` is the largest
+    weapon-mastery count granted across the build's classes at each class's own level (the counts do
+    not stack — a multiclass keeps the higher allowance), capped at the pool size; ``weapon_ids`` is
+    the masterable-weapon pool. ``(0, [])`` when no class grants a weapon-mastery feature.
+    ``resolved`` is ``[(class_id, level, subclass_id), ...]``."""
+    counts = [class_q.weapon_mastery_count(access, cid, lv) for cid, lv, _sub in resolved]
+    n = max(counts) if counts else 0
+    if n <= 0:
+        return 0, []
+    pool = [r["id"] for r in catalog.masterable_weapons(access)]
+    return min(n, len(pool)), pool
+
+
 def feat_increase_allocation(access, feat_id, effective_scores):
     """The ability-score increase a chosen feat confers, as ``{"ability": ability_id, "amount": int}``,
     or None when the feat confers none. A feat with a fixed target set raises the highest-scoring of
@@ -139,6 +161,57 @@ def feat_increase_allocation(access, feat_id, effective_scores):
     if grant["max_per_ability"] is not None:
         amount = min(amount, grant["max_per_ability"])
     return {"ability": target, "amount": amount}
+
+
+def increase_is_choosable(access, feat_id):
+    """True when a feat's ability-score increase lets the model pick the target — a from-any increase
+    (or one with no fixed target list). A fixed-target increase's ability is data-fixed and is not a
+    model choice; a feat conferring no increase is not choosable either."""
+    grant = feat_q.ability_increase_grant(access, feat_id)
+    return bool(grant and grant["points"] and (grant["from_any"] or not grant["abilities"]))
+
+
+def any_choosable_increase(access, feat_ids):
+    """True if any feat in the pool offers a model-choosable ability-increase target — the grammar
+    uses this to decide whether to expose the per-slot target field at all."""
+    return any(increase_is_choosable(access, fid) for fid in feat_ids)
+
+
+def increase_from_choice(access, feat_id, choice, effective_scores):
+    """The ability-score increase a chosen ability-increase slot confers, honouring the model's
+    target ``choice`` when the feat's increase is choosable and the pick is well-formed and legal,
+    else falling back to the deterministic :func:`feat_increase_allocation`.
+
+    ``choice`` is the model's per-slot pick: ``{"shape": "two", "ability": id}`` for a single-target
+    +2 (returned as ``{"ability", "amount"}``), or ``{"shape": "split", "abilities": [id, id]}`` for
+    a +1/+1 split across two distinct abilities (returned as a list of ``{"ability", "amount"}``).
+    Targets are validated against the grant's allowed set (any ability for a from-any grant) and the
+    split is only honoured when the grant's point budget and per-ability cap allow +1 to two
+    abilities. An absent or illegal pick falls back to the heuristic, so the result is always legal
+    by construction. Returns None when the feat confers no increase."""
+    grant = feat_q.ability_increase_grant(access, feat_id)
+    if grant is None or not grant["points"]:
+        return None
+    if not increase_is_choosable(access, feat_id):
+        # A fixed-target increase's ability is data-fixed — the model has no say.
+        return feat_increase_allocation(access, feat_id, effective_scores)
+    candidates = grant["abilities"] or [r["id"] for r in catalog.list_abilities(access)]
+    allowed = set(candidates)
+    cap = grant["max_per_ability"]
+    if isinstance(choice, dict):
+        shape = choice.get("shape")
+        if shape == "two":
+            aid = choice.get("ability")
+            if aid in allowed:
+                amount = grant["points"] if cap is None else min(grant["points"], cap)
+                return {"ability": aid, "amount": amount}
+        elif shape == "split":
+            abilities = choice.get("abilities")
+            if (isinstance(abilities, list) and len(abilities) == 2
+                    and len(set(abilities)) == 2 and set(abilities) <= allowed
+                    and grant["points"] >= 2 and (cap is None or cap >= 1)):
+                return [{"ability": aid, "amount": 1} for aid in abilities]
+    return feat_increase_allocation(access, feat_id, effective_scores)
 
 
 def any_repeatable(access, feat_ids):
