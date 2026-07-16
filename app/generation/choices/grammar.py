@@ -19,6 +19,20 @@ def build_pass1_grammar(access, spec, resolved, *, feat_slots=0):
     props = {"name": {"type": "string"}}
     req = ["name"]
 
+    # Species sub-choices: a lineage pick and/or a variant-axis pick, offered only when the chosen
+    # species carries them (and never when it doesn't). Lineage is enumerated as ids (a resolver dim
+    # the deriver renders to its display name); the variant axis is enumerated as option names (a
+    # name-keyed field the deriver carries verbatim). Each is required once offered, so a species that
+    # has them always yields its pick.
+    lineage_ids = options.lineage_options(access, spec.species)
+    if lineage_ids:
+        props["lineage"] = {"enum": lineage_ids}
+        req.append("lineage")
+    variant_names = options.variant_option_names(access, spec.species)
+    if variant_names:
+        props["species_variant"] = {"enum": variant_names}
+        req.append("species_variant")
+
     if spec.background:
         boost = _boost_schema(options.background_boost_options(access, spec.background))
         if boost is not None:

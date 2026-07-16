@@ -179,8 +179,15 @@ def _identity(access, choices: Choices) -> dict:
     }
     # Optional identity fields — emitted only when the choice supplies them, so an absent value is
     # simply omitted rather than serialised as an explicit null.
-    for key, value in (("lineage", choices.get("lineage")),
-                       ("species_variant", choices.get("species_variant")),
+    #
+    # ``lineage`` is a resolver dim: choices carry its canonical id, so it is rendered to its display
+    # name here (the grant walkers resolve identity.lineage back to the id to gather lineage grants).
+    # ``species_variant`` is a name-keyed field (matched by (species, axis, option_name); no resolver
+    # dim), so the chosen option name is carried verbatim.
+    lineage_id = choices.get("lineage")
+    if lineage_id is not None:
+        identity["lineage"] = _display(access, "lineage", lineage_id)
+    for key, value in (("species_variant", choices.get("species_variant")),
                        ("alignment", choices.get("alignment"))):
         if value is not None:
             identity[key] = value
@@ -591,8 +598,23 @@ def _resource_budgets(access, choices: Choices) -> dict:
 
 def _permanent_defenses(access, partial: dict) -> dict:
     res_rows = defenses_check._gather_owner_grants(access, partial, defenses_q.resistance_grants)
-    resistances = sorted({r["damage_type_id"] for r in res_rows
-                          if r["mode"] == "fixed" and r["damage_type_id"]})
+    resistance_set = {r["damage_type_id"] for r in res_rows
+                      if r["mode"] == "fixed" and r["damage_type_id"]}
+    # A variant-axis resistance names its axis but not its damage type — the concrete type is decided
+    # by the chosen species_variant option. Resolve it here (deriver-owned, re-derived from the DB, so
+    # the deriver stays independent of the validator's own variant resolution).
+    ident = partial.get("identity", {}) or {}
+    variant_name = ident.get("species_variant")
+    if isinstance(variant_name, str) and variant_name:
+        spid = access.resolve("species", ident.get("species"))
+        if spid:
+            for row in res_rows:
+                if row["variant_axis"]:
+                    dmg = defenses_q.variant_damage_type(
+                        access, spid, row["variant_axis"], variant_name)
+                    if dmg:
+                        resistance_set.add(dmg)
+    resistances = sorted(resistance_set)
 
     cond_rows = defenses_check._gather_owner_grants(access, partial, defenses_q.condition_grants)
     condition_immunities = sorted({r["condition_id"] for r in cond_rows if r["effect"] == "immunity"})

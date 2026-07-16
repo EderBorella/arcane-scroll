@@ -22,6 +22,7 @@ from access.generator import classes as class_q
 from access.generator import equipment as equip_q
 from access.generator import feats as feat_q
 from access.generator import spells as spell_q
+from access.generator import species as species_q
 
 # The ability score at which the modifier is zero — the neutral baseline the standard-array
 # allocation falls back to for any ability a class's suggested assignment does not cover. In a
@@ -45,6 +46,29 @@ def resolve_subclass(access, class_id, level, override=None, rng=random):
     if override in options:
         return override
     return rng.choice(options)
+
+
+# --------------------------------------------------------------------------- species sub-choices
+def lineage_options(access, species_id):
+    """The lineage ids a species offers as a sub-choice, ordered. Empty when the species has none —
+    the grammar then offers no lineage field. A build picks exactly one when the list is non-empty."""
+    return [r["id"] for r in species_q.species_lineages(access, species_id)]
+
+
+def variant_option_names(access, species_id):
+    """The variant option NAMES a species offers as a sub-choice, in (axis, id) order with duplicates
+    removed. A species's variant axis is a name-keyed pick (matched by (species, axis, option_name)),
+    so the sheet's single ``species_variant`` string carries the chosen option name directly. Empty
+    when the species has no variant axis. (The reference model gives a species at most one variant
+    axis; were several ever added, the single-string sheet field would need a contract change.)"""
+    seen: set = set()
+    out: list = []
+    for r in species_q.species_variant_options(access, species_id):
+        name = r["option_name"]
+        if name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
 
 
 # --------------------------------------------------------------------------- abilities

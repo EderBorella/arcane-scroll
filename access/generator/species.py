@@ -29,3 +29,19 @@ def species_sizes(access: GeneratorAccess, species_id: str) -> list[str]:
 def species_creature_type(access: GeneratorAccess, species_id: str) -> str | None:
     """The creature-type id of a species, or None if the species is unknown."""
     return access.db.scalar("SELECT creature_type_id FROM species WHERE id=?", species_id)
+
+
+def species_lineages(access: GeneratorAccess, species_id: str) -> list:
+    """The lineage sub-choices a species offers, as (id, species_id, name) rows ordered by id.
+    Empty when the species offers no lineage. Pure DB read — the grammar decides how many to offer."""
+    return access.db.q(
+        "SELECT id, species_id, name FROM lineage WHERE species_id=? ORDER BY id", species_id)
+
+
+def species_variant_options(access: GeneratorAccess, species_id: str) -> list:
+    """The variant-axis sub-choice options a species offers, as (id, axis, option_name, damage_type_id)
+    rows ordered by (axis, id). Empty when the species offers no variant axis. Pure DB read — the
+    grammar groups these by axis and offers the option names to the model."""
+    return access.db.q(
+        "SELECT id, axis, option_name, damage_type_id FROM species_variant_option "
+        "WHERE species_id=? ORDER BY axis, id", species_id)

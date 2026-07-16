@@ -42,6 +42,32 @@ def test_species_creature_type(gen_access):
     assert species.species_creature_type(gen_access, "nope") is None
 
 
+# --- species sub-choices (lineage / variant axis) --------------------------
+
+def test_species_lineages_ordered_by_id(gen_access):
+    rows = species.species_lineages(gen_access, "species-l")
+    assert [r["id"] for r in rows] == ["lin-l1", "lin-l2"]
+    assert all(r["species_id"] == "species-l" for r in rows)
+
+
+def test_species_lineages_none_for_plain_species(gen_access):
+    # species-a offers no lineage sub-choice
+    assert species.species_lineages(gen_access, "species-a") == []
+    assert species.species_lineages(gen_access, "nope") == []
+
+
+def test_species_variant_options_ordered(gen_access):
+    rows = species.species_variant_options(gen_access, "species-v")
+    assert [r["id"] for r in rows] == ["svo-a", "svo-b"]
+    assert [(r["axis"], r["option_name"], r["damage_type_id"]) for r in rows] == [
+        ("axis-a", "Variant A", "fire"), ("axis-a", "Variant B", "cold")]
+
+
+def test_species_variant_options_none_for_plain_species(gen_access):
+    assert species.species_variant_options(gen_access, "species-a") == []
+    assert species.species_variant_options(gen_access, "nope") == []
+
+
 # --- classes ---------------------------------------------------------------
 
 def test_list_classes_ordered(gen_access):

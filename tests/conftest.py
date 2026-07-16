@@ -307,7 +307,15 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE subclass (id TEXT PRIMARY KEY, class_id TEXT, name TEXT, is_caster INT, description TEXT)")
     cur.execute("CREATE TABLE species (id TEXT PRIMARY KEY, name TEXT, creature_type_id TEXT, base_walk_speed INT, description TEXT)")
     cur.execute("CREATE TABLE background (id TEXT PRIMARY KEY, name TEXT, feat_id TEXT, feat_choice INT, tool_id TEXT, tool_category_id TEXT, description TEXT)")
-    cur.execute("CREATE TABLE lineage (id TEXT PRIMARY KEY, name TEXT, description TEXT)")
+    # lineage carries its parent species and the (optional) spellcasting-ability shape, mirroring the
+    # reference schema so the sub-choice readers (species -> its lineages) and the grant walkers
+    # (lineage as a grant owner) exercise the real columns.
+    cur.execute("CREATE TABLE lineage (id TEXT PRIMARY KEY, species_id TEXT, name TEXT, "
+                "spellcasting_ability_mode TEXT, spellcasting_ability_id TEXT, description TEXT)")
+    # species_variant_option: an axis-based species sub-choice (e.g. an ancestry axis whose option
+    # picks a damage type). Matched by (species_id, axis, option_name) — no resolver dim.
+    cur.execute("CREATE TABLE species_variant_option (id TEXT PRIMARY KEY, species_id TEXT, "
+                "axis TEXT, option_name TEXT, damage_type_id TEXT)")
     cur.execute("CREATE TABLE size (id TEXT PRIMARY KEY, name TEXT, ordinal INT, space_ft REAL)")
     cur.execute("CREATE TABLE creature_type (id TEXT PRIMARY KEY, name TEXT)")
     cur.execute("CREATE TABLE xp_level (level INT PRIMARY KEY, xp_min INT)")
@@ -337,6 +345,16 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO creature_type VALUES ('type-a','Type A')")
     cur.execute("INSERT INTO creature_type VALUES ('type-b','Type B')")
     cur.execute("INSERT INTO species VALUES ('species-a','Species A','type-a',30,'')")
+    # species-l offers a LINEAGE sub-choice; species-v offers a VARIANT-axis sub-choice. species-a has
+    # neither, so it doubles as the negative ("offers no sub-choice") case for the enumeration/grammar.
+    cur.execute("INSERT INTO species VALUES ('species-l','Species L','type-a',30,'')")
+    cur.execute("INSERT INTO species VALUES ('species-v','Species V','type-a',30,'')")
+    # two lineages of species-l (ordered by id when enumerated)
+    cur.execute("INSERT INTO lineage VALUES ('lin-l1','species-l','Lineage One','none',NULL,'')")
+    cur.execute("INSERT INTO lineage VALUES ('lin-l2','species-l','Lineage Two','none',NULL,'')")
+    # a variant axis of species-v: two options, each resolving to a damage type
+    cur.execute("INSERT INTO species_variant_option VALUES ('svo-a','species-v','axis-a','Variant A','fire')")
+    cur.execute("INSERT INTO species_variant_option VALUES ('svo-b','species-v','axis-a','Variant B','cold')")
     cur.execute("INSERT INTO background VALUES ('bg-a','Background A','feat-origin',0,NULL,NULL,'')")
     # bg-b: a background with no origin feat grant (feat_id NULL) -- the negative case for the
     # background.feat_id-sourced origin budget
@@ -550,6 +568,9 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO feat VALUES ('feat-over','Feat Over','general',0)")
     cur.execute("INSERT INTO grant_speed VALUES "
                 "('gsd-feat-over','feat','feat-over',NULL,'climb',20,0,1,0,NULL,NULL)")
+    # lineage lin-l1 grants a fly speed (sets_total) -> a lineage-granted speed landing in CORE.
+    cur.execute("INSERT INTO grant_speed VALUES "
+                "('gsd-lin-l1','lineage','lin-l1',NULL,'fly',30,0,1,0,NULL,NULL)")
 
     cur.execute("CREATE TABLE class_resource (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, name TEXT)")
     cur.execute("CREATE TABLE class_resource_level (resource_id TEXT, level INTEGER, count INTEGER, "
@@ -687,6 +708,12 @@ def _build_rules_db(path: str) -> None:
     # a feat that grants blindsight 10
     cur.execute("INSERT INTO grant_sense VALUES "
                 "('gs-feat-blind','feat','feat-rep',NULL,'blindsight',10,0,NULL,NULL)")
+    # species-l darkvision 60; its lineage lin-l1 overrides to 120 (both non-extending -> max wins).
+    # Exercises a lineage-granted sense landing in CORE via the identity.lineage owner.
+    cur.execute("INSERT INTO grant_sense VALUES "
+                "('gs-species-l','species','species-l',NULL,'darkvision',60,0,NULL,NULL)")
+    cur.execute("INSERT INTO grant_sense VALUES "
+                "('gs-lin-l1','lineage','lin-l1',NULL,'darkvision',120,0,NULL,NULL)")
 
     # defenses domain: damage types, conditions, resistance/condition/save-advantage grants
     cur.execute("CREATE TABLE damage_type (id TEXT PRIMARY KEY, name TEXT)")
@@ -719,6 +746,13 @@ def _build_rules_db(path: str) -> None:
     # feat-gen grants fire resistance
     cur.execute("INSERT INTO grant_resistance VALUES "
                 "('gre-feat-gen','feat','feat-gen',NULL,'fire',NULL,'fixed',1,NULL,NULL,0,NULL)")
+    # species-v carries a VARIANT-axis resistance: the concrete damage type is decided by the chosen
+    # species_variant option (damage_type_id NULL here; variant_axis names the axis to resolve).
+    cur.execute("INSERT INTO grant_resistance VALUES "
+                "('gre-species-v','species','species-v',NULL,NULL,'axis-a','fixed',1,NULL,NULL,0,NULL)")
+    # lineage lin-l2 grants a fixed cold resistance -> a lineage-granted resistance landing in CORE.
+    cur.execute("INSERT INTO grant_resistance VALUES "
+                "('gre-lin-l2','lineage','lin-l2',NULL,'cold',NULL,'fixed',1,NULL,NULL,0,NULL)")
     # sub-a at L3 grants charmed immunity
     cur.execute("INSERT INTO grant_condition VALUES "
                 "('gcn-sub-a','subclass','sub-a',3,NULL,'charmed','immunity',0)")
@@ -1424,6 +1458,8 @@ def _build_rules_db(path: str) -> None:
     # species-a offers two sizes (a species may be one of several) -- exercises multi-size ordering
     cur.execute("INSERT INTO species_size VALUES ('species-a','size-a')")
     cur.execute("INSERT INTO species_size VALUES ('species-a','size-s')")
+    cur.execute("INSERT INTO species_size VALUES ('species-l','size-a')")
+    cur.execute("INSERT INTO species_size VALUES ('species-v','size-a')")
     # a second trait on species-a so trait ordinal ordering is observable
     cur.execute("INSERT INTO species_trait VALUES ('st-a2','species-a',2,'Species Trait B')")
     # class-a primary ability + suggested standard array + (saving throws already inserted above)

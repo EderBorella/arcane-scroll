@@ -224,3 +224,94 @@ def test_illegal_background_boost_shape_is_flagged(gen_access, access):
     bad = derive_core(choices, gen_access)
     report = validate_core(bad, access)
     assert report["legal"] is False
+
+
+# --------------------------------------------------------------------------- species sub-choices
+
+def _lineage_choices():
+    """A species that offers a lineage sub-choice, with the lineage chosen (its id, as the grammar
+    offers it). lin-l1 overrides the species darkvision (60 -> 120) and grants a fly speed."""
+    return {
+        "character_id": "char-l",
+        "character_name": "Lineage Build",
+        "species": "species-l",
+        "lineage": "lin-l1",
+        "classes": [{"class": "class-a", "level": 3, "subclass": "sub-a"}],
+        "background": "bg-a",
+        "ability_scores": {"a1": 15, "a2": 13, "a3": 14, "a4": 10, "a5": 12, "a6": 8, "wisdom": 10},
+        "background_increase": {"a1": 2, "a2": 1},
+        "skills": ["sk1", "sk2"],
+        "feats": [],
+        "languages": [],
+    }
+
+
+def _variant_choices():
+    """A species that offers a variant-axis sub-choice, with an option chosen (its name). Variant A
+    resolves the species's variant-axis resistance to 'fire'."""
+    return {
+        "character_id": "char-v",
+        "character_name": "Variant Build",
+        "species": "species-v",
+        "species_variant": "Variant A",
+        "classes": [{"class": "class-a", "level": 3, "subclass": "sub-a"}],
+        "background": "bg-a",
+        "ability_scores": {"a1": 15, "a2": 13, "a3": 14, "a4": 10, "a5": 12, "a6": 8, "wisdom": 10},
+        "background_increase": {"a1": 2, "a2": 1},
+        "skills": ["sk1", "sk2"],
+        "feats": [],
+        "languages": [],
+    }
+
+
+def test_lineage_id_rendered_to_display_name(gen_access):
+    sheet = derive_core(_lineage_choices(), gen_access)
+    # choices carry the lineage id; CORE renders it to the display name
+    assert sheet["identity"]["lineage"] == "Lineage One"
+
+
+def test_lineage_sense_override_lands(gen_access):
+    sheet = derive_core(_lineage_choices(), gen_access)
+    # species-l darkvision 60, lin-l1 darkvision 120 -> max wins
+    assert sheet["permanent_senses"]["darkvision"] == 120
+
+
+def test_lineage_speed_grant_lands(gen_access):
+    sheet = derive_core(_lineage_choices(), gen_access)
+    # the lineage grants a fly speed (sets_total 30); it lands via the identity.lineage owner
+    assert sheet["permanent_speed"].get("fly") == 30
+    assert sheet["permanent_speed"].get("walk", 0) >= 30
+
+
+def test_lineage_build_is_legal(gen_access, access):
+    report = validate_core(derive_core(_lineage_choices(), gen_access), access)
+    assert report["legal"] is True, report["violations"]
+    assert report["complete"] is True, report["violations"]
+
+
+def test_variant_resistance_lands(gen_access):
+    sheet = derive_core(_variant_choices(), gen_access)
+    assert sheet["identity"]["species_variant"] == "Variant A"
+    assert "fire" in sheet["permanent_defenses"]["resistances"]
+
+
+def test_variant_other_option_resolves_differently(gen_access):
+    choices = _variant_choices()
+    choices["species_variant"] = "Variant B"
+    sheet = derive_core(choices, gen_access)
+    # Variant B resolves the same axis to a different damage type
+    assert "cold" in sheet["permanent_defenses"]["resistances"]
+    assert "fire" not in sheet["permanent_defenses"]["resistances"]
+
+
+def test_variant_build_is_legal(gen_access, access):
+    report = validate_core(derive_core(_variant_choices(), gen_access), access)
+    assert report["legal"] is True, report["violations"]
+    assert report["complete"] is True, report["violations"]
+
+
+def test_no_subchoice_species_omits_fields(gen_access):
+    # species-a offers neither sub-choice: the fields are absent from identity
+    sheet = derive_core(_choices(), gen_access)
+    assert "lineage" not in sheet["identity"]
+    assert "species_variant" not in sheet["identity"]

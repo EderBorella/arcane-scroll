@@ -382,3 +382,62 @@ def test_caster_end_to_end(gen_access, access):
     mod = validate_modifier(document["core"], document.get("inventory"), document["grimoire"],
                             document["modifier"], access)
     assert mod["legal"] is True, mod["violations"]
+
+
+# --------------------------------------------------------------------------- species sub-choices
+
+def test_pass1_grammar_offers_lineage_for_species_with_lineages(gen_access):
+    spec = parse_request(gen_access, {
+        "species": "species-l", "classes": [{"class": "class-a", "level": 3}], "background": "bg-a"})
+    resolved = [("class-a", 3, "sub-a")]
+    schema = grammar.build_pass1_grammar(gen_access, spec, resolved)
+    assert "lineage" in schema["properties"]
+    assert schema["properties"]["lineage"]["enum"] == ["lin-l1", "lin-l2"]
+    assert "lineage" in schema["required"]
+    # a lineage-only species offers no variant field
+    assert "species_variant" not in schema["properties"]
+
+
+def test_pass1_grammar_offers_variant_for_species_with_variant_axis(gen_access):
+    spec = parse_request(gen_access, {
+        "species": "species-v", "classes": [{"class": "class-a", "level": 3}], "background": "bg-a"})
+    resolved = [("class-a", 3, "sub-a")]
+    schema = grammar.build_pass1_grammar(gen_access, spec, resolved)
+    assert "species_variant" in schema["properties"]
+    assert schema["properties"]["species_variant"]["enum"] == ["Variant A", "Variant B"]
+    assert "species_variant" in schema["required"]
+    assert "lineage" not in schema["properties"]
+
+
+def test_pass1_grammar_offers_no_subchoice_for_plain_species(gen_access):
+    spec = parse_request(gen_access, {
+        "species": "species-a", "classes": [{"class": "class-a", "level": 3}], "background": "bg-a"})
+    resolved = [("class-a", 3, "sub-a")]
+    schema = grammar.build_pass1_grammar(gen_access, spec, resolved)
+    assert "lineage" not in schema["properties"]
+    assert "species_variant" not in schema["properties"]
+
+
+def test_assemble_passes_lineage_pick_into_choices(gen_access):
+    spec = parse_request(gen_access, {
+        "species": "species-l", "classes": [{"class": "class-a", "level": 3}], "background": "bg-a"})
+    resolved = [("class-a", 3, "sub-a")]
+    choices = assemble.assemble_choices(
+        gen_access, spec, resolved, {"name": "L", "lineage": "lin-l1"})
+    assert choices["lineage"] == "lin-l1"
+    # an invalid lineage pick is dropped rather than passed through
+    bad = assemble.assemble_choices(
+        gen_access, spec, resolved, {"name": "L", "lineage": "not-a-lineage"})
+    assert bad["lineage"] is None
+
+
+def test_assemble_passes_variant_pick_into_choices(gen_access):
+    spec = parse_request(gen_access, {
+        "species": "species-v", "classes": [{"class": "class-a", "level": 3}], "background": "bg-a"})
+    resolved = [("class-a", 3, "sub-a")]
+    choices = assemble.assemble_choices(
+        gen_access, spec, resolved, {"name": "V", "species_variant": "Variant A"})
+    assert choices["species_variant"] == "Variant A"
+    bad = assemble.assemble_choices(
+        gen_access, spec, resolved, {"name": "V", "species_variant": "Nope"})
+    assert bad["species_variant"] is None

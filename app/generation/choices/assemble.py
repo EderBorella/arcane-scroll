@@ -29,6 +29,8 @@ def assemble_choices(access, spec, resolved, picks, *, feat_slots=0):
         "character_id": spec.character_id,
         "character_name": picks.get("name") or spec.character_name,
         "species": spec.species,
+        "lineage": _lineage(access, spec, picks),
+        "species_variant": _species_variant(access, spec, picks),
         "classes": [{"class": cid, "level": lv, "subclass": sub} for cid, lv, sub in resolved],
         "background": spec.background,
         "ability_scores": base_scores,
@@ -41,6 +43,23 @@ def assemble_choices(access, spec, resolved, picks, *, feat_slots=0):
     if spec.alignment is not None:
         choices["alignment"] = spec.alignment
     return choices
+
+
+def _lineage(access, spec, picks):
+    """The chosen lineage id, when the species offers lineages and the model picked a valid one; else
+    None. Validated against the species's lineage set so a stray pick can't reach the deriver."""
+    valid = set(options.lineage_options(access, spec.species))
+    pick = picks.get("lineage")
+    return pick if pick in valid else None
+
+
+def _species_variant(access, spec, picks):
+    """The chosen variant option NAME, when the species offers a variant axis and the model picked a
+    valid option; else None. Validated against the species's option-name set (the sheet's
+    ``species_variant`` field is name-keyed, matched by (species, axis, option_name))."""
+    valid = set(options.variant_option_names(access, spec.species))
+    pick = picks.get("species_variant")
+    return pick if pick in valid else None
 
 
 def _background_increase(access, spec, picks):
