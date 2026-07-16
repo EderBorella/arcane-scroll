@@ -527,7 +527,18 @@
         },
         "detail": {
           "type": "object",
-          "description": "State-specific context. E.g. concentrating: {on: spell_id}, shape-changed: {into: creature_id}, hidden: {stealth_check: 23}."
+          "description": "State-specific context. E.g. concentrating: {on: spell_id}, hidden: {stealth_check: 23}. For a self-transform state (the character temporarily BECOMES a creature): {into: creature_id, transform: 'physical'|'full'}. 'into' is a concrete creature catalog id whose stat block replaces the character's effective stats for the duration; templated (owner-scaled) creatures are not valid forms. 'transform' selects the replacement profile: 'physical' replaces the physical ability scores (Strength/Dexterity/Constitution), AC, speed, senses, attacks and size from the form while the character retains their mental ability scores (Intelligence/Wisdom/Charisma) and their own proficiencies/proficiency bonus; 'full' replaces all six ability scores (physical and mental) with the form's and drops the character's proficiencies. Both retain the character's own Hit Points/Hit Dice. 'transform' is optional and backward-compatible: when absent, 'into' contributes size only.",
+          "properties": {
+            "into": {
+              "type": "string",
+              "description": "Concrete creature catalog id the character transforms into."
+            },
+            "transform": {
+              "type": "string",
+              "enum": ["physical", "full"],
+              "description": "Replacement profile. 'physical' = physical-form transform (retain mental abilities + own proficiencies); 'full' = full transform (replace all abilities, drop proficiencies)."
+            }
+          }
         }
       }
     },

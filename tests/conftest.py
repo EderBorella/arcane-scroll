@@ -800,6 +800,24 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name,recharge_min,uses_per_day) "
                 "VALUES ('ct-c-recharge','creature-c','action','Recharge Move',5,2)")
 
+    # creature-form: a CONCRETE self-transform form (T60). Fixed stat block (no
+    # creature_formula rows), carrying a MENTAL ability score ('wisdom') so the
+    # physical-transform retained-vs-replaced split can be exercised: a1/a2/a3 (physical)
+    # are replaced by the form, 'wisdom' (mental) is retained by the character. Form
+    # defences differ from the character's (cold, not fire) to prove replace-not-union.
+    cur.execute("INSERT INTO creature (id,name,size_id,creature_type_id,source_kind,ac_value,"
+                "hp_average,hp_dice,initiative_bonus,cr_text,xp,pb) "
+                "VALUES ('creature-form','Creature Form','size-a','type-a','appendix',15,20,'3d8',1,'1',200,2)")
+    for aid, sc in [("a1", 18), ("a2", 6), ("a3", 14), ("wisdom", 8)]:
+        cur.execute("INSERT INTO creature_ability VALUES ('creature-form',?,?)", (aid, sc))
+    cur.execute("INSERT INTO creature_speed VALUES ('creature-form','walk',40,NULL)")
+    cur.execute("INSERT INTO creature_speed VALUES ('creature-form','climb',20,NULL)")
+    cur.execute("INSERT INTO creature_sense VALUES ('creature-form','darkvision',120)")
+    cur.execute("INSERT INTO creature_resistance VALUES ('creature-form','cold',NULL)")
+    cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name,atk_bonus,reach_ft,"
+                "dmg_average,dmg_dice,damage_type_id) "
+                "VALUES ('ct-form-claw','creature-form','action','Claw',6,5,11,'2d6 + 4','slashing')")
+
     # creature-t: a TEMPLATED spirit-like creature — NULL header ac/hp/pb, every
     # scaled stat driven by creature_formula rows. Exercises spell_level scaling,
     # spell_level_above_base thresholds, form_note gating (alternative forms),
