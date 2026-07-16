@@ -366,6 +366,71 @@ def _check_defenses(access, cm: dict, creature_id: str, v: list[Violation], idx)
                                f"companion_modifiers.{idx}.defenses.{label}"))
 
 
+def _check_legality(access, core: dict, creature_id: str, core_entry, v: list[Violation], idx) -> None:
+    """Independent creature-legality gate (T61): the chosen creature must be a
+    rules-legal companion — some owner must confer it via ``grant_companion``, and
+    the owner's level / cast level must satisfy at least one such grant.
+
+    The legal creature set is re-derived from the grant links directly (never from
+    the deriver): a creature with no grant link is not a grantable companion at all
+    (``companion-creature-illegal``); a grantable creature the owner cannot yet
+    field — a spell cast below the summon's base level, or a subclass companion
+    below its feature level — is ``companion-creature-level-illegal``. The level
+    gate is CONSERVATIVE: it fires only when the owner context positively shows
+    every grant is out of reach, so a companion lacking owner context (e.g. a
+    permanently-bound concrete companion with no cast level) is never
+    false-flagged."""
+    grants = creature_q.companion_grants_for_creature(access, creature_id)
+    if not grants:
+        v.append(Violation(DOMAIN, "companion-creature-illegal", "illegal",
+                           f"companion {idx}: creature {creature_id!r} is not a grantable "
+                           f"companion (no owner confers it)",
+                           f"companion_modifiers.{idx}.companion_index"))
+        return
+
+    core = core or {}
+    identity = core.get("identity") or {}
+    classes = identity.get("classes") or []
+    cast_level = core_entry.get("cast_level") if isinstance(core_entry, dict) else None
+
+    satisfiable = False
+    determinable = False
+    for g in grants:
+        at_spell = g["at_spell_level"]
+        gained = g["gained_at_level"]
+        if _int(at_spell):
+            # spell-tier gate: the slot must be at least the summon's base level.
+            if _int(cast_level):
+                determinable = True
+                if cast_level >= at_spell:
+                    satisfiable = True
+                    break
+                continue
+            # No cast level on the entry (e.g. a permanently-bound companion) — cannot disprove.
+            satisfiable = True
+            break
+        if _int(gained):
+            # class/subclass feature-level gate.
+            owner_level = _owner_class_level(classes, identity, g["owner_kind"], g["owner_id"])
+            if _int(owner_level):
+                determinable = True
+                if owner_level >= gained:
+                    satisfiable = True
+                    break
+                continue
+            satisfiable = True
+            break
+        # No level gate on this grant — always satisfiable.
+        satisfiable = True
+        break
+
+    if not satisfiable and determinable:
+        v.append(Violation(DOMAIN, "companion-creature-level-illegal", "illegal",
+                           f"companion {idx}: creature {creature_id!r} is grantable but not "
+                           f"at the owner's level (no grant link is satisfiable)",
+                           f"companion_modifiers.{idx}.companion_index"))
+
+
 def _check_states(access, cm: dict, v: list[Violation], idx) -> None:
     """A companion's character_states[] must be mutually compatible (same
     state_compatibility rule as the MODIFIER state check)."""
@@ -787,6 +852,9 @@ def check(sheet: dict, access) -> list[Violation]:
 
         # State validity is shape-level and always checked.
         _check_states(access, cm, v, idx)
+
+        # Creature-legality gate (T61): independent of the derived stats.
+        _check_legality(access, core, creature_id, core_entry, v, idx)
 
         if _is_templated(access, creature_id):
             # Templated creatures are formula-scaled: re-derive the scaled targets
