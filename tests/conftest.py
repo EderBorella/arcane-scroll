@@ -927,6 +927,23 @@ def _build_rules_db(path: str) -> None:
                 "dmg_average,dmg_dice,damage_type_id) "
                 "VALUES ('ct-form-strike-a','creature-form','action','Strike A',6,5,11,'2d6 + 4','slashing')")
 
+    # creature-form-sp: a CONCRETE self-transform form carrying SAVE + SKILL proficiencies (T65).
+    # pb=4; a MENTAL ability ('wisdom' 18) with a WISDOM save proficiency so the higher-of picks
+    # the form's proficiency-inclusive save (form wisdom save = +4 + pb 4 = 8) over a character
+    # who retains a low wisdom; and a skill (sk1) the form is far better at (bonus 9) so the
+    # higher-of / gained-form-proficiency shows on skills too. Content-neutral: synthetic ids.
+    cur.execute("INSERT INTO creature (id,name,size_id,creature_type_id,source_kind,ac_value,"
+                "hp_average,hp_dice,initiative_bonus,cr_text,xp,pb) "
+                "VALUES ('creature-form-sp','Creature Form SP','size-a','type-a','appendix',14,20,'3d8',2,'3',700,4)")
+    for aid, sc in [("a1", 18), ("a2", 6), ("a3", 14), ("wisdom", 18)]:
+        cur.execute("INSERT INTO creature_ability VALUES ('creature-form-sp',?,?)", (aid, sc))
+    cur.execute("INSERT INTO creature_speed VALUES ('creature-form-sp','walk',40,NULL)")
+    cur.execute("INSERT INTO creature_save VALUES ('creature-form-sp','wisdom')")
+    cur.execute("INSERT INTO creature_skill VALUES ('creature-form-sp','sk1',9)")
+    cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name,atk_bonus,reach_ft,"
+                "dmg_average,dmg_dice,damage_type_id) "
+                "VALUES ('ct-formsp-strike','creature-form-sp','action','Strike A',6,5,11,'2d6 + 4','slashing')")
+
     # creature-t: a TEMPLATED spirit-like creature — NULL header ac/hp/pb, every
     # scaled stat driven by creature_formula rows. Exercises spell_level scaling,
     # spell_level_above_base thresholds, form_note gating (alternative forms),

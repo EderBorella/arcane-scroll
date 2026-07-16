@@ -101,6 +101,33 @@ def _form_defenses(access, creature_id: str) -> dict:
     }
 
 
+def _form_save_mods(access, creature_id: str) -> dict:
+    """The form's stat-block saving-throw modifier per full ability id: the form's ability
+    modifier plus the FORM's own proficiency bonus (``creature.pb``) for a save the form is
+    proficient in (``creature_save``, T63). Empty for a form with no ability rows. Used for the
+    self-transform higher-of comparison (physical) and the form-authoritative saves (full)."""
+    scores = {r["ability_id"]: r["score"]
+              for r in creature_q.creature_abilities(access, creature_id) if _int(r["score"])}
+    proficient = {r["ability_id"] for r in creature_q.creature_saves(access, creature_id)}
+    row = creature_q.creature_row(access, creature_id)
+    form_pb = row["pb"] if row is not None else None
+    out = {}
+    for aid, score in scores.items():
+        modifier = _ability_mod(score)
+        if aid in proficient and _int(form_pb):
+            modifier += form_pb
+        out[aid] = modifier
+    return out
+
+
+def _form_skill_mods(access, creature_id: str) -> dict:
+    """The form's stat-block skill modifier per skill id (``creature_skill.bonus`` — already the
+    form's ability mod plus its proficiency). Used for the self-transform higher-of (physical) and
+    the form-authoritative skills (full)."""
+    return {r["skill_id"]: r["bonus"]
+            for r in creature_q.creature_skills(access, creature_id) if _int(r["bonus"])}
+
+
 def _norm_weapon_token(token: str) -> str:
     """Canonicalise a weapon token for name/proficiency matching: lower-case, hyphens → spaces, and
     a single trailing plural 's' removed. Lets a CORE proficiency entry (which may be singular or
@@ -736,20 +763,23 @@ def derive_size(core: dict, effects: ActiveEffects, access) -> str:
 
 def derive_saving_throws(core: dict, abilities: dict, pb, effects: ActiveEffects,
                          access) -> dict:
-    """Returns saving_throws: {aid: {modifier}}. Under a FULL transform saves are the form's
-    ability modifiers with NO character proficiency/PB (the form's block is authoritative); a
-    PHYSICAL transform keeps the character's own proficiencies/PB on the (partly replaced)
-    ability modifiers."""
+    """Returns saving_throws: {aid: {modifier}}. Under a FULL transform saves are the FORM's
+    stat-block saves — the form's ability modifier plus the form's own proficiency bonus where the
+    form is proficient (T63), no character proficiency/PB (the form's block is authoritative). A
+    PHYSICAL transform keeps the character's own proficiencies/PB on the (partly replaced) ability
+    modifiers, then takes the HIGHER OF the character's own save and the form's — gaining the form's
+    save proficiency where the form's proficiency-inclusive save is better (T65)."""
     tf = effects.transform
     saves = core.get("saving_throws", {}) or {}
+    form_saves = _form_save_mods(access, tf["creature_id"]) if tf else {}
     result = {}
     for aid, ab_mod in abilities.items():
-        if tf and tf["kind"] == TRANSFORM_FULL:
-            result[aid] = {"modifier": ab_mod}
-            continue
-        # `aid` is the CORE key (a short code); grant target ids are full DB ids, so normalise
-        # before comparing a per-ability save bonus's target to this save.
+        # `aid` is the CORE key (a short code); grant target ids / form saves are full DB ids, so
+        # normalise before comparing a per-ability save bonus's target or a form save to this save.
         full_aid = abilities_q.ability_id_for_short_key(access, aid) or aid
+        if tf and tf["kind"] == TRANSFORM_FULL:
+            result[aid] = {"modifier": form_saves.get(full_aid, ab_mod)}
+            continue
         mod = ab_mod
         save_data = saves.get(aid)
         if isinstance(save_data, dict):
@@ -767,17 +797,23 @@ def derive_saving_throws(core: dict, abilities: dict, pb, effects: ActiveEffects
                 if not tid or tid == full_aid:
                     if b["value"]:
                         mod += b["value"]
+        if tf:  # PHYSICAL transform: higher of own vs the form's save
+            mod = max(mod, form_saves.get(full_aid, mod))
         result[aid] = {"modifier": mod}
     return result
 
 
 def derive_skills(core: dict, abilities: dict, pb, effects: ActiveEffects,
                   access) -> dict:
-    """Returns skills: {sid: {modifier}}. Under a FULL transform skills are the form's ability
-    modifiers with NO character proficiency/PB; a PHYSICAL transform keeps the character's own
-    proficiencies/PB (on the partly replaced ability modifiers)."""
+    """Returns skills: {sid: {modifier}}. Under a FULL transform skills are the FORM's stat-block
+    skills — the form's skill bonus where the form has that skill, else the form's ability modifier,
+    with NO character proficiency/PB (the form's block is authoritative). A PHYSICAL transform keeps
+    the character's own proficiencies/PB (on the partly replaced ability modifiers), then takes the
+    HIGHER OF the character's own skill and the form's — gaining the form's skill proficiency where
+    the form's bonus is better (T65)."""
     tf = effects.transform
     full = bool(tf and tf["kind"] == TRANSFORM_FULL)
+    form_skills = _form_skill_mods(access, tf["creature_id"]) if tf else {}
     core_skills = core.get("skills", {}) or {}
     result = {}
     for sid, skill_obj in core_skills.items():
@@ -785,14 +821,22 @@ def derive_skills(core: dict, abilities: dict, pb, effects: ActiveEffects,
             continue
         sk_ability = skill_obj.get("ability", "")
         ab_mod = abilities.get(sk_ability, 0)
+        # `sid` is the sheet's skill key (a display name); the form's skills are keyed by the DB
+        # skill id, so resolve before looking up a form skill bonus.
+        form_sid = access.resolve("skill", sid) or sid if tf else None
+        if full:
+            result[sid] = {"modifier": form_skills.get(form_sid, ab_mod)}
+            continue
         mod = ab_mod
-        if not full and _int(pb):
+        if _int(pb):
             prof = skill_obj.get("proficient", False)
             exp = skill_obj.get("expertise", False)
             if exp:
                 mod += pb * 2
             elif prof:
                 mod += pb
+        if tf:  # PHYSICAL transform: higher of own vs the form's skill
+            mod = max(mod, form_skills.get(form_sid, mod))
         result[sid] = {"modifier": mod}
     return result
 
