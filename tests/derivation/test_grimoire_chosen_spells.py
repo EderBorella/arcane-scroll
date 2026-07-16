@@ -113,6 +113,107 @@ def test_off_list_chosen_spell_not_placed(access):
     assert not any(s["name"] == "Sp5" for s in spells)
 
 
+# --------------------------------------------------------------------------- T84 list-widening
+
+def test_list_widened_chosen_spell_is_placed(access):
+    """A pick legal ONLY through a list-widening grant reaches the GRIMOIRE. class-a's widening
+    grant (gained at level 10) adds class-b's list, so at level 10 the class-b-only sp5 becomes a
+    placeable class-a prepared pick — the deriver's gate now matches the validator's admission."""
+    core = _caster_core()
+    core["identity"]["classes"][0]["level"] = 10
+    core["identity"]["total_level"] = 10
+    sources = derive_sources(core, access)
+    spells = derive_spells(core, None, sources, access,
+                           chosen_spells={"cantrips": [], "spells": ["sp5"]})
+    placed = [s for s in spells
+              if s["name"] == "Sp5" and s["source"] == "class:class-a" and s["bucket"] == "prepared"]
+    assert len(placed) == 1
+
+
+def test_list_widening_not_applied_below_grant_level(access):
+    """Below the widening grant's level the widened list is NOT admitted: sp5 (class-b only) is
+    dropped for a level-3 class-a caster, matching the validator's level-gated widening."""
+    core = _caster_core()  # level 3 < widening level 10
+    sources = derive_sources(core, access)
+    spells = derive_spells(core, None, sources, access,
+                           chosen_spells={"cantrips": [], "spells": ["sp5"]})
+    assert not any(s["name"] == "Sp5" for s in spells)
+
+
+# --------------------------------------------------------------------------- T93 subclass free cantrip
+
+def _class_c_core(**overrides):
+    """A minimal core-sheet:1 for a single-class level-3 class-c caster (isolated full caster)."""
+    core = _caster_core()
+    core["identity"]["classes"] = [{"class": "Class C", "level": 3, "subclass": None,
+                                    "subclass_detail": None, "class_detail": None}]
+    core.update(overrides)
+    return core
+
+
+def test_subclass_free_cantrip_reserves_slot(access):
+    """A subclass free bonus cantrip attributed to the class source reserves a cantrip slot, so
+    chosen cantrips are clamped to the remaining budget: granted (Spf) + chosen never exceeds the
+    class's cantrips_known (2 at level 3). The result validates legal."""
+    core = _class_c_core()
+    core["identity"]["classes"][0]["subclass"] = "Sub Free Cantrip"
+    grimoire = derive_grimoire(core, None, access,
+                               chosen_spells={"cantrips": ["sp1", "sp2"], "spells": []})
+    src = "class:class-c"
+    cantrips = [s for s in grimoire["spells"] if s["source"] == src and s["bucket"] == "cantrip"]
+    assert len(cantrips) == 2                                   # capped at cantrips_known, not 3
+    assert any(s["name"] == "Spf" for s in cantrips)           # the granted free cantrip is kept
+    report = validate_grimoire(core, grimoire, access)
+    assert report["legal"] is True, report["violations"]
+
+
+# --------------------------------------------------------------------------- T85 same-bucket grant
+
+def test_same_bucket_grant_reduces_chosen_budget(access):
+    """A same-bucket prepared grant on the class source reduces the chosen prepared budget: granted
+    (Sp3) + chosen never exceeds prepared_limit (3 at level 3), even when the model offers three
+    on-list picks. The result validates legal."""
+    core = _class_c_core()
+    core["identity"]["classes"][0]["subclass"] = "Sub Prep Grant"
+    grimoire = derive_grimoire(core, None, access,
+                               chosen_spells={"cantrips": [], "spells": ["sp7", "sp8", "sp9"]})
+    src = "class:class-c"
+    prepared = [s for s in grimoire["spells"] if s["source"] == src and s["bucket"] == "prepared"]
+    assert len(prepared) == 3                                  # granted Sp3 + 2 chosen, capped at 3
+    assert any(s["name"] == "Sp3" for s in prepared)           # the granted prepared spell is kept
+    report = validate_grimoire(core, grimoire, access)
+    assert report["legal"] is True, report["violations"]
+
+
+# --------------------------------------------------------------------------- T86 pact spells-known
+
+def _pact_core(**overrides):
+    """A minimal core-sheet:1 for a single-class level-2 class-p pact caster."""
+    core = {
+        "schema_version": 1, "character_id": "test-p", "character_name": "Pact",
+        "identity": {
+            "name": "Pact", "species": "Species A", "lineage": None,
+            "classes": [{"class": "Class P", "level": 2, "subclass": None,
+                         "subclass_detail": None, "class_detail": None}],
+            "total_level": 2, "background": "Background A",
+        },
+        "abilities": {}, "proficiency_bonus": 2, "feats": [], "features": [],
+    }
+    core.update(overrides)
+    return core
+
+
+def test_pact_chosen_capped_at_spells_known(access):
+    """The pact caster's chosen leveled picks are capped at the DB spells-known count (3 at level 2),
+    not left uncapped: four on-list picks yield exactly three placed prepared spells."""
+    core = _pact_core()
+    grimoire = derive_grimoire(core, None, access,
+                               chosen_spells={"cantrips": [], "spells": ["sp3", "sp7", "sp8", "sp9"]})
+    src = "class:class-p"
+    prepared = [s for s in grimoire["spells"] if s["source"] == src and s["bucket"] == "prepared"]
+    assert len(prepared) == 3
+
+
 # --------------------------------------------------------------------------- end-to-end
 
 def test_generated_caster_grimoire_reflects_picks(gen_access, access):

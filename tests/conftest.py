@@ -622,6 +622,32 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO grant_spell_choice_value VALUES ('gsp-classa-widen','class-a')")
     cur.execute("INSERT INTO grant_spell_choice_value VALUES ('gsp-classa-widen','class-b')")
 
+    # ── F05-T84/T85/T86/T93 chosen-placement fixtures ──────────────────────────
+    # The pact caster carries a spells-known progression (prepared_spells column):
+    # at level 2 it knows 2 cantrips and 3 leveled ("known") spells. The deriver must
+    # cap chosen picks at this count and the validator must flag exceeding it.
+    cur.execute("INSERT INTO class_cantrips_prepared VALUES ('class-p',2,2,3)")
+    # A dedicated full caster (class-c) with its own list + budgets, isolated from
+    # class-a so the generator's class-a spell pool stays pristine. At level 3 it knows
+    # 2 cantrips and prepares 3 spells. sp7/sp8/sp9 are extra leveled spells; spf is an
+    # off-list bonus cantrip that a subclass grants for free.
+    cur.execute("INSERT INTO class VALUES ('class-c','Class C',8,3,'full','all',2,0,'')")
+    cur.execute("INSERT INTO class_cantrips_prepared VALUES ('class-c',3,2,3)")
+    cur.execute("INSERT INTO spell VALUES ('spf','Spf',0,0)")   # bonus cantrip, off every class list
+    for _sid, _lvl in [("sp7", 1), ("sp8", 1), ("sp9", 1)]:
+        cur.execute("INSERT INTO spell VALUES (?,?,?,0)", (_sid, _sid.capitalize(), _lvl))
+    for _sid in ("sp1", "sp2", "sp3", "sp7", "sp8", "sp9"):
+        cur.execute("INSERT INTO spell_class VALUES (?,'class-c')", (_sid,))
+    # the leveled spells are on the pact caster's list too, so a pact build can pick them
+    for _sid in ("sp3", "sp7", "sp8", "sp9"):
+        cur.execute("INSERT INTO spell_class VALUES (?,'class-p')", (_sid,))
+    # two non-caster subclasses of class-c whose spell grants are attributed to the CLASS
+    # source (grant owner is the subclass, but class:class-c exists so the grant lands
+    # there): one grants a free bonus cantrip (T93), one a same-bucket prepared spell
+    # (T85). Their grant_spell rows are inserted after the grant_spell rebuild.
+    cur.execute("INSERT INTO subclass VALUES ('sub-freecantrip','class-c','Sub Free Cantrip',0,'')")
+    cur.execute("INSERT INTO subclass VALUES ('sub-prepgrant','class-c','Sub Prep Grant',0,'')")
+
     # senses domain: sense catalog + grant_sense spine (F05-T23 max-not-sum rule)
     cur.execute("CREATE TABLE sense (id TEXT PRIMARY KEY, name TEXT, description TEXT)")
     cur.execute("CREATE TABLE grant_sense (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
@@ -1195,6 +1221,17 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO grant_spell (id,owner_kind,owner_id,bucket,recovery,ability_mode,ability_id) "
                 "VALUES ('gsp-sub-shadow','subclass','sub-shadow','cantrip','at_will','fixed','a1')")
     cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-sub-shadow','sp1')")
+
+    # ── F05-T93/T85 same-bucket grants attributed to the class source ──────────
+    # sub-freecantrip grants a free bonus cantrip (Spf, off-list) on the class source (T93);
+    # sub-prepgrant grants a same-bucket prepared spell (Sp3) on the class source (T85).
+    # Both must reserve their slot so chosen picks cannot overflow the class budget.
+    cur.execute("INSERT INTO grant_spell (id,owner_kind,owner_id,bucket,recovery) "
+                "VALUES ('gsp-free-cantrip','subclass','sub-freecantrip','cantrip','at_will')")
+    cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-free-cantrip','spf')")
+    cur.execute("INSERT INTO grant_spell (id,owner_kind,owner_id,bucket,recovery) "
+                "VALUES ('gsp-prep-grant','subclass','sub-prepgrant','prepared','spell_slot')")
+    cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-prep-grant','sp3')")
 
     # ── T34 isolated test data: new entities + grant rows (IDs NOT referenced by existing tests) ──
 

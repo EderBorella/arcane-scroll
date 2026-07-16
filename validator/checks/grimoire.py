@@ -208,6 +208,47 @@ def _check_spell_counts(sources: dict, spells: list, v: list[Violation]) -> None
                                f"{sid}: {count} prepared exceeds the declared {budget} allowed", path))
 
 
+def _check_pact_spells_known(sources: dict, spells: list, classes: list, access,
+                             v: list[Violation]) -> None:
+    """Independently enforce a pact-caster's spells-known count from the DB progression.
+
+    A pact caster's spells-known limit lives in the same per-level progression as a prepared
+    caster's prepared count (``class_cantrips_prepared.prepared_spells``).  The generic count
+    check keys off the sheet's declared ``prepared_limit``, which a pact source has historically
+    left unset (uncapped); this check re-derives the limit straight from the DB and flags a source
+    whose placed prepared spells exceed it, so the count is enforced regardless of what the sheet
+    declares."""
+    prepared_counts: dict[str, int] = {}
+    for entry in spells:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("bucket") == "prepared":
+            src = entry.get("source")
+            prepared_counts[src] = prepared_counts.get(src, 0) + 1
+
+    for source_key, src in sources.items():
+        if not isinstance(src, dict):
+            continue
+        parsed = _parse_source_key(source_key)
+        if parsed is None or parsed[0] != "class":
+            continue
+        cid = parsed[1]
+        if q.caster_progression(access, cid) != "pact":
+            continue
+        level = _level_for_class(classes, cid, access)
+        if level is None:
+            continue
+        _known, spells_known = q.cantrips_prepared(access, cid, level)
+        if spells_known is None:
+            continue
+        count = prepared_counts.get(source_key, 0)
+        if count > spells_known:
+            v.append(Violation(DOMAIN, "too-many-prepared", "illegal",
+                               f"{source_key}: {count} prepared exceeds the pact spells-known "
+                               f"count {spells_known} at level {level}",
+                               f"sources.{source_key}"))
+
+
 def _check_slots(sc: dict, leveled: list[dict], pact: tuple[str, int] | None, access,
                  v: list[Violation]) -> None:
     actual = _slot_table(sc.get("spell_slots"))
@@ -524,6 +565,7 @@ def check(sheet: dict, access) -> list[Violation]:
     _check_dc_attack(sources, pb, v)
     _check_source_budget_truthfulness(sources, classes, access, v)
     _check_spell_counts(sources, spells, v)
+    _check_pact_spells_known(sources, spells, classes, access, v)
     _check_slots(sheet, leveled, pact, access, v)
     _check_spell_list_and_uniqueness(sheet, sources, ident, classes, spells, access, v)
     _check_class_list_legitimacy(sources, spells, access, v)
