@@ -19,7 +19,7 @@ All 5 schemas share `character_id` (UUID) and `character_name`.
 
 | Schema | URN | Purpose | When it changes |
 |--------|-----|---------|-----------------|
-| **MONSTER_SHEET** | `urn:arcane:contract:monster-sheet:1` | A sheet of one or more OWNER-LESS materialised monsters (concrete catalogued creatures). Each entry reuses the companion-modifier stat block shape (`$ref` to `companionModifier`) but carries its own `creature_id` instead of a CORE companion index. | New/changed catalogued creature stats. |
+| **MONSTER_SHEET** | `urn:arcane:contract:monster-sheet:1` | A sheet of one or more OWNER-LESS materialised monsters (concrete catalogued creatures). Each entry references the SHARED owner-agnostic stat-block base (`$ref` to `companion-modifier:1#/$defs/statBlockBase`) and carries its own `creature_id`; being owner-less it has no `companion_index` (a monster's position is its index in `monsters[]`). | New/changed catalogued creature stats. |
 
 A materialised monster is a concrete creature with no owner — essentially a concrete
 companion detached from a character. Templated (owner-scaled) creatures cannot appear
