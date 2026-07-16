@@ -135,6 +135,45 @@ class TestWrongStatFires:
         assert v.message.startswith("monster 1:")
 
 
+# ── save proficiency (T63): re-derived owner-less on a standalone monster ─────
+
+
+def _sp_stat_block(index=0):
+    """A hand-built stat block matching creature-sp (pb=3, a2 proficient): the a2 save is
+    ability mod (+3) PLUS pb (3); a1/a3 are plain ability modifiers."""
+    return {
+        "companion_index": index,
+        "ability_scores": {"a1": 8, "a2": 16, "a3": 12},
+        "armor_class": 13,
+        "hit_points": {"max": 9, "current": 9, "temp": 0},
+        "hit_dice": {"d8": {"max": 2, "remaining": 2}},
+        "speed": {"walk": 30},
+        "saving_throws": [
+            {"ability": "a1", "modifier": -1},
+            {"ability": "a2", "modifier": 6},
+            {"ability": "a3", "modifier": 1},
+        ],
+        "character_states": [],
+    }
+
+
+class TestMonsterSaveProficiency:
+    def test_clean_proficient_save_passes(self, access):
+        sheet = _sheet([_monster(creature_id="creature-sp", stat_block=_sp_stat_block())])
+        assert not any(v.code.startswith("companion-save") for v in check(sheet, access))
+
+    def test_derived_proficient_save_round_trips_clean(self, access):
+        sheet = derive_monster_sheet(access, ["creature-sp"])
+        assert not any(v.code.startswith("companion-save") for v in check(sheet, access))
+
+    def test_proficient_save_without_pb_fires(self, access):
+        sb = _sp_stat_block()
+        sb["saving_throws"][1]["modifier"] = 3           # a2 missing pb
+        sheet = _sheet([_monster(creature_id="creature-sp", stat_block=sb)])
+        codes = {v.code for v in check(sheet, access)}
+        assert "companion-save-mismatch" in codes
+
+
 # ── RED: a templated creature is rejected standalone ─────────────────────────
 
 

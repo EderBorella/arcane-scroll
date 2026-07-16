@@ -105,19 +105,26 @@ def _skills(access, creature_id: str) -> list:
             if _int(r["bonus"])]
 
 
-def _saving_throws(access, creature_id: str) -> list:
+def _saving_throws(access, creature_id: str, pb) -> list:
     """Re-derive each save from the creature's own facts: ability modifier plus the
-    creature's proficiency bonus for a proficient save. Creatures store ``pb``
-    directly; the catalog carries NO creature save-proficiency table, so with no
-    proficiency data every save is exactly its ability modifier. (This is a
-    deliberate creature-shaped re-derivation, NOT the character-shaped MODIFIER
-    saves helper.)"""
+    creature's proficiency bonus for a PROFICIENT save. Save proficiencies are read
+    from ``creature_save`` (presence = proficient); the bonus added is the creature's
+    own ``pb`` (``creature.pb``), never an invented one. A save with no proficiency
+    row is exactly its ability modifier. (This is a deliberate creature-shaped
+    re-derivation, NOT the character-shaped MODIFIER saves helper.)"""
     scores = {r["ability_id"]: r["score"]
               for r in creature_q.creature_abilities(access, creature_id)
               if _int(r["score"])}
+    proficient = {r["ability_id"] for r in creature_q.creature_saves(access, creature_id)}
     ordered = [a for a in _ABILITY_ORDER if a in scores]
     ordered += [a for a in scores if a not in _ABILITY_ORDER]
-    return [{"ability": aid, "modifier": _ability_mod(scores[aid])} for aid in ordered]
+    result = []
+    for aid in ordered:
+        modifier = _ability_mod(scores[aid])
+        if aid in proficient and _int(pb):
+            modifier += pb
+        result.append({"ability": aid, "modifier": modifier})
+    return result
 
 
 def _defenses(access, creature_id: str) -> dict | None:
@@ -189,7 +196,7 @@ def derive_concrete(access, companion_index: int, creature_id: str, row) -> dict
         "speed": speed,
         "senses": _senses(access, creature_id),
         "skills": _skills(access, creature_id),
-        "saving_throws": _saving_throws(access, creature_id),
+        "saving_throws": _saving_throws(access, creature_id, row["pb"]),
         "passive_perception": creature_q.creature_passive_perception(access, creature_id),
         "attacks": _attacks(access, creature_id),
         "character_states": [],
@@ -485,7 +492,7 @@ def derive_templated(access, companion_index: int, creature_id: str, row, ctx: d
     abilities = _ability_scores(access, creature_id)
     if abilities:
         modifier["ability_scores"] = abilities
-        modifier["saving_throws"] = _saving_throws(access, creature_id)
+        modifier["saving_throws"] = _saving_throws(access, creature_id, row["pb"])
     senses = _senses(access, creature_id)
     if senses:
         modifier["senses"] = senses

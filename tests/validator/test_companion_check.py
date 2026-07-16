@@ -58,6 +58,58 @@ def _sheet(companion_modifiers, core=None):
                           "companion_modifiers": companion_modifiers}}
 
 
+# ── save proficiency (T63): pb folds into a proficient save ───────────────────
+
+
+def _sp_core():
+    return {"character_id": "cid", "character_name": "Test",
+            "companions": [{"name": "Companion SP", "db_creature_id": "creature-sp"}]}
+
+
+def _clean_sp_modifier(index=0):
+    """A hand-built companionModifier matching creature-sp (pb=3, a2 proficient) — the a2
+    save carries ability mod (+3) PLUS pb (3); a1/a3 are plain ability mods."""
+    return {
+        "companion_index": index,
+        "ability_scores": {"a1": 8, "a2": 16, "a3": 12},
+        "armor_class": 13,
+        "hit_points": {"max": 9, "current": 9, "temp": 0},
+        "hit_dice": {"d8": {"max": 2, "remaining": 2}},
+        "speed": {"walk": 30},
+        "saving_throws": [
+            {"ability": "a1", "modifier": -1},
+            {"ability": "a2", "modifier": 6},
+            {"ability": "a3", "modifier": 1},
+        ],
+        "character_states": [],
+    }
+
+
+class TestSaveProficiency:
+    def test_clean_proficient_save_passes(self, access):
+        cm = _clean_sp_modifier()
+        violations = check(_sheet([cm], core=_sp_core()), access)
+        assert not any(v.code.startswith("companion-save") for v in violations)
+
+    def test_derived_proficient_save_round_trips_clean(self, access):
+        companion, _ = derive_companions(_sp_core(), None, "fill", access)
+        violations = check({"core": _sp_core(), "companion": companion}, access)
+        assert not any(v.code.startswith("companion-save") for v in violations)
+
+    def test_proficient_save_without_pb_fires_mismatch(self, access):
+        # A proficient save carrying only the ability modifier (pb omitted) is a mismatch.
+        gap = _clean_sp_modifier()
+        gap["saving_throws"][1]["modifier"] = 3          # a2 without pb
+        codes = {v.code for v in check(_sheet([gap], core=_sp_core()), access)}
+        assert "companion-save-mismatch" in codes
+
+    def test_missing_proficient_save_fires_incomplete(self, access):
+        gap = _clean_sp_modifier()
+        gap["saving_throws"] = [{"ability": "a1", "modifier": -1}]   # drop a2/a3
+        codes = {v.code for v in check(_sheet([gap], core=_sp_core()), access)}
+        assert "companion-save-missing" in codes
+
+
 # ── RED: the check fires on a crafted gap sheet ──────────────────────────────
 
 

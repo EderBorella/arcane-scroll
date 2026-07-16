@@ -811,6 +811,8 @@ def _build_rules_db(path: str) -> None:
                 "PRIMARY KEY (creature_id, sense_id))")
     cur.execute("CREATE TABLE creature_skill (creature_id TEXT, skill_id TEXT, bonus INTEGER, "
                 "PRIMARY KEY (creature_id, skill_id))")
+    cur.execute("CREATE TABLE creature_save (creature_id TEXT, ability_id TEXT, "
+                "PRIMARY KEY (creature_id, ability_id))")
     cur.execute("CREATE TABLE creature_passive_perception (creature_id TEXT PRIMARY KEY, value INTEGER)")
     cur.execute("CREATE TABLE creature_resistance (creature_id TEXT, damage_type_id TEXT, note TEXT, "
                 "PRIMARY KEY (creature_id, damage_type_id))")
@@ -894,6 +896,18 @@ def _build_rules_db(path: str) -> None:
                 "VALUES ('ct-c-bite','creature-c','action','Bite',5,5,4,'1d6 + 3','fire')")
     cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name,recharge_min,uses_per_day) "
                 "VALUES ('ct-c-recharge','creature-c','action','Recharge Move',5,2)")
+
+    # creature-sp: a CONCRETE (fixed-stat) creature carrying a SAVE PROFICIENCY (T63).
+    # pb=3; a2 is a proficient save (its save modifier is the ability mod PLUS pb), while
+    # a1/a3 remain plain ability modifiers. Exercises the proficient-save re-derivation in
+    # the deriver and the independent validator. Content-neutral: synthetic ids only.
+    cur.execute("INSERT INTO creature (id,name,size_id,creature_type_id,source_kind,ac_value,"
+                "hp_average,hp_dice,initiative_bonus,cr_text,xp,pb) "
+                "VALUES ('creature-sp','Creature SP','size-a','type-a','appendix',13,9,'2d8',2,'1',200,3)")
+    for aid, sc in [("a1", 8), ("a2", 16), ("a3", 12)]:
+        cur.execute("INSERT INTO creature_ability VALUES ('creature-sp',?,?)", (aid, sc))
+    cur.execute("INSERT INTO creature_speed VALUES ('creature-sp','walk',30,NULL)")
+    cur.execute("INSERT INTO creature_save VALUES ('creature-sp','a2')")
 
     # creature-form: a CONCRETE self-transform form (T60). Fixed stat block (no
     # creature_formula rows), carrying a MENTAL ability score ('wisdom') so the

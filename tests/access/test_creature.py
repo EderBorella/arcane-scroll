@@ -42,6 +42,15 @@ class TestCreatureChildFacts:
         rows = cr.creature_skills(access, "creature-a")
         assert {r["skill_id"]: r["bonus"] for r in rows} == {"sk1": 4}
 
+    def test_save_proficiencies(self, access):
+        # creature-sp is proficient in the a2 save; the reader returns the raw marker rows.
+        rows = cr.creature_saves(access, "creature-sp")
+        assert {r["ability_id"] for r in rows} == {"a2"}
+
+    def test_no_save_proficiencies(self, access):
+        # a creature with abilities but no save-proficiency rows returns an empty list.
+        assert cr.creature_saves(access, "creature-a") == []
+
     def test_passive_perception(self, access):
         assert cr.creature_passive_perception(access, "creature-a") == 12
 

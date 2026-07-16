@@ -89,8 +89,25 @@ def _expected_abilities(access, creature_id: str) -> dict:
 
 
 def _expected_saves(access, creature_id: str) -> dict:
+    """Expected save modifier per ability, INDEPENDENTLY re-derived from the catalog:
+    the ability modifier, plus the creature's own proficiency bonus (``creature.pb``)
+    for a save the creature is proficient in (a ``creature_save`` marker row). Reads
+    the DB facts directly — never the deriver's output."""
     scores = _expected_abilities(access, creature_id)
-    return {aid: _ability_mod(score) for aid, score in scores.items()}
+    if not scores:
+        return {}
+    proficient = {r["ability_id"] for r in creature_q.creature_saves(access, creature_id)}
+    pb = None
+    if proficient:
+        row = creature_q.creature_row(access, creature_id)
+        pb = row["pb"] if row is not None else None
+    out = {}
+    for aid, score in scores.items():
+        modifier = _ability_mod(score)
+        if aid in proficient and _int(pb):
+            modifier += pb
+        out[aid] = modifier
+    return out
 
 
 def _expected_attacks(access, creature_id: str) -> dict:
