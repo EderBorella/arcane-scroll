@@ -1,5 +1,5 @@
 """Saving-throws domain DB facts: which abilities a class grants saving-throw proficiency in, and
-which abilities a feat/species grants via the proficiency grant spine (e.g. Resilient)."""
+which abilities a feat/species grants via the proficiency grant spine (e.g. a feat that grants a saving-throw proficiency)."""
 from access import primitives
 from access.validator import ValidatorAccess
 
@@ -16,7 +16,7 @@ def granted_save_abilities(access: ValidatorAccess, owner_kind: str, owner_id: s
     grant_proficiency(target_kind='saving_throw') rows, resolved through grant_proficiency_value.
     If `at_level` is given, only rows gained at or below it are included (a NULL
     gained_at_level always applies) -- e.g. a subclass's save grant gated to a specific class
-    level, like Gloom Stalker's Wisdom save at level 7."""
+    level."""
     out: list[str] = []
     for header in primitives.grants_for(access.db, "grant_proficiency", owner_kind, owner_id, at_level):
         if header["target_kind"] != "saving_throw":

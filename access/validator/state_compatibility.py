@@ -1,8 +1,8 @@
 """State compatibility queries — which states block or imply other states.
 
 Consumed by the MODIFIER validator to check that ``character_states[]``
-entries are mutually compatible (e.g. a character cannot simultaneously
-be ``incapacitated`` and ``raging``).
+entries are mutually compatible; a character cannot simultaneously
+be two mutually-exclusive states (e.g. `incapacitated` and an exclusive action state).
 """
 from access.db import RulesDB
 
