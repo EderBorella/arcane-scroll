@@ -1492,6 +1492,15 @@ def _build_rules_db(path: str) -> None:
     cur.execute("ALTER TABLE spell ADD COLUMN school_id TEXT")
     cur.execute("UPDATE spell SET school_id='school-a' WHERE id IN ('sp1','sp2','sp3')")
 
+    # catalog_item.weight_lb: added after the positional catalog_item inserts (which supply the base 4
+    # columns) so the inventory catalog-enrichment reader (F05-T80) has a weight fact to resolve. The
+    # reader degrades gracefully when the column is absent; a couple of rows carry a weight so the
+    # enrichment path can be asserted. Items left without a weight exercise the omit-when-null path.
+    cur.execute("ALTER TABLE catalog_item ADD COLUMN weight_lb REAL")
+    cur.execute("UPDATE catalog_item SET weight_lb=3.0 WHERE id='blade-a'")
+    cur.execute("UPDATE catalog_item SET weight_lb=7.0 WHERE id='weapon-a'")
+    cur.execute("UPDATE catalog_item SET weight_lb=8.0 WHERE id='armor-e'")
+
     con.commit()
     con.close()
 

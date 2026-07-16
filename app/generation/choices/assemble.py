@@ -116,18 +116,32 @@ def _spells(picks):
 
 def apply_equipment(access, spec, resolved, eq_picks, choices):
     """Fold the pass-2 equipment pick into ``choices``: resolve the chosen bundles' concrete item
-    entries into ``equipment.backpack`` (what the INVENTORY assembly consumes) and record the chosen
-    bundle ids under ``starting_equipment`` for reference. gp / tool-category / focus / proficiency
-    entries are NOT turned into treasure, tools, or foci here — that is deriver work (Phase-5)."""
+    entries, assign each to its natural body slot (a weapon to the main hand, worn armour / a shield
+    to their slots) with the remainder in ``equipment.backpack``, sum the bundles' starting gold into
+    ``treasure``, and record the chosen bundle ids under ``starting_equipment`` for reference.
+
+    The first item claiming a slot keeps it; a later item wanting an occupied slot (a second weapon)
+    falls to the backpack. Tool-category / focus / proficiency-choice entries carry no concrete item
+    and are not represented as inventory yet (a later card)."""
     eq_picks = eq_picks or {}
     bundles: dict = {}
+    equipped: dict = {}
     backpack: list = []
+    gp = 0
     for owner_kind, field in (("class", "equipment_class"), ("background", "equipment_background")):
         option_id = eq_picks.get(field)
-        if option_id:
-            bundles[owner_kind] = option_id
-            backpack.extend(options.resolve_bundle_items(access, option_id))
+        if not option_id:
+            continue
+        bundles[owner_kind] = option_id
+        gp += options.resolve_bundle_gp(access, option_id)
+        for item in options.resolve_bundle_items(access, option_id):
+            slot = options.natural_slot(access, item["id"])
+            if slot and slot not in equipped:
+                equipped[slot] = item
+            else:
+                backpack.append(item)
     if bundles:
         choices["starting_equipment"] = bundles
-    choices["equipment"] = {"equipped": {}, "backpack": backpack}
+    choices["equipment"] = {"equipped": equipped, "backpack": backpack}
+    choices["treasure"] = {"pp": 0, "gp": gp, "ep": 0, "sp": 0, "cp": 0}
     return choices

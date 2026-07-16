@@ -103,9 +103,10 @@ def test_health_and_ready(client):
 
 
 def test_post_characters_noncaster_document(client, rules_db):
-    # class-m below its subclass-unlock level is a genuine non-caster -> no GRIMOIRE.
+    # class-m below its subclass-unlock level, with a species that grants no innate spell
+    # (species-l), is a genuine non-caster -> no GRIMOIRE.
     r = client.post("/v1/characters", json={
-        "species": "species-a", "classes": [{"class": "class-m", "level": 2}],
+        "species": "species-l", "classes": [{"class": "class-m", "level": 2}],
         "background": "bg-a"})
     assert r.status_code == 200, r.text
     doc = r.json()

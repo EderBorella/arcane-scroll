@@ -260,3 +260,30 @@ def resolve_bundle_items(access, option_id):
             continue
         out.append({"id": e["catalog_item_id"], "name": name, "quantity": e["quantity"] or 1})
     return out
+
+
+def resolve_bundle_gp(access, option_id):
+    """The starting gold a chosen bundle grants — the sum of its ``gp`` line entries' amounts (0 when
+    the bundle carries none). The reference model expresses starting wealth as a gp figure inside the
+    equipment bundle, so this is the bundle's contribution to the character's starting treasure."""
+    return sum(e["gp_amount"] or 0
+               for e in equip_q.starting_equipment_entries(access, option_id)
+               if e["kind"] == "gp")
+
+
+def natural_slot(access, item_id):
+    """The body slot a concrete item is worn/wielded in when first equipped, or None when it has no
+    natural slot (gear, tools, consumables — these go to the backpack). A weapon is wielded in the
+    main hand; worn armour occupies the armour slot; a shield occupies the shield slot. Grounded in
+    the item's catalog kind + armour category — no game literals."""
+    facts = equip_q.catalog_item_facts(access, item_id)
+    if facts is None:
+        return None
+    kind = facts["kind"]
+    if kind == "weapon":
+        return "main_hand"
+    if kind == "armor":
+        armor = equip_q.armor_facts(access, item_id)
+        category = armor["category_id"] if armor else None
+        return "shield" if category == "shield" else "armor"
+    return None

@@ -167,10 +167,11 @@ def _stub_pick(pass1, pass2=None):
 
 
 def test_noncaster_end_to_end(gen_access, access):
-    # class-m below its subclass-unlock level is a genuine non-caster (no spellcasting class, no
-    # caster subclass) -> the document carries NO grimoire.
+    # class-m below its subclass-unlock level, with a species that grants no innate spell
+    # (species-l), is a genuine non-caster (no spellcasting class, no caster subclass, no innate
+    # grant) -> the document carries NO grimoire.
     spec = parse_request(gen_access, {
-        "species": "species-a", "classes": [{"class": "class-m", "level": 2}], "background": "bg-a",
+        "species": "species-l", "classes": [{"class": "class-m", "level": 2}], "background": "bg-a",
         "character_id": "char-nc", "character_name": "Alpha"})
     pick = _stub_pick(
         {"name": "Alpha",
@@ -178,7 +179,7 @@ def test_noncaster_end_to_end(gen_access, access):
     choices = generate_choices(gen_access, spec, pick=pick)
 
     # ruleset shape: species-sourced identity, background-sourced boost, no superseded keys
-    assert choices["species"] == "species-a" and "race" not in choices
+    assert choices["species"] == "species-l" and "race" not in choices
     assert choices["background_increase"] == {"a1": 2, "a2": 1}
 
     document = derive_document(choices, gen_access)
@@ -206,10 +207,16 @@ def test_caster_full_class_end_to_end(gen_access, access):
         {"equipment_class": "sa-a"})
     choices = generate_choices(gen_access, spec, pick=pick)
 
-    assert choices["equipment"]["backpack"] == [{"id": "blade-a", "name": "Blade A", "quantity": 1}]
+    # bundle sa-a: its weapon is wielded (main hand), its 15 gp becomes starting treasure (T79/T80)
+    assert choices["equipment"]["backpack"] == []
+    assert choices["equipment"]["equipped"]["main_hand"]["name"] == "Blade A"
+    assert choices["treasure"]["gp"] == 15
 
     document = derive_document(choices, gen_access)
     assert "grimoire" in document
+    # the wielded weapon carries its resolved catalog facts, and the coin purse the derived treasure
+    assert document["inventory"]["equipped"]["main_hand"]["category"] == "weapon"
+    assert document["modifier"]["treasure"]["gp"] == 15
     assert validate_core(document["core"], access)["legal"] is True
     assert validate_grimoire(document["core"], document["grimoire"], access)["legal"] is True
     inv = validate_inventory(document["core"], document["inventory"], document.get("modifier"), access)
