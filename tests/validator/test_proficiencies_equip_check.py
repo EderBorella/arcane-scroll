@@ -140,3 +140,55 @@ def test_malformed_identity_not_a_dict_does_not_raise(access):
     sheet["identity"] = "oops"
     codes = _codes(sheet, access)
     assert "armor-proficiency-not-legal" in codes   # no grants resolved
+
+
+# ── mandatory class-detail grant completeness (F05-T97) ──────────────────────
+# The 'Order A' class-detail on Class A confers a FIXED higher armour category
+# and a broader weapon tier (heavy-armor + martial). Both are mandatory, so a
+# CORE sheet that omits either must flag an incomplete finding.
+
+
+def _order_sheet(armor, weapons):
+    return _sheet(
+        armor=armor,
+        weapons=weapons,
+        classes=[{"class": "Class A", "level": 3, "class_detail": "Order A"}],
+        background=None, species=None,
+    )
+
+
+def test_missing_mandatory_class_detail_weapon_is_incomplete(access):
+    # Lists the granted armour but omits the mandatory broader weapon tier.
+    sheet = _order_sheet(
+        armor=["light armor", "medium armor", "heavy armor"],
+        weapons=["simple weapons"],
+    )
+    findings = check(sheet, access)
+    codes = {v.code for v in findings}
+    assert "mandatory-proficiency-missing" in codes
+    assert any(v.kind == "incomplete" and v.code == "mandatory-proficiency-missing"
+               for v in findings)
+
+
+def test_missing_mandatory_class_detail_armor_is_incomplete(access):
+    sheet = _order_sheet(
+        armor=["light armor", "medium armor"],
+        weapons=["simple weapons", "martial weapons"],
+    )
+    assert "mandatory-proficiency-missing" in _codes(sheet, access)
+
+
+def test_present_mandatory_class_detail_grants_pass(access):
+    sheet = _order_sheet(
+        armor=["light armor", "medium armor", "heavy armor"],
+        weapons=["simple weapons", "martial weapons"],
+    )
+    assert "mandatory-proficiency-missing" not in _codes(sheet, access)
+
+
+def test_no_class_detail_has_no_mandatory_finding(access):
+    sheet = _sheet(
+        armor=["light armor", "medium armor"],
+        weapons=["simple weapons"],
+    )
+    assert "mandatory-proficiency-missing" not in _codes(sheet, access)

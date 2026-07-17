@@ -2,14 +2,16 @@
 CORE/INVENTORY/GRIMOIRE inputs. Checks cover AC, saves, skills, attacks, effective abilities,
 passives, defenses, features, feats, state compatibility, prepared spells, and stacking-rule
 enforcement. NOT in ALL_CHECKS — modifier:1-specific."""
+from access.constants import CON_ABBREV
 from access.validator import abilities as abilities_q
 from access.validator import creature as creature_q
 from access.validator import defenses as defenses_q
+from access.validator import features as features_q
 from access.validator import inventory as inventory_q
 from access.validator import size as size_q
+from access.validator import skills as skills_q
 from access.validator import vitals as vitals_q
 from access.validator.state_compatibility import blocked_states
-from validator.checks.vitals import CON_ABBREV
 from validator.report import Violation
 
 DOMAIN = "modifier"
@@ -290,7 +292,12 @@ def _check_skills(sheet: dict, access, v: list[Violation], transform: dict | Non
         # `sid` is the sheet's skill key (a display name); the form's skills are keyed by the DB
         # skill id, so resolve before looking up a form skill bonus / proficiency.
         form_sid = access.resolve("skill", sid) or sid if transform else None
-        if full_transform:
+        form_only = bool(transform) and sid not in core_skills and form_sid in form_skills
+        if form_only:
+            # A skill the form is proficient in that the base character does not list (T108) — the
+            # gained skill takes the form's stat-block bonus.
+            expected = form_skills[form_sid]
+        elif full_transform:
             expected = form_skills.get(form_sid, ab_mod)
         else:
             expected = ab_mod
@@ -308,6 +315,19 @@ def _check_skills(sheet: dict, access, v: list[Violation], transform: dict | Non
             v.append(Violation(DOMAIN, "skill-modifier-mismatch", "illegal",
                                f"{sid}: modifier {actual} != expected {expected}",
                                f"skills.{sid}.modifier"))
+
+    # Form-only skills (T108): each skill the form is proficient in that the base character does not
+    # list must be emitted on the transformed sheet — re-derived here independently of the deriver.
+    if transform and form_skills:
+        core_ids = {access.resolve("skill", k) or k for k in core_skills}
+        present_ids = {access.resolve("skill", k) or k for k in mod_skills}
+        for form_sid in form_skills:
+            if form_sid in core_ids or form_sid in present_ids:
+                continue
+            name = skills_q.skill_name(access, form_sid) or form_sid
+            v.append(Violation(DOMAIN, "form-skill-missing", "incomplete",
+                               f"gained form skill {name} not emitted",
+                               f"skills.{name}"))
 
 
 # ── attacks ──────────────────────────────────────────────────────────────────
@@ -750,12 +770,46 @@ def _state_hp(sheet: dict, access) -> tuple[int, int]:
             gate = row["condition_kind"]
             if gate is not None and gate != state_id:
                 continue
+            # A VARIABLE drain (dice, no fixed amount) is a live-play reduction, bounds-checked
+            # separately (T112) — it is NOT part of the exact fixed boost/reduction expectation.
+            if row["die_count"] is not None:
+                continue
             amount = (row["flat"] or 0) + (row["per_level"] or 0)
             if amount >= 0:
                 boost += amount
             else:
                 reduction += -amount
     return boost, reduction
+
+
+def _active_variable_drains(sheet: dict, access) -> list[tuple[int, int]]:
+    """The (min, max) reduction bounds of each active VARIABLE state-gated max-HP drain, re-derived
+    from the drain's dice (die_count .. die_count*die_faces). A variable drain's magnitude is the
+    dice-rolled damage taken — a live-play value the check bounds-checks rather than a fixed number
+    (F05-T112)."""
+    mod = sheet.get("modifier", {}) or {}
+    states = mod.get("character_states", []) or []
+    bounds: list[tuple[int, int]] = []
+    if not isinstance(states, list):
+        return bounds
+    for st in states:
+        if not isinstance(st, dict):
+            continue
+        owner_kind = _owner_kind_for_source_type(st.get("source_type", ""))
+        if owner_kind is None:
+            continue
+        owner_id = access.resolve(owner_kind, st.get("source"))
+        if owner_id is None:
+            continue
+        state_id = st.get("state")
+        for row in vitals_q.state_hp_grants(access, owner_kind, owner_id):
+            gate = row["condition_kind"]
+            if gate is not None and gate != state_id:
+                continue
+            dc, df = row["die_count"], row["die_faces"]
+            if _int(dc) and _int(df):
+                bounds.append((dc, dc * df))
+    return bounds
 
 
 def _check_hp(sheet: dict, access, v: list[Violation], transform: dict | None = None) -> None:
@@ -790,10 +844,110 @@ def _check_hp(sheet: dict, access, v: list[Violation], transform: dict | None = 
         v.append(Violation(DOMAIN, "hp-max-boost-mismatch", "illegal",
                            f"max_boost {actual_boost} != expected {expected_boost}",
                            "hit_points.max_boost"))
-    if actual_reduction != expected_reduction:
+    # A VARIABLE drain contributes a live-play (dice-rolled) reduction that is not a fixed derivable
+    # magnitude, so the exact-equality reduction check is suspended when one is active — the drain is
+    # bounds-checked in _check_hp_drain instead (F05-T112).
+    if not _active_variable_drains(sheet, access) and actual_reduction != expected_reduction:
         v.append(Violation(DOMAIN, "hp-max-reduction-mismatch", "illegal",
                            f"max_reduction {actual_reduction} != expected {expected_reduction}",
                            "hit_points.max_reduction"))
+
+
+def _check_hp_drain(sheet: dict, access, v: list[Violation], transform: dict | None = None) -> None:
+    """Bounds-check the live-play max-HP reduction from any active VARIABLE state-gated drain. The
+    reduction is the dice-rolled damage taken (an inherently variable, live-play amount), so rather
+    than a fixed derived value the check enforces internal book-consistency: the drain portion of
+    ``max_reduction`` must lie within the drain's dice bounds, and the reduction must not push the
+    effective maximum HP below 1 (F05-T112).
+
+    Under a self-transform the character keeps their OWN Hit Points, so the form's CON does NOT
+    recompute max HP — the CON delta is 0 (T60 fork 2). The drain-base uses the SAME 0-CON-delta rule
+    as ``_check_hp`` so the two HP paths agree; otherwise a miscounted CON base would shift the
+    derived drain amount and spuriously flag an in-bounds live drain."""
+    drains = _active_variable_drains(sheet, access)
+    if not drains:
+        return
+    core = sheet.get("core", {}) or {}
+    mod = sheet.get("modifier", {}) or {}
+    hp = mod.get("hit_points")
+    if not isinstance(core, dict) or not isinstance(hp, dict):
+        return
+    actual_reduction = hp.get("max_reduction")
+    actual_boost = hp.get("max_boost")
+    if not _int(actual_reduction) or not _int(actual_boost):
+        return
+
+    # The derivable (fixed) reduction is the base; the variable drains add a live-play amount on top.
+    _, fixed_reduction = _state_hp(sheet, access)
+    total_level = _total_level(core)
+    hp_delta = 0 if transform else _con_hp_delta(sheet, access, total_level)
+    base_reduction = fixed_reduction + max(0, -hp_delta)
+    drain_amount = actual_reduction - base_reduction
+
+    low = sum(dmin for dmin, _ in drains)
+    high = sum(dmax for _, dmax in drains)
+    if drain_amount < low or drain_amount > high:
+        v.append(Violation(DOMAIN, "hp-drain-out-of-bounds", "illegal",
+                           f"state-gated max-HP drain {drain_amount} outside the rolled-damage "
+                           f"bounds [{low}, {high}]", "hit_points.max_reduction"))
+
+    core_max = (core.get("hit_points", {}) or {}).get("max")
+    if _int(core_max):
+        effective_max = core_max + actual_boost - actual_reduction
+        if effective_max < 1:
+            v.append(Violation(DOMAIN, "hp-drain-below-floor", "illegal",
+                               f"effective max HP {effective_max} < 1 — the drain cannot reduce the "
+                               f"Hit Point maximum below 1", "hit_points.max_reduction"))
+
+
+def _expected_form_pool(sheet: dict, access, transform: dict) -> int | None:
+    """Independently re-derive the self-transform temporary form-HP pool from DB facts + CORE (T108):
+    a FULL transform's pool is the form's own hit points; a PHYSICAL transform's pool is the level of
+    the class whose feature grants the transform. Returns None when the pool cannot be derived."""
+    if transform["kind"] == TRANSFORM_FULL:
+        row = creature_q.creature_row(access, transform["creature_id"])
+        return row["hp_average"] if row is not None and _int(row["hp_average"]) else None
+    # PHYSICAL: the granting class's level, resolved from the transform's source class feature
+    if transform.get("owner_kind") != "class_feature" or not transform.get("owner_id"):
+        return None
+    class_id = features_q.class_feature_class(access, transform["owner_id"])
+    if not class_id:
+        return None
+    core = sheet.get("core", {}) or {}
+    ident = core.get("identity", {}) or {}
+    classes = ident.get("classes", []) if isinstance(ident, dict) else []
+    if isinstance(classes, list):
+        for c in classes:
+            if not isinstance(c, dict) or not _int(c.get("level")):
+                continue
+            if access.resolve("class", c.get("class")) == class_id:
+                return c["level"]
+    return None
+
+
+def _check_form_hp_pool(sheet: dict, access, v: list[Violation],
+                        transform: dict | None = None) -> None:
+    """Assert MODIFIER.hit_points.form_temp_pool matches the independently re-derived self-transform
+    temporary form-HP pool. Only runs while a transform is active; a pool that cannot be derived
+    (missing owner/class context) yields no assertion (T108)."""
+    if not transform:
+        return
+    mod = sheet.get("modifier", {}) or {}
+    hp = mod.get("hit_points")
+    if not isinstance(hp, dict):
+        return
+    expected = _expected_form_pool(sheet, access, transform)
+    if expected is None:
+        return
+    actual = hp.get("form_temp_pool")
+    if actual is None:
+        v.append(Violation(DOMAIN, "form-hp-pool-missing", "incomplete",
+                           f"self-transform temporary HP pool {expected} not emitted",
+                           "hit_points.form_temp_pool"))
+    elif actual != expected:
+        v.append(Violation(DOMAIN, "form-hp-pool-mismatch", "illegal",
+                           f"form_temp_pool {actual} != expected {expected}",
+                           "hit_points.form_temp_pool"))
 
 
 # ── defenses ─────────────────────────────────────────────────────────────────
@@ -1069,14 +1223,16 @@ def _active_transform(sheet: dict, access) -> dict | None:
         owner_kind = _owner_kind_for_source_type(st.get("source_type", ""))
         if owner_kind is None:
             continue
-        if access.resolve(owner_kind, st.get("source")) is None:
+        owner_id = access.resolve(owner_kind, st.get("source"))
+        if owner_id is None:
             continue
         detail = st.get("detail")
         detail = detail if isinstance(detail, dict) else {}
         into = detail.get("into")
         kind = detail.get("transform")
         if into and kind in _TRANSFORM_KINDS:
-            return {"creature_id": into, "kind": kind}
+            return {"creature_id": into, "kind": kind,
+                    "owner_kind": owner_kind, "owner_id": owner_id}
     return None
 
 
@@ -1311,6 +1467,8 @@ def check(sheet: dict, access) -> list[Violation]:
     _check_saves(sheet, access, v, transform)
     _check_skills(sheet, access, v, transform)
     _check_hp(sheet, access, v, transform)
+    _check_hp_drain(sheet, access, v, transform)
+    _check_form_hp_pool(sheet, access, v, transform)
     if transform is None:
         _check_attacks(sheet, access, v)
         _check_attack_damage(sheet, access, v)

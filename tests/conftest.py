@@ -330,7 +330,8 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE grant_ability_set (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
                 "gained_at_level INT, ability_id TEXT, score INT, mode TEXT, condition_kind TEXT)")
     cur.execute("CREATE TABLE grant_hp (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
-                "gained_at_level INT, flat INT, per_level INT, condition_kind TEXT)")
+                "gained_at_level INT, flat INT, per_level INT, condition_kind TEXT, "
+                "die_count INT, die_faces INT)")
     cur.execute("INSERT INTO class VALUES ('class-a','Class A',8,3,'full','all',2,0,'')")
     cur.execute("INSERT INTO class VALUES ('class-b','Class B',10,3,'none','any',2,0,'')")
     cur.execute("INSERT INTO subclass VALUES ('sub-a','class-a','Sub A',1,'')")
@@ -349,12 +350,22 @@ def _build_rules_db(path: str) -> None:
     # neither, so it doubles as the negative ("offers no sub-choice") case for the enumeration/grammar.
     cur.execute("INSERT INTO species VALUES ('species-l','Species L','type-a',30,'')")
     cur.execute("INSERT INTO species VALUES ('species-v','Species V','type-a',30,'')")
+    # species-mv: a multi-axis variant species (two independent variant axes) -- F05-T100.
+    cur.execute("INSERT INTO species VALUES ('species-mv','Species MV','type-a',30,'')")
     # two lineages of species-l (ordered by id when enumerated)
     cur.execute("INSERT INTO lineage VALUES ('lin-l1','species-l','Lineage One','none',NULL,'')")
     cur.execute("INSERT INTO lineage VALUES ('lin-l2','species-l','Lineage Two','none',NULL,'')")
     # a variant axis of species-v: two options, each resolving to a damage type
     cur.execute("INSERT INTO species_variant_option VALUES ('svo-a','species-v','axis-a','Variant A','fire')")
     cur.execute("INSERT INTO species_variant_option VALUES ('svo-b','species-v','axis-a','Variant B','cold')")
+    # species-mv offers TWO independent variant axes (a multi-axis species): axis-a and axis-b, each
+    # with two options resolving to a damage type. A single species_variant field cannot record both
+    # picks -- the per-axis species_variants map does (F05-T100). Kept separate from species-v so the
+    # single-axis grammar/enumeration fixtures (the deferred generator half) are untouched.
+    cur.execute("INSERT INTO species_variant_option VALUES ('svm-a','species-mv','axis-a','Variant A','fire')")
+    cur.execute("INSERT INTO species_variant_option VALUES ('svm-b','species-mv','axis-a','Variant B','cold')")
+    cur.execute("INSERT INTO species_variant_option VALUES ('svm-c','species-mv','axis-b','Variant C','poison')")
+    cur.execute("INSERT INTO species_variant_option VALUES ('svm-d','species-mv','axis-b','Variant D','cold')")
     cur.execute("INSERT INTO background VALUES ('bg-a','Background A','feat-origin',0,NULL,NULL,'')")
     # bg-b: a background with no origin feat grant (feat_id NULL) -- the negative case for the
     # background.feat_id-sourced origin budget
@@ -481,6 +492,15 @@ def _build_rules_db(path: str) -> None:
     # class-b multiclass_only weapon grant (martial, only when taken as secondary class)
     cur.execute("INSERT INTO grant_proficiency (id,owner_kind,owner_id,gained_at_level,target_kind,mode,from_any,choose_n,multiclass_only) VALUES ('gpr-classb-weapon','class','class-b',NULL,'weapon_tier','fixed',0,NULL,1)")
     cur.execute("INSERT INTO grant_proficiency_value VALUES ('gpr-classb-weapon','martial')")
+
+    # class-detail 'do-order-a' (an order-style class sub-choice on class-a; detail_option row added in
+    # the features section) confers heavier armour (heavy-armor) and a broader weapon tier (martial) --
+    # a fixed grant owned by owner_kind='class_detail'. Exercises the deriver materialising, and the
+    # equip check independently re-deriving, class-detail-sourced armour/weapon proficiencies (F05-T97).
+    cur.execute("INSERT INTO grant_proficiency (id,owner_kind,owner_id,gained_at_level,target_kind,mode,from_any,choose_n,multiclass_only) VALUES ('gpr-order-a-armor','class_detail','do-order-a',1,'armor_category','fixed',0,NULL,0)")
+    cur.execute("INSERT INTO grant_proficiency_value VALUES ('gpr-order-a-armor','heavy-armor')")
+    cur.execute("INSERT INTO grant_proficiency (id,owner_kind,owner_id,gained_at_level,target_kind,mode,from_any,choose_n,multiclass_only) VALUES ('gpr-order-a-weapon','class_detail','do-order-a',1,'weapon_tier','fixed',0,NULL,0)")
+    cur.execute("INSERT INTO grant_proficiency_value VALUES ('gpr-order-a-weapon','martial')")
 
     # feats domain: feat catalog, prerequisite rows, ASI/Epic-Boon slot spine (class_feature), and
     # the origin-feat grant spine (grant_feat)
@@ -750,6 +770,12 @@ def _build_rules_db(path: str) -> None:
     # species_variant option (damage_type_id NULL here; variant_axis names the axis to resolve).
     cur.execute("INSERT INTO grant_resistance VALUES "
                 "('gre-species-v','species','species-v',NULL,NULL,'axis-a','fixed',1,NULL,NULL,0,NULL)")
+    # species-mv's two variant axes each carry their own axis-resolved resistance, so a multi-axis
+    # build's two picks each materialise a distinct resistance (F05-T100).
+    cur.execute("INSERT INTO grant_resistance VALUES "
+                "('gre-species-mv-a','species','species-mv',NULL,NULL,'axis-a','fixed',1,NULL,NULL,0,NULL)")
+    cur.execute("INSERT INTO grant_resistance VALUES "
+                "('gre-species-mv-b','species','species-mv',NULL,NULL,'axis-b','fixed',1,NULL,NULL,0,NULL)")
     # lineage lin-l2 grants a fixed cold resistance -> a lineage-granted resistance landing in CORE.
     cur.execute("INSERT INTO grant_resistance VALUES "
                 "('gre-lin-l2','lineage','lin-l2',NULL,'cold',NULL,'fixed',1,NULL,NULL,0,NULL)")
@@ -1080,6 +1106,11 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO detail_option VALUES ('do-sch-a','class','class-a','school','School A',NULL)")
     cur.execute("INSERT INTO detail_option VALUES ('do-sch-b','class','class-a','school','School B',NULL)")
 
+    # do-order-a: an order-style class sub-choice on class-a whose grant_proficiency rows (added in the
+    # proficiencies section) confer heavy armour + a martial weapon tier -- the class-detail proficiency
+    # source the CORE deriver materialises and the equip check re-derives (F05-T97).
+    cur.execute("INSERT INTO detail_option VALUES ('do-order-a','class','class-a','order','Order A',NULL)")
+
     # weapon mastery domain: catalog_item, weapon, mastery_property tables
     cur.execute("CREATE TABLE IF NOT EXISTS mastery_property (id TEXT PRIMARY KEY, name TEXT)")
     cur.execute("INSERT OR IGNORE INTO mastery_property VALUES ('mastery-a','Mastery A')")
@@ -1227,6 +1258,17 @@ def _build_rules_db(path: str) -> None:
                 "uses_ability_id TEXT)")
     cur.execute("INSERT INTO grant_resource VALUES ('gr-a1','class','class-a',NULL,NULL,'Class Resource A',"
                 "'per_long_rest',2,NULL)")
+    # species/lineage grant_resource use-pools -- one of each uses_kind, so the CORE deriver and the
+    # resources check each independently re-derive the maximum (F05-T101/T98):
+    #   int              -> a fixed count (uses_num)                     : 'Species L Boon'  max 1
+    #   ability_modifier -> the named ability modifier, minimum one      : 'Species L Focus' max = mod(a1)
+    #   proficiency_bonus-> a number of uses equal to the proficiency bonus: 'Lineage L Power' max = PB
+    cur.execute("INSERT INTO grant_resource VALUES ('gr-species-l-int','species','species-l',NULL,NULL,"
+                "'Species L Boon','int',1,NULL)")
+    cur.execute("INSERT INTO grant_resource VALUES ('gr-species-l-mod','species','species-l',NULL,NULL,"
+                "'Species L Focus','ability_modifier',NULL,'a1')")
+    cur.execute("INSERT INTO grant_resource VALUES ('gr-lin-l1-pb','lineage','lin-l1',1,NULL,"
+                "'Lineage L Power','proficiency_bonus',NULL,NULL)")
 
     # B9: state dimension table + state_compatibility junction table
     cur.execute("CREATE TABLE state (id TEXT PRIMARY KEY, name TEXT)")
@@ -1522,20 +1564,27 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO class_feature VALUES ('cf-hp-state','class-a',99,'HP State Feature A')")
     # ungated state HP boost (condition_kind NULL): applies whenever its owner's state is active,
     # consistent with the gate rule (None = always-on) shared by the deriver and the HP check.
-    cur.execute("INSERT INTO grant_hp VALUES ('ghp-state','class_feature','cf-hp-state',NULL,5,NULL,NULL)")
+    cur.execute("INSERT INTO grant_hp VALUES ('ghp-state','class_feature','cf-hp-state',NULL,5,NULL,NULL,NULL,NULL)")
     # an always-on grant_hp on feat-gen -- never gathered under an active state, so it must NOT
     # reach max_boost (guards the deriver's and validator's state-only HP accumulation).
-    cur.execute("INSERT INTO grant_hp VALUES ('ghp-feat','feat','feat-gen',NULL,7,NULL,NULL)")
+    cur.execute("INSERT INTO grant_hp VALUES ('ghp-feat','feat','feat-gen',NULL,7,NULL,NULL,NULL,NULL)")
 
     # T58 fixtures: a state-gated maximum-HP REDUCTION (drain/curse). A class feature owns a grant_hp
     # with a NEGATIVE flat, gated by condition_kind matching the drain state's id ('drained'). While
     # that state is active the max HP drops by 6 (folds into hit_points.max_reduction). A second
     # feature carries a reduction gated to a DIFFERENT state id, so it stays inert for 'drained'.
     cur.execute("INSERT INTO class_feature VALUES ('cf-hp-drain','class-a',99,'HP Drain Feature A')")
-    cur.execute("INSERT INTO grant_hp VALUES ('ghp-drain','class_feature','cf-hp-drain',NULL,-6,NULL,'drained')")
+    cur.execute("INSERT INTO grant_hp VALUES ('ghp-drain','class_feature','cf-hp-drain',NULL,-6,NULL,'drained',NULL,NULL)")
     cur.execute("INSERT INTO class_feature VALUES ('cf-hp-drain-gated','class-a',99,'HP Drain Feature B')")
     cur.execute("INSERT INTO grant_hp VALUES "
-                "('ghp-drain-gated','class_feature','cf-hp-drain-gated',NULL,-4,NULL,'other-state')")
+                "('ghp-drain-gated','class_feature','cf-hp-drain-gated',NULL,-4,NULL,'other-state',NULL,NULL)")
+    # T112 fixture: a VARIABLE state-gated max-HP drain — the reduction is the (dice-rolled) damage
+    # taken, an inherently variable live-play amount rather than a fixed magnitude. The grant carries
+    # the reduction's DICE (2d6 → bounds [2, 12]) with NO flat; the deriver does not fabricate a value
+    # and the validator bounds-checks the sheet's live-play max_reduction against these dice.
+    cur.execute("INSERT INTO class_feature VALUES ('cf-hp-drain-var','class-a',99,'HP Drain Feature C')")
+    cur.execute("INSERT INTO grant_hp VALUES "
+                "('ghp-drain-var','class_feature','cf-hp-drain-var',NULL,NULL,NULL,'drained-var',2,6)")
 
     # generator choice-space enumeration (F05-T66): the option/list tables the choice grammar reads
     # to enumerate a single-class character's base choices. Content-neutral synthetic ids only.

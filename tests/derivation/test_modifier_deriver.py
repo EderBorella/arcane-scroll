@@ -582,6 +582,16 @@ def test_max_hp_reduction_gate_no_leak(access):
     assert effects.hp_reduction == 0
 
 
+def test_variable_drain_not_folded_into_reduction(access):
+    """A VARIABLE (dice-based) state drain is a live-play amount (the damage rolled), NOT a fixed
+    derived magnitude — the deriver must not fabricate a reduction from it (F05-T112)."""
+    core = _core()
+    var_state = {"state": "drained-var", "source": "HP Drain Feature C", "source_type": "feature"}
+    effects = resolve_active_effects(core, None, [var_state], [], access)
+    assert effects.hp_reduction == 0
+    assert derive_hp_effects(core, effects, {}, access)["max_reduction"] == 0
+
+
 # ── derive_resource_state ────────────────────────────────────────────────────
 
 

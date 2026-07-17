@@ -205,6 +205,37 @@ def test_class_detail_omitted_when_absent(core_sheet):
     assert "class_detail" not in core_sheet["identity"]["classes"][0]
 
 
+# --------------------------------------------------------------------------- class_detail proficiencies (T97)
+
+def _order_choices():
+    """A build that picks an order-style class detail (do-order-a) conferring heavy armour + a martial
+    weapon tier on top of class-a's own light/medium armour + simple weapons."""
+    choices = _choices()
+    choices["classes"] = [{"class": "class-a", "level": 3, "subclass": "sub-a",
+                           "class_detail": "do-order-a"}]
+    return choices
+
+
+def test_class_detail_proficiencies_materialised(gen_access):
+    # the class-detail choice's fixed grants land in the derived proficiency sets.
+    sheet = derive_core(_order_choices(), gen_access)
+    assert "heavy armor" in sheet["proficiencies"]["armor"]
+    assert "martial weapons" in sheet["proficiencies"]["weapons"]
+
+
+def test_class_detail_proficiencies_absent_without_choice(core_sheet):
+    # no order chosen -> the heavier grants are not conferred.
+    assert "heavy armor" not in core_sheet["proficiencies"]["armor"]
+    assert "martial weapons" not in core_sheet["proficiencies"]["weapons"]
+
+
+def test_class_detail_proficiency_build_is_legal(gen_access, access):
+    # the equip check independently re-derives the class-detail grants, so the build validates.
+    report = validate_core(derive_core(_order_choices(), gen_access), access)
+    assert report["legal"] is True, report["violations"]
+    assert report["complete"] is True, report["violations"]
+
+
 # --------------------------------------------------------------------------- RED: malformed CORE
 
 def test_ungranted_proficiency_is_flagged_illegal(core_sheet, access):
@@ -289,6 +320,34 @@ def test_lineage_build_is_legal(gen_access, access):
     assert report["complete"] is True, report["violations"]
 
 
+# ------------------------------------------------------------ species/lineage grant_resource (T101/T98)
+
+def test_species_lineage_grant_resources_materialised(gen_access):
+    # a level-3 lineage build (PB 2; a1 final 17 -> modifier 3) carries the three grant_resource
+    # use-pools with maxima re-derived from each uses_kind:
+    #   int -> 1, ability_modifier(a1) -> 3, proficiency_bonus -> 2.
+    budgets = derive_core(_lineage_choices(), gen_access)["resource_budgets"]
+    assert budgets["Species L Boon"] == {"max": 1}
+    assert budgets["Species L Focus"] == {"max": 3}
+    assert budgets["Lineage L Power"] == {"max": 2}
+
+
+def test_grant_resource_budgets_pass_validate_core(gen_access, access):
+    # the resources check independently re-derives the same three maxima and agrees.
+    report = validate_core(derive_core(_lineage_choices(), gen_access), access)
+    assert report["legal"] is True, report["violations"]
+    assert report["complete"] is True, report["violations"]
+
+
+def test_grant_resource_max_wrong_is_flagged(gen_access, access):
+    # a proficiency-bonus pool declared with the wrong maximum must be caught (independence proof).
+    bad = derive_core(_lineage_choices(), gen_access)
+    bad["resource_budgets"]["Lineage L Power"] = {"max": 5}
+    report = validate_core(bad, access)
+    assert report["legal"] is False
+    assert any("Lineage L Power" in v["message"] for v in report["violations"])
+
+
 def test_variant_resistance_lands(gen_access):
     sheet = derive_core(_variant_choices(), gen_access)
     assert sheet["identity"]["species_variant"] == "Variant A"
@@ -308,6 +367,54 @@ def test_variant_build_is_legal(gen_access, access):
     report = validate_core(derive_core(_variant_choices(), gen_access), access)
     assert report["legal"] is True, report["violations"]
     assert report["complete"] is True, report["violations"]
+
+
+# ------------------------------------------------------------ multi-axis species variants (T100)
+
+def _multi_axis_choices():
+    """species-mv offers two independent variant axes; the build picks an option on each. axis-a
+    Variant A -> fire, axis-b Variant C -> poison."""
+    choices = _variant_choices()
+    del choices["species_variant"]
+    choices["species"] = "species-mv"
+    choices["size"] = "size-a"
+    choices["species_variants"] = {"axis-a": "Variant A", "axis-b": "Variant C"}
+    return choices
+
+
+def test_multi_axis_variants_carried(gen_access):
+    # both axis picks are recorded without loss.
+    sheet = derive_core(_multi_axis_choices(), gen_access)
+    assert sheet["identity"]["species_variants"] == {"axis-a": "Variant A", "axis-b": "Variant C"}
+
+
+def test_multi_axis_each_axis_materialises_its_effect(gen_access):
+    # each axis resolves independently to its own resistance.
+    resistances = derive_core(_multi_axis_choices(), gen_access)["permanent_defenses"]["resistances"]
+    assert "fire" in resistances     # axis-a -> Variant A
+    assert "poison" in resistances   # axis-b -> Variant C
+
+
+def test_multi_axis_other_option_resolves_differently(gen_access):
+    choices = _multi_axis_choices()
+    choices["species_variants"]["axis-b"] = "Variant D"
+    resistances = derive_core(choices, gen_access)["permanent_defenses"]["resistances"]
+    assert "fire" in resistances     # axis-a unchanged -> Variant A
+    assert "cold" in resistances     # axis-b -> Variant D
+    assert "poison" not in resistances
+
+
+def test_multi_axis_build_is_legal(gen_access, access):
+    # the defenses check re-derives each axis independently, so the build validates.
+    report = validate_core(derive_core(_multi_axis_choices(), gen_access), access)
+    assert report["legal"] is True, report["violations"]
+    assert report["complete"] is True, report["violations"]
+
+
+def test_multi_axis_variants_omitted_when_absent(core_sheet):
+    # a species with no variant axes carries neither variant field.
+    assert "species_variant" not in core_sheet["identity"]
+    assert "species_variants" not in core_sheet["identity"]
 
 
 def test_no_subchoice_species_omits_fields(gen_access):

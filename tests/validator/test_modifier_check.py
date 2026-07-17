@@ -818,6 +818,75 @@ def test_max_hp_reduction_gate_no_leak_in_check(access):
         _hp_sheet(con_final=12, level=3, vigor=False, states=[state], max_reduction=0), access)
 
 
+# ── VARIABLE state-gated max-HP drain: live-play amount, bounds-checked (T112) ─
+
+
+def _var_drain_state():
+    return {"state": "drained-var", "source": "HP Drain Feature C", "source_type": "feature"}
+
+
+def test_variable_drain_within_bounds_passes(access):
+    """A VARIABLE drain (2d6 → bounds [2, 12]) is a live-play amount: a max_reduction inside the dice
+    bounds is clean, and the exact-equality reduction check is suspended (not fabricated) (F05-T112)."""
+    access = _access_with_con(access)
+    codes = _codes(_hp_sheet(con_final=12, level=3, vigor=False,
+                             states=[_var_drain_state()], max_reduction=6), access)
+    assert "hp-drain-out-of-bounds" not in codes
+    assert "hp-max-reduction-mismatch" not in codes   # exact check suspended for a variable drain
+
+
+def test_variable_drain_below_min_flagged(access):
+    access = _access_with_con(access)
+    assert "hp-drain-out-of-bounds" in _codes(
+        _hp_sheet(con_final=12, level=3, vigor=False,
+                  states=[_var_drain_state()], max_reduction=1), access)   # below 2d6 min (2)
+
+
+def test_variable_drain_above_max_flagged(access):
+    access = _access_with_con(access)
+    assert "hp-drain-out-of-bounds" in _codes(
+        _hp_sheet(con_final=12, level=3, vigor=False,
+                  states=[_var_drain_state()], max_reduction=13), access)  # above 2d6 max (12)
+
+
+def test_variable_drain_below_floor_flagged(access):
+    """The book floor — the drain can't reduce the Hit Point maximum below 1 — is enforced even for an
+    in-bounds reduction (F05-T112)."""
+    access = _access_with_con(access)
+    sheet = _hp_sheet(con_final=12, level=3, vigor=False,
+                      states=[_var_drain_state()], max_reduction=12)      # in bounds [2, 12]
+    sheet["core"]["hit_points"] = {"max": 10}                             # effective max 10-12 = -2
+    assert "hp-drain-below-floor" in _codes(sheet, access)
+
+
+def _transform_state():
+    """A self-transform (physical) into a concrete synthetic form, mirroring the transform fixtures."""
+    return {"state": "shaped", "source": "Spell-Grow", "source_type": "spell",
+            "detail": {"into": "creature-form", "transform": "physical"}}
+
+
+def test_variable_drain_under_transform_ignores_con_delta(access):
+    """A simultaneous variable drain + self-transform must not double-count the CON delta the deriver
+    zeroes under transform (T60). The drain-bounds check must honour the same 0-CON-delta rule as the
+    max-HP check, so an in-bounds live drain stays clean instead of spuriously flagging out-of-bounds
+    (T112). Without the transform-aware fork the miscounted CON base pulls the drain below its dice
+    minimum and fires a false hp-drain-out-of-bounds."""
+    access = _access_with_con(access)
+    # core CON 22 (mod +6); Vigor sets 18 (mod +4): a −6 CON delta at level 3 the transform zeroes.
+    sheet = _hp_sheet(con_final=22, level=3, vigor=True,
+                      states=[_transform_state(), _var_drain_state()], max_reduction=6)
+    assert "hp-drain-out-of-bounds" not in _codes(sheet, access)
+
+
+def test_variable_drain_floor_ok_passes(access):
+    access = _access_with_con(access)
+    sheet = _hp_sheet(con_final=12, level=3, vigor=False,
+                      states=[_var_drain_state()], max_reduction=6)
+    sheet["core"]["hit_points"] = {"max": 20}                             # effective max 20-6 = 14 >= 1
+    codes = _codes(sheet, access)
+    assert "hp-drain-below-floor" not in codes and "hp-drain-out-of-bounds" not in codes
+
+
 # ── smoke ────────────────────────────────────────────────────────────────────
 
 

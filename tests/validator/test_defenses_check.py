@@ -83,3 +83,44 @@ def test_subclass_immunity_below_level(access):
     s = _sheet(classes=[{"class": "Class A", "level": 2, "subclass": "Sub A"}],
                defenses={"resistances": ["poison"], "condition_immunities": ["charmed"]})
     assert "condition-immunity-ungranted" in _codes(s, access)
+
+
+# ---- multi-axis species variants (T100) ----
+
+def _variant_sheet(variants, resistances):
+    """A Species MV build (two variant axes) with per-axis picks and declared resistances."""
+    return {
+        "identity": {"species": "Species MV", "species_variants": variants,
+                     "classes": [{"class": "Class A", "level": 3}]},
+        "feats": [],
+        "defenses": {"resistances": resistances},
+    }
+
+
+def test_multi_axis_each_axis_resolved(access):
+    # axis-a Variant A -> fire, axis-b Variant C -> poison; both expected, both declared -> clean.
+    s = _variant_sheet({"axis-a": "Variant A", "axis-b": "Variant C"}, ["fire", "poison"])
+    assert check(s, access) == []
+
+
+def test_multi_axis_missing_one_axis_resistance(access):
+    # declaring only one axis's resistance leaves the other axis's expected resistance missing.
+    s = _variant_sheet({"axis-a": "Variant A", "axis-b": "Variant C"}, ["fire"])
+    assert "resistance-missing" in _codes(s, access)
+
+
+def test_multi_axis_pick_resolves_per_axis(access):
+    # axis-b Variant D -> cold (not poison); a sheet declaring poison is ungranted.
+    s = _variant_sheet({"axis-a": "Variant A", "axis-b": "Variant D"}, ["cold", "fire", "poison"])
+    assert "resistance-ungranted" in _codes(s, access)
+
+
+def test_single_axis_field_still_resolves(access):
+    # backward compatibility: the single-axis species_variant field resolves the one axis it matches.
+    s = {
+        "identity": {"species": "Species V", "species_variant": "Variant A",
+                     "classes": [{"class": "Class A", "level": 3}]},
+        "feats": [],
+        "defenses": {"resistances": ["fire"]},
+    }
+    assert check(s, access) == []

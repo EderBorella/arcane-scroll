@@ -11,63 +11,23 @@ from validator.report import Violation
 DOMAIN = "defenses"
 
 
-def _gather_owner_grants(access, sheet: dict, query_fn):
-    """Collect all grant rows for every character owner using *query_fn(access, kind, id, level?)."""
-    rows: list = []
-    ident = sheet.get("identity", {}) or {}
-    if not isinstance(ident, dict):
-        ident = {}
-
-    species_name = ident.get("species")
-
-    spid = access.resolve("species", species_name)
-    if spid:
-        rows.extend(query_fn(access, "species", spid))
-
-    lineage_name = ident.get("lineage")
-    if isinstance(lineage_name, str) and lineage_name:
-        lid = access.resolve("lineage", lineage_name)
-        if lid:
-            rows.extend(query_fn(access, "lineage", lid))
-            parent_spid = access.db.scalar(
-                "SELECT species_id FROM lineage WHERE id=?", lid)
-            if parent_spid and parent_spid != spid:
-                rows.extend(query_fn(access, "species", parent_spid))
-
-    raw_classes = ident.get("classes")
-    if isinstance(raw_classes, list):
-        for c in raw_classes:
-            if not isinstance(c, dict):
-                continue
-            level = c.get("level")
-            if not isinstance(level, int) or isinstance(level, bool):
-                continue
-            cid = access.resolve("class", c.get("class"))
-            if cid is None:
-                continue
-            rows.extend(query_fn(access, "class", cid, level))
-            sub = c.get("subclass")
-            if sub:
-                sid = access.resolve("subclass", sub)
-                if sid:
-                    rows.extend(query_fn(access, "subclass", sid, level))
-
-    feats = sheet.get("feats")
-    if isinstance(feats, list):
-        for f in feats:
-            if not isinstance(f, dict):
-                continue
-            fid = access.resolve("feat", f.get("name"))
-            if fid:
-                rows.extend(query_fn(access, "feat", fid))
-
-    return rows
+def _variant_pick_for_axis(identity: dict, axis: str) -> str | None:
+    """The chosen species-variant option name for a variant axis: the per-axis pick in
+    ``identity.species_variants`` when present, otherwise the single-axis ``identity.species_variant``
+    (so a one-axis build still resolves without the multi-axis map)."""
+    variants = identity.get("species_variants")
+    if isinstance(variants, dict):
+        pick = variants.get(axis)
+        if isinstance(pick, str) and pick:
+            return pick
+    single = identity.get("species_variant")
+    return single if isinstance(single, str) and single else None
 
 
 def check(sheet: dict, access) -> list[Violation]:
     v: list[Violation] = []
 
-    resistance_rows = _gather_owner_grants(access, sheet, q.resistance_grants)
+    resistance_rows = q.gather_owner_grants(access, sheet, q.resistance_grants)
 
     # magic items: resistance grants
     from access import primitives
@@ -82,17 +42,22 @@ def check(sheet: dict, access) -> list[Violation]:
     ident = sheet.get("identity", {}) or {}
     if not isinstance(ident, dict):
         ident = {}
-    variant_name = ident.get("species_variant")
-    if variant_name and isinstance(variant_name, str):
-        spid = access.resolve("species", ident.get("species"))
-        if spid:
-            for row in resistance_rows:
-                if row["variant_axis"]:
-                    dmg = q.variant_damage_type(access, spid, row["variant_axis"], variant_name)
-                    if dmg:
-                        expected_resistances.add(dmg)
+    # A variant-axis resistance is resolved to the option chosen on THAT axis. A species may offer
+    # more than one independent variant axis, so each axis takes its own pick from
+    # identity.species_variants (falling back to the single-axis identity.species_variant).
+    spid = access.resolve("species", ident.get("species"))
+    if spid:
+        for row in resistance_rows:
+            axis = row["variant_axis"]
+            if not axis:
+                continue
+            pick = _variant_pick_for_axis(ident, axis)
+            if pick:
+                dmg = q.variant_damage_type(access, spid, axis, pick)
+                if dmg:
+                    expected_resistances.add(dmg)
 
-    condition_rows = _gather_owner_grants(access, sheet, q.condition_grants)
+    condition_rows = q.gather_owner_grants(access, sheet, q.condition_grants)
     condition_rows.extend(
         primitives.item_grants_for(access.db, sheet, "grant_condition", access.resolver))
     expected_condition_immunities: set[str] = set()
@@ -154,7 +119,7 @@ def check(sheet: dict, access) -> list[Violation]:
                                    "defenses.condition_immunities"))
 
     # save advantages
-    sa_rows = _gather_owner_grants(access, sheet, q.save_advantage_grants)
+    sa_rows = q.gather_owner_grants(access, sheet, q.save_advantage_grants)
     sa_rows.extend(
         primitives.item_grants_for(access.db, sheet, "grant_save_advantage", access.resolver))
     expected_sa: set[str] = set()

@@ -267,6 +267,33 @@ class TestCleanSheetPasses:
         assert violations == []
 
 
+# ── T111: illegal-companion fixture coverage (matches the non-harness gold negatives) ────
+
+
+class TestT111IllegalCompanionCoverage:
+    """F05-T111: the illegal-companion gold fixtures live outside the (green) harness and are
+    verified rejected HERE. These synthetic scenarios mirror ``negative/companion/*.json``: a
+    creature no owner confers, and a spell-summoned creature controlled below the summon's base
+    spell level."""
+
+    def test_ungranted_companion_rejected_on_legality_alone(self, access):
+        # An ungranted creature (no grant_companion link) derived as a clean companion is rejected
+        # ONLY by the legality gate — every other re-derived stat matches the catalog, so the sole
+        # illegal finding is the legality code (mirrors companion-illegal-ungranted.json).
+        core = _core(companions=[{"name": "Form", "db_creature_id": "creature-form"}])
+        sheet, _ = derive_companions(core, None, "fill", access)
+        illegal = {v.code for v in check({"core": core, "companion": sheet}, access)
+                   if v.kind == "illegal"}
+        assert illegal == {"companion-creature-illegal"}
+
+    def test_spell_companion_below_base_level_rejected(self, access):
+        # A spell-summoned creature controlled below the summon's base spell level is rejected by the
+        # level gate (the analogue of the below-base-level cast gold negative).
+        cm = _clean_spirit_modifier(cast_level=2)
+        codes = {v.code for v in check(_templated_sheet(cm, _spirit_core(cast_level=2)), access)}
+        assert "companion-creature-level-illegal" in codes
+
+
 # ── state compatibility ──────────────────────────────────────────────────────
 
 

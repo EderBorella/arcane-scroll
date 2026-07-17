@@ -46,10 +46,8 @@ from access.validator import movement as movement_q
 from access.validator import proficiencies as prof_q
 from access.validator import resources as resources_q
 from access.validator import saving_throws as saves_q
+from access.validator import senses as senses_q
 from access.validator import vitals as vitals_q
-from validator.checks import defenses as defenses_check
-from validator.checks import movement as movement_check
-from validator.checks import senses as senses_check
 
 # A choice-space structure — the generator's selections, all as catalog ids (except free-text player
 # input like languages). Documented here rather than in a JSON contract; the ids are content-neutral
@@ -61,7 +59,8 @@ from validator.checks import senses as senses_check
 #   "species":            species_id,
 #   "size":               size_id | None,      # chosen size when the species offers several
 #   "lineage":            lineage_id | None,   # optional (sub-species)
-#   "species_variant":    str | None,          # optional (full support is a later card)
+#   "species_variant":    str | None,          # optional single-axis variant pick (option name)
+#   "species_variants":   { axis: option_name, ... } | None,  # optional multi-axis variant picks
 #   "alignment":          str | None,
 #   "classes": [ {"class": class_id, "level": int, "subclass": subclass_id | None}, ... ],
 #   "background":         background_id,
@@ -106,6 +105,19 @@ def _display(access, dim: str, id_value: str | None) -> str | None:
     if access.resolve(dim, id_value) is not None:
         return id_value
     return catalog.name_of(access, dim, id_value)
+
+
+def _variant_pick_for_axis(identity: dict, axis: str) -> str | None:
+    """The chosen species-variant option name for a given variant axis: the per-axis pick in
+    ``identity.species_variants`` when present, otherwise the single-axis ``identity.species_variant``
+    (so a one-axis build still resolves without the multi-axis map)."""
+    variants = identity.get("species_variants")
+    if isinstance(variants, dict):
+        pick = variants.get(axis)
+        if isinstance(pick, str) and pick:
+            return pick
+    single = identity.get("species_variant")
+    return single if isinstance(single, str) and single else None
 
 
 def _con_modifier(access, abilities_out: dict, key_of: dict) -> int:
@@ -183,8 +195,10 @@ def _identity(access, choices: Choices) -> dict:
     #
     # ``lineage`` is a resolver dim: choices carry its canonical id, so it is rendered to its display
     # name here (the grant walkers resolve identity.lineage back to the id to gather lineage grants).
-    # ``species_variant`` is a name-keyed field (matched by (species, axis, option_name); no resolver
-    # dim), so the chosen option name is carried verbatim.
+    # ``species_variant`` / ``species_variants`` are name-keyed (matched by (species, axis,
+    # option_name); no resolver dim), so the chosen option name(s) are carried verbatim.
+    # ``species_variants`` records a pick PER axis for a species offering more than one independent
+    # variant axis (the single ``species_variant`` field is the one-axis form).
     lineage_id = choices.get("lineage")
     if lineage_id is not None:
         identity["lineage"] = _display(access, "lineage", lineage_id)
@@ -192,6 +206,9 @@ def _identity(access, choices: Choices) -> dict:
                        ("alignment", choices.get("alignment"))):
         if value is not None:
             identity[key] = value
+    species_variants = choices.get("species_variants")
+    if isinstance(species_variants, dict) and species_variants:
+        identity["species_variants"] = {str(axis): str(opt) for axis, opt in species_variants.items()}
     return identity
 
 
@@ -401,6 +418,16 @@ def _proficiencies(access, choices: Choices) -> dict:
         sub_id = c.get("subclass")
         if sub_id:
             merge(*_fixed_equip_grants(access, "subclass", sub_id, at_level=level))
+        # A class-detail / subclass-detail choice (an order-style sub-choice) can confer heavier
+        # armour and a broader weapon tier — materialise those exactly like any other fixed grant.
+        # Both a class-owned and a subclass-owned detail option carry their grants under owner_kind
+        # ``class_detail`` on the grant spine; the choice supplies the detail option's id.
+        detail_id = c.get("class_detail")
+        if detail_id:
+            merge(*_fixed_equip_grants(access, "class_detail", detail_id, at_level=level))
+        sub_detail_id = c.get("subclass_detail")
+        if sub_detail_id:
+            merge(*_fixed_equip_grants(access, "class_detail", sub_detail_id, at_level=level))
 
     for f in choices.get("feats") or []:
         fid = f.get("feat") if isinstance(f, dict) else f
@@ -565,7 +592,7 @@ def _derive_speeds(grant_rows: list, base_walk: int, class_bonuses: list[int]) -
 
 
 def _permanent_senses(access, partial: dict) -> dict:
-    return _derive_senses(senses_check._gather_owner_grants(access, partial))
+    return _derive_senses(senses_q.gather_owner_grants(access, partial))
 
 
 def _base_walk(access, choices: Choices) -> int:
@@ -582,62 +609,119 @@ def _base_walk(access, choices: Choices) -> int:
 
 
 def _permanent_speed(access, choices: Choices, partial: dict) -> dict:
-    grants = movement_check._gather_owner_grants(access, partial)
-    bonuses = movement_check._gather_class_bonuses(access, partial)
+    grants = movement_q.gather_owner_grants(access, partial)
+    bonuses = movement_q.gather_class_bonuses(access, partial)
     return _derive_speeds(grants, _base_walk(access, choices), bonuses)
 
 
-def _resource_budgets(access, choices: Choices) -> dict:
-    """Per-resource maximums from the class-resource ladder.
+def _grant_resource_max(res: dict, proficiency_bonus: int, ability_mods: dict) -> int | None:
+    """The maximum uses a ``grant_resource`` use-pool confers, re-derived from the rule its
+    ``uses_kind`` names (deriver-owned; the validator computes the same maximum independently):
 
-    For each class (and its subclass) the build takes, every resource with a COUNT ladder — a
-    whole-number use pool (a per-rest use count), as opposed to a die or a flat bonus — contributes
-    its maximum at that class's level, keyed by the resource's display name.
-    On a name collision across a multiclass the larger maximum wins. Dice/bonus resources and
-    formula-based feature uses are not on this ladder and are intentionally not emitted here."""
+    * ``int`` — a fixed number of uses (``uses_num``), e.g. a once-per-long-rest species trait.
+    * ``proficiency_bonus`` — a number of uses equal to the proficiency bonus (a lineage ancestry
+      benefit usable "a number of times equal to your Proficiency Bonus").
+    * ``ability_modifier`` — a number of uses equal to an ability modifier, minimum one.
+
+    Any other kind yields None (not materialised)."""
+    kind = res.get("uses_kind")
+    if kind == "int":
+        n = res.get("uses_num")
+        return n if isinstance(n, int) else None
+    if kind == "proficiency_bonus":
+        return proficiency_bonus
+    if kind == "ability_modifier":
+        mod = ability_mods.get(res.get("uses_ability_id"), 0)
+        return max(1, mod)
+    return None
+
+
+def _resource_budgets(access, choices: Choices, total_level: int, abilities: dict,
+                      key_of: dict) -> dict:
+    """Per-resource maximums a build carries.
+
+    Two sources feed this block:
+
+    * the **class-resource COUNT ladder** — for each class (and its subclass), every resource with a
+      whole-number use-count ladder contributes its maximum at that class's level. Dice-pool resources
+      that carry a count column (a pool OF dice) are covered here via that count; a pure die size or a
+      flat bonus is a magnitude, not a use count, and the loaded ruleset defines no "number of uses"
+      for it, so it is intentionally not emitted.
+    * the **``grant_resource`` use-pool spine** — a species- or lineage-owned use pool whose maximum
+      is a fixed count, the proficiency bonus, or an ability modifier (see ``_grant_resource_max``).
+
+    Keyed by the resource's display name; on a name collision the larger maximum wins."""
     out: dict[str, dict] = {}
 
-    def add(owner_kind: str, owner_id: str, level: int) -> None:
+    def put(name: str, value: int) -> None:
+        prev = out.get(name, {}).get("max")
+        out[name] = {"max": value if prev is None else max(prev, value)}
+
+    def add_ladder(owner_kind: str, owner_id: str, level: int) -> None:
         for res in resources_q.count_class_resources(access, owner_kind, owner_id):
             count = resources_q.resource_count_at(access, res["id"], level)
-            if count is None:
-                continue
-            name = res["name"]
-            prev = out.get(name, {}).get("max")
-            out[name] = {"max": count if prev is None else max(prev, count)}
+            if count is not None:
+                put(res["name"], count)
 
     for c in _classes(choices):
         level = int(c.get("level", 0))
         cid = c.get("class")
         if cid:
-            add("class", cid, level)
+            add_ladder("class", cid, level)
         sub_id = c.get("subclass")
         if sub_id:
-            add("subclass", sub_id, level)
+            add_ladder("subclass", sub_id, level)
+
+    # species / lineage grant_resource use-pools. The maximum for a proficiency-bonus or
+    # ability-modifier pool needs the character's proficiency bonus and ability modifiers, so those
+    # are computed here from the already-derived total level and abilities.
+    proficiency_bonus = _proficiency_bonus(total_level)
+    ability_mods: dict[str, int] = {}
+    for aid, abbrev in key_of.items():
+        entry = abilities.get(abbrev)
+        if isinstance(entry, dict) and isinstance(entry.get("final"), int):
+            ability_mods[aid] = (entry["final"] - 10) // 2
+
+    def add_grants(owner_kind: str, owner_id: str) -> None:
+        for res in resources_q.grant_resources(access, owner_kind, owner_id, at_level=total_level):
+            value = _grant_resource_max(res, proficiency_bonus, ability_mods)
+            if value is not None:
+                put(res["name"], value)
+
+    species_id = choices.get("species")
+    if species_id:
+        add_grants("species", species_id)
+    lineage_id = choices.get("lineage")
+    if lineage_id:
+        add_grants("lineage", lineage_id)
+
     return out
 
 
 def _permanent_defenses(access, partial: dict) -> dict:
-    res_rows = defenses_check._gather_owner_grants(access, partial, defenses_q.resistance_grants)
+    res_rows = defenses_q.gather_owner_grants(access, partial, defenses_q.resistance_grants)
     resistance_set = {r["damage_type_id"] for r in res_rows
                       if r["mode"] == "fixed" and r["damage_type_id"]}
     # A variant-axis resistance names its axis but not its damage type — the concrete type is decided
-    # by the chosen species_variant option. Resolve it here (deriver-owned, re-derived from the DB, so
+    # by the chosen option on THAT axis. A species may offer more than one independent variant axis, so
+    # each axis is resolved to its own pick (identity.species_variants[axis], falling back to the
+    # single-axis identity.species_variant). Resolved here (deriver-owned, re-derived from the DB, so
     # the deriver stays independent of the validator's own variant resolution).
     ident = partial.get("identity", {}) or {}
-    variant_name = ident.get("species_variant")
-    if isinstance(variant_name, str) and variant_name:
-        spid = access.resolve("species", ident.get("species"))
-        if spid:
-            for row in res_rows:
-                if row["variant_axis"]:
-                    dmg = defenses_q.variant_damage_type(
-                        access, spid, row["variant_axis"], variant_name)
-                    if dmg:
-                        resistance_set.add(dmg)
+    spid = access.resolve("species", ident.get("species"))
+    if spid:
+        for row in res_rows:
+            axis = row["variant_axis"]
+            if not axis:
+                continue
+            pick = _variant_pick_for_axis(ident, axis)
+            if pick:
+                dmg = defenses_q.variant_damage_type(access, spid, axis, pick)
+                if dmg:
+                    resistance_set.add(dmg)
     resistances = sorted(resistance_set)
 
-    cond_rows = defenses_check._gather_owner_grants(access, partial, defenses_q.condition_grants)
+    cond_rows = defenses_q.gather_owner_grants(access, partial, defenses_q.condition_grants)
     condition_immunities = sorted({r["condition_id"] for r in cond_rows if r["effect"] == "immunity"})
     condition_advantages = []
     for r in cond_rows:
@@ -645,7 +729,7 @@ def _permanent_defenses(access, partial: dict) -> dict:
             effect = "avoid_or_end" if r["effect"] == "advantage_to_avoid_or_end" else "end"
             condition_advantages.append({"condition": r["condition_id"], "effect": effect})
 
-    sa_rows = defenses_check._gather_owner_grants(access, partial, defenses_q.save_advantage_grants)
+    sa_rows = defenses_q.gather_owner_grants(access, partial, defenses_q.save_advantage_grants)
     save_advantages = sorted({s for s in (defenses_q.save_scope_for(access, r) for r in sa_rows) if s})
 
     return {
@@ -702,7 +786,7 @@ def derive_core(choices: Choices, access) -> dict:
     }
     # Per-resource maximums from the class-resource ladder — emitted only when the build has at least
     # one count-ladder resource, matching the corpus (an optional, absent-when-empty block).
-    resource_budgets = _resource_budgets(access, choices)
+    resource_budgets = _resource_budgets(access, choices, total_level, abilities, key_of)
     if resource_budgets:
         sheet["resource_budgets"] = resource_budgets
     return sheet

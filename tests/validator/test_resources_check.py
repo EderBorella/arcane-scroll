@@ -46,3 +46,32 @@ def test_ladder_max_gated_by_level(access):
     # at level 1 the ladder confers 2, so a level-1 build declaring 3 is wrong.
     sheet = _sheet({"Pool A": {"max": 3}}, classes=[{"class": "Class A", "level": 1}])
     assert "resource-max-wrong" in _codes(sheet, access)
+
+
+# ------------------------------------------------------- species/lineage grant_resource (T101/T98)
+
+def _grant_sheet(budgets):
+    """A level-3 species-l + lin-l1 build (PB 2; a1 final 17 -> modifier 3), so the grant_resource
+    maxima are: int -> 1, ability_modifier(a1) -> 3, proficiency_bonus -> 2."""
+    return {
+        "identity": {"species": "Species L", "lineage": "Lineage One",
+                     "classes": [{"class": "Class A", "level": 3, "subclass": None}]},
+        "abilities": {"x1": {"final": 17}},
+        "resource_budgets": budgets,
+    }
+
+
+def test_grant_resource_int_max(access):
+    assert check(_grant_sheet({"Species L Boon": {"max": 1}}), access) == []
+
+
+def test_grant_resource_proficiency_bonus_max(access):
+    assert check(_grant_sheet({"Lineage L Power": {"max": 2}}), access) == []
+
+
+def test_grant_resource_ability_modifier_max(access):
+    assert check(_grant_sheet({"Species L Focus": {"max": 3}}), access) == []
+
+
+def test_grant_resource_wrong_max_flagged(access):
+    assert "resource-max-wrong" in _codes(_grant_sheet({"Lineage L Power": {"max": 4}}), access)

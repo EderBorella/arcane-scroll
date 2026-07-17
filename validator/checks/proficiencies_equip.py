@@ -179,6 +179,12 @@ def check(sheet: dict, access) -> list[Violation]:
     expected_weapons: set[str] = set()
     expected_tools: set[str] = set()
 
+    # Mandatory (unconditional, fixed-mode) armour-category and weapon-tier grants owned by a chosen
+    # class-detail option. Unlike the legality sets above (a superset the sheet may draw from), these
+    # are grants the character is REQUIRED to have, so the completeness pass asserts each is present.
+    mandatory_armor: set[str] = set()
+    mandatory_weapons: set[str] = set()
+
     sp_id = access.resolve("species", ident.get("species"))
     if sp_id:
         a, w, t = _collect_equip_grants(access, "species", sp_id)
@@ -235,6 +241,8 @@ def check(sheet: dict, access) -> list[Violation]:
                 expected_armor |= a
                 expected_weapons |= w
                 expected_tools |= t
+                mandatory_armor |= a
+                mandatory_weapons |= w
 
         # subclass_detail grants (e.g. Circle of the Land terrain grants a resistance)
         subclass_detail = c.get("subclass_detail")
@@ -248,6 +256,8 @@ def check(sheet: dict, access) -> list[Violation]:
                 expected_armor |= a
                 expected_weapons |= w
                 expected_tools |= t
+                mandatory_armor |= a
+                mandatory_weapons |= w
 
     feats = sheet.get("feats")
     if isinstance(feats, list):
@@ -306,4 +316,32 @@ def check(sheet: dict, access) -> list[Violation]:
                                    f"{item}: not a legal tool proficiency for this build",
                                    "proficiencies.tools"))
 
+    # Completeness: every mandatory (fixed) class-detail armour/weapon grant must be PRESENT on the
+    # sheet. This is the counterpart to the legality (superset) pass above -- that pass never fires
+    # when a required proficiency is simply ABSENT, so a missing mandatory grant would slip through.
+    _check_mandatory_present(v, mandatory_armor, armor_list, _resolve_armor,
+                             "proficiencies.armor", "armour", access)
+    _check_mandatory_present(v, mandatory_weapons, weapon_list, _resolve_weapon,
+                             "proficiencies.weapons", "weapon", access)
+
     return v
+
+
+def _check_mandatory_present(v: list[Violation], mandatory: set[str], listed, resolver,
+                             path: str, label: str, access) -> None:
+    """Flag each mandatory DB grant id not present in the sheet's listed proficiencies. `listed` is
+    the sheet's proficiency list (or None); `resolver` maps a listed name to its DB id, so matching
+    is name-format independent. Fired as `incomplete` -- the grant is required but missing."""
+    if not mandatory:
+        return
+    present: set[str] = set()
+    if isinstance(listed, list):
+        for item in listed:
+            if isinstance(item, str):
+                rid = resolver(item, access)
+                if rid is not None:
+                    present.add(rid)
+    for gid in sorted(mandatory - present):
+        v.append(Violation(DOMAIN, "mandatory-proficiency-missing", "incomplete",
+                           f"mandatory {label} proficiency {gid!r} granted by a class option is "
+                           f"missing from the sheet", path))

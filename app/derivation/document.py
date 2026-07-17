@@ -45,12 +45,15 @@ _ITEM_PASSTHROUGH = (
 )
 
 
-def _item_record(spec: Any, seq: int, access) -> dict | None:
+def _item_record(spec: Any, item_id: str, access) -> dict | None:
     """One inventory item record from a chosen item spec, enriched with its catalog facts.
 
     A spec is either a bare item name (string) or a dict carrying at least ``name`` plus any of the
-    optional inventory:1 item fields. A sheet-local ``id`` is assigned when the spec omits one, so
-    every item carries the unique id the contract (and MODIFIER's item_states) reference it by.
+    optional inventory:1 item fields. ``item_id`` is the sheet-local id assigned by the container
+    assembly (positional, corpus form): ``item-<slot>`` for an equipped item, ``item-backpack-<i>``
+    for a backpack entry. It is the id the contract (and MODIFIER's item_states) reference the item
+    by, so it is assigned by position rather than carried through from the generator's catalog-id
+    merge key (F05-T102).
 
     Any inventory:1 field the spec already carries is kept verbatim; the catalog fills in the rest
     (category, weight, weapon / armour facts) so a generated record reaches corpus fidelity without
@@ -62,7 +65,7 @@ def _item_record(spec: Any, seq: int, access) -> dict | None:
     name = spec.get("name")
     if not name:
         return None
-    record: dict = {"id": spec.get("id") or f"item-{seq}", "name": name}
+    record: dict = {"id": item_id, "name": name}
     for key in _ITEM_PASSTHROUGH:
         if key in spec:
             record[key] = spec[key]
@@ -134,8 +137,9 @@ def assemble_inventory(choices: Choices, core: dict, access) -> dict:
         {"equipped": {slot_id: item_spec, ...}, "backpack": [item_spec, ...]}
 
     An empty (or absent) equipment choice yields a legal empty inventory — the unarmoured, gearless
-    build the MODIFIER layer then reads (AC 10 + Dex, no worn armour). Item ids are assigned across
-    both containers so no two items collide. ``access`` resolves each item's catalog facts so the
+    build the MODIFIER layer then reads (AC 10 + Dex, no worn armour). Sheet item ids are positional,
+    matching the corpus form — ``item-<slot>`` for an equipped item and ``item-backpack-<i>`` for a
+    backpack entry — so no two items collide (F05-T102). ``access`` resolves each item's catalog facts so the
     emitted records carry the reference facts (category, weight, weapon / armour facts), not just the
     id + name the choices supply (F05-T80).
     """
@@ -143,20 +147,17 @@ def assemble_inventory(choices: Choices, core: dict, access) -> dict:
     if not isinstance(equipment, dict):
         equipment = {}
 
-    seq = 0
     equipped: dict[str, dict] = {}
     for slot, spec in (equipment.get("equipped") or {}).items():
-        record = _item_record(spec, seq, access)
+        record = _item_record(spec, f"item-{slot}", access)
         if record is not None:
             equipped[slot] = record
-            seq += 1
 
     backpack: list[dict] = []
     for spec in equipment.get("backpack") or []:
-        record = _item_record(spec, seq, access)
+        record = _item_record(spec, f"item-backpack-{len(backpack)}", access)
         if record is not None:
             backpack.append(record)
-            seq += 1
 
     return {
         "schema_version": 1,

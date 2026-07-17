@@ -1,8 +1,10 @@
 """Inventory domain (inventory:1 shape): validates equipped items and backpack entries against
-the DB. 7 violations across 5 subtasks: item identity (duplicate-id, unknown-item), slot legality
-(invalid-slot, two-handed-plus-shield), template resolution (invalid-template), single-use
-casting item integrity (invalid-casting-consumable), and consumable attribution
-(consumable-missing-inventory).
+the DB. Item identity (duplicate-id, unknown-item), slot legality (invalid-slot,
+two-handed-plus-shield), equipped-slot grounding (slot-assignment-mismatch — a weapon / worn armour
+/ held shield sitting in a slot its DB facts forbid), catalog-enrichment re-derivation
+(enrichment-mismatch — a stated weapon / armour fact that contradicts the DB), template resolution
+(invalid-template), single-use casting item integrity (invalid-casting-consumable), and consumable
+attribution (consumable-missing-inventory).
 
 Violation paths point directly into the inventory:1 shape: ``equipped.<slot>``, ``backpack[<i>]``."""
 from access.validator import inventory as q
@@ -121,6 +123,125 @@ def _check_two_handed_shield_combo(sheet: dict, access,
                                "equipped.main_hand"))
 
 
+# ── C-I1b2: equipped-slot grounding ──────────────────────────────────────────
+
+
+def _grounded_slots(access, name: str) -> set[str] | None:
+    """The body slots a mundane catalogue item may occupy, re-derived from DB facts, or None when
+    the item's slot is not DB-groundable (a magic item, an unresolved name, or a kind with no
+    rules-bound slot — tools / gear / adventuring gear go to the backpack, and wondrous magic items
+    occupy slots the DB does not bind to a base category).
+
+    Grounded in the reference rules' equipment model: armour is WORN (it occupies the armour slot), a
+    shield is HELD (the shield slot), and a weapon is WIELDED in a hand (main or off hand). Only the
+    armour and shield slots are rules-bound to an item category, so those are the facts re-derived
+    here (F05-T102)."""
+    if q.item_is_magic(access, name):
+        return None
+    cid = access.resolve("catalog_item", name)
+    if cid is None:
+        return None
+    kind = q.catalog_kind(access, cid)
+    if kind == "weapon":
+        return {"main_hand", "off_hand"}
+    if kind == "armor":
+        facts = q.armor_facts(access, cid)
+        category = facts["category_id"] if facts else None
+        if category is None:
+            return None
+        return {"shield"} if category == "shield" else {"armor"}
+    return None
+
+
+def _check_slot_grounding(sheet: dict, access, v: list[Violation]) -> None:
+    """Assert each equipped item sits in a slot its DB facts permit. Independent of the generator's
+    slot-assignment heuristic: the permissible slots are re-derived from the item's catalogue kind
+    and armour category (see :func:`_grounded_slots`), so a weapon parked in the armour slot, or
+    worn armour placed in a hand, is flagged. Items whose slot is not DB-groundable are skipped."""
+    equipped = sheet.get("equipped")
+    if not isinstance(equipped, dict):
+        return
+    for slot, item in equipped.items():
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        grounded = _grounded_slots(access, name)
+        if grounded is None or slot in grounded:
+            continue
+        v.append(Violation(DOMAIN, "slot-assignment-mismatch", "illegal",
+                           f"{name!r} in slot {slot!r}: its facts permit only "
+                           f"{sorted(grounded)}", f"equipped.{slot}"))
+
+
+# ── C-I1b3: catalog-enrichment re-derivation ─────────────────────────────────
+
+
+def _check_enrichment(items: list[tuple[str | None, dict, str]],
+                      access, v: list[Violation]) -> None:
+    """Independently re-derive an item's catalogue facts from the DB and flag any the sheet ASSERTS
+    that contradict them. Grounded in the reference rules DB, never the deriver's output: a weapon's
+    base damage dice / type and an armour's numeric defence facts (base AC, shield AC bonus, Dex cap,
+    Strength requirement) are re-read from the ``weapon`` / ``armor`` rows and compared to the values
+    the sheet carries.
+
+    Only genuine CONTRADICTIONS are flagged — a value the sheet states that differs from the DB fact.
+    An omitted fact is not an error (the sheet need not restate every catalogue fact), and a magic
+    item is skipped (its facts derive from the magic item, not a mundane base row). Display-vocabulary
+    fields whose corpus form differs from the DB id (an item's category label, the armour-category
+    label) are deliberately NOT equality-checked here — see the surfaced follow-up (F05-T102)."""
+    for _slot, item, path in items:
+        name = item.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        if q.item_is_magic(access, name):
+            continue
+        cid = access.resolve("catalog_item", name)
+        if cid is None:
+            continue
+
+        weapon = q.weapon_damage_facts(access, cid)
+        if weapon is not None:
+            _enrich_weapon(item, weapon, access, path, v)
+
+        armor = q.armor_facts(access, cid)
+        if armor is not None:
+            _enrich_armor(item, armor, path, v)
+
+
+def _enrich_weapon(item: dict, weapon: dict, access, path: str, v: list[Violation]) -> None:
+    dice = item.get("damage_dice")
+    if isinstance(dice, str) and weapon["damage_dice"] and dice != weapon["damage_dice"]:
+        v.append(Violation(DOMAIN, "enrichment-mismatch", "illegal",
+                           f"{path}: damage_dice {dice!r} != DB {weapon['damage_dice']!r}",
+                           f"{path}.damage_dice"))
+    dtype = item.get("damage_type")
+    if isinstance(dtype, str) and weapon["damage_type_id"]:
+        resolved = access.resolve("damage_type", dtype) or dtype
+        if resolved != weapon["damage_type_id"]:
+            v.append(Violation(DOMAIN, "enrichment-mismatch", "illegal",
+                               f"{path}: damage_type {dtype!r} != DB "
+                               f"{weapon['damage_type_id']!r}", f"{path}.damage_type"))
+    props = item.get("properties")
+    if isinstance(props, list):
+        resolved = {access.resolve("weapon_property_vocab", p) or p
+                    for p in props if isinstance(p, str)}
+        extra = resolved - weapon["properties"]
+        for p in sorted(extra):
+            v.append(Violation(DOMAIN, "enrichment-mismatch", "illegal",
+                               f"{path}: property {p!r} not on the DB weapon", f"{path}.properties"))
+
+
+def _enrich_armor(item: dict, armor: dict, path: str, v: list[Violation]) -> None:
+    for field in ("base_ac", "ac_bonus", "dex_cap", "strength_req"):
+        stated = item.get(field)
+        expected = armor[field]
+        if _int(stated) and _int(expected) and stated != expected:
+            v.append(Violation(DOMAIN, "enrichment-mismatch", "illegal",
+                               f"{path}: {field} {stated} != DB {expected}", f"{path}.{field}"))
+
+
 # ── C-I1c: template resolution ───────────────────────────────────────────────
 
 
@@ -203,6 +324,8 @@ def check(sheet: dict, access) -> list[Violation]:
     _check_duplicate_ids(items, v)
     _check_item_names(items, access, v)
     _check_slot_legality(sheet, items, access, v)
+    _check_slot_grounding(sheet, access, v)
+    _check_enrichment(items, access, v)
     _check_templates(items, access, v)
     _check_casting_consumables(items, access, v)
     _check_consumable_attribution(sheet, items, access, v)

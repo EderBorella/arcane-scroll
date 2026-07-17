@@ -41,3 +41,88 @@ def class_speed_bonus(access: ValidatorAccess, class_id: str, level: int) -> int
         "AND (cr.name LIKE '%movement%' OR cr.name LIKE '%Movement%' "
         "     OR cr.name LIKE '%speed%' OR cr.name LIKE '%Speed%')",
         class_id, level)
+
+
+def gather_owner_grants(access: ValidatorAccess, sheet: dict) -> list:
+    """Collect all grant_speed rows for every character owner in the sheet.
+
+    A shared retrieval walker (no rule math): both the derivation engine and the movement check read
+    the same owner set from the DB, then each resolves the speeds independently (T78/T96)."""
+    rows: list = []
+    ident = sheet.get("identity", {}) or {}
+    if not isinstance(ident, dict):
+        ident = {}
+
+    species_name = ident.get("species")
+
+    spid = access.resolve("species", species_name)
+    if spid:
+        rows.extend(speed_grants(access, "species", spid))
+
+    lineage_name = ident.get("lineage")
+    if isinstance(lineage_name, str) and lineage_name:
+        lid = access.resolve("lineage", lineage_name)
+        if lid:
+            rows.extend(speed_grants(access, "lineage", lid))
+            parent_spid = lineage_parent_species(access, lid)
+            if parent_spid and parent_spid != spid:
+                rows.extend(speed_grants(access, "species", parent_spid))
+
+    raw_classes = ident.get("classes")
+    if isinstance(raw_classes, list):
+        for c in raw_classes:
+            if not isinstance(c, dict):
+                continue
+            level = c.get("level")
+            if not isinstance(level, int) or isinstance(level, bool):
+                continue
+            cid = access.resolve("class", c.get("class"))
+            if cid is None:
+                continue
+            rows.extend(speed_grants(access, "class", cid, level))
+            sub = c.get("subclass")
+            if sub:
+                sid = access.resolve("subclass", sub)
+                if sid:
+                    rows.extend(speed_grants(access, "subclass", sid, level))
+
+    feats = sheet.get("feats")
+    if isinstance(feats, list):
+        for f in feats:
+            if not isinstance(f, dict):
+                continue
+            fid = access.resolve("feat", f.get("name"))
+            if fid:
+                rows.extend(speed_grants(access, "feat", fid))
+
+    # magic items
+    from access import primitives
+    rows.extend(primitives.item_grants_for(access.db, sheet, "grant_speed", access.resolver))
+
+    return rows
+
+
+def gather_class_bonuses(access: ValidatorAccess, sheet: dict) -> list[int]:
+    """Collect per-class speed bonuses (e.g. an unarmoured-movement class resource) for every class
+    owner in the sheet. Shared retrieval walker; the resolver decides how they combine (T78/T96)."""
+    bonuses: list[int] = []
+    ident = sheet.get("identity", {}) or {}
+    if not isinstance(ident, dict):
+        ident = {}
+
+    raw_classes = ident.get("classes")
+    if isinstance(raw_classes, list):
+        for c in raw_classes:
+            if not isinstance(c, dict):
+                continue
+            level = c.get("level")
+            if not isinstance(level, int) or isinstance(level, bool):
+                continue
+            cid = access.resolve("class", c.get("class"))
+            if cid is None:
+                continue
+            bonus = class_speed_bonus(access, cid, level)
+            if bonus is not None:
+                bonuses.append(bonus)
+
+    return bonuses

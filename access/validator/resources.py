@@ -1,7 +1,11 @@
-"""Resources domain: the class-resource ladder (per-level use counts of class/subclass resources).
+"""Resources domain: the class-resource ladder (per-level use counts of class/subclass resources)
+and the ``grant_resource`` use-pool spine (a use pool a species/lineage/other source confers).
 
-Pure DB facts — the per-level maximum is looked up here; the rule of which resources become a
-sheet ``resource_budgets`` entry, and the cross-check of a declared maximum, live in the consumer."""
+Pure DB facts — the per-level maximum and the raw grant rows are looked up here; the rule of which
+resources become a sheet ``resource_budgets`` entry, and how a formula use-pool's maximum is computed
+(a fixed count, the proficiency bonus, or an ability modifier), live in the consumer so the deriver
+and the validator each re-derive it independently."""
+from access import primitives
 from access.validator import ValidatorAccess
 
 
@@ -27,3 +31,28 @@ def resource_count_at(access: ValidatorAccess, resource_id: str, level: int) -> 
         "SELECT count FROM class_resource_level WHERE resource_id=? AND level<=? AND count IS NOT NULL "
         "ORDER BY level DESC LIMIT 1", resource_id, level)
     return row["count"] if row is not None else None
+
+
+def grant_resources(access: ValidatorAccess, owner_kind: str, owner_id: str,
+                    at_level: int | None = None) -> list[dict]:
+    """The ``grant_resource`` use-pools an owner confers, as
+    ``{id, name, uses_kind, uses_num, uses_ability_id}``. ``uses_kind`` says HOW the maximum is
+    determined (a fixed integer, the proficiency bonus, or an ability modifier); the raw fields are
+    returned unchanged so the consumer computes the maximum itself. Pure DB read via the grant spine
+    (optionally level-gated: a NULL ``gained_at_level`` always applies)."""
+    out: list[dict] = []
+    for h in primitives.grants_for(access.db, "grant_resource", owner_kind, owner_id, at_level):
+        out.append({
+            "id": h["id"],
+            "name": h["name"],
+            "uses_kind": h["uses_kind"],
+            "uses_num": h["uses_num"],
+            "uses_ability_id": h["uses_ability_id"],
+        })
+    return out
+
+
+def ability_abbrev(access: ValidatorAccess, ability_id: str) -> str | None:
+    """The lower-cased short abbreviation of an ability (the key CORE uses for it), or None."""
+    abbr = access.db.scalar("SELECT abbrev FROM ability WHERE id=?", ability_id)
+    return abbr.lower() if abbr else None
