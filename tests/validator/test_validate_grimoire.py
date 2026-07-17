@@ -348,3 +348,55 @@ def test_malformed_identity_noop(access):
         identity="not a dict",
     )
     assert isinstance(check(sheet, access), list)
+
+
+# ── completeness: class-owned once-per-rest granted spells (top-tier slotless) ────────────────────
+
+
+def _wl_sheet(level, slotless_levels=()):
+    """A Class-W merged sheet at a given class level, optionally carrying slotless entries at the
+    given tiers. class-w owns once-per-rest class-list-choice grants at class levels 11/13/15/17."""
+    spells = []
+    for lvl in slotless_levels:
+        spells.append({
+            "name": f"Sp-w{lvl}", "level": lvl, "source": "class:class-w",
+            "bucket": "always", "recovery": "slotless_per_rest",
+            "ritual_castable": False, "concentration": False,
+            "uses": {"max": 1, "recharge": "long-rest"},
+        })
+    return _make_sheet(
+        identity={"name": "T", "species": "Species A",
+                  "classes": [{"class": "Class W", "level": level, "subclass": None}],
+                  "background": "Background A"},
+        sources={"class:class-w": {"kind": "class", "ability": "", "cantrips_known": 0,
+                                   "prepared_limit": None}},
+        spells=spells,
+    )
+
+
+def test_slotless_grant_missing_is_incomplete(access):
+    sheet = _wl_sheet(17)  # no slotless entries
+    findings = check(sheet, access)
+    codes = {v.code for v in findings}
+    assert "missing-slotless-grant" in codes
+    # it is a completeness finding, not an illegality
+    incompletes = [v for v in findings if v.code == "missing-slotless-grant"]
+    assert incompletes and all(v.kind == "incomplete" for v in incompletes)
+    # a level-17 build expects all four tiers missing
+    assert len(incompletes) == 4
+
+
+def test_slotless_grant_present_passes(access):
+    sheet = _wl_sheet(17, slotless_levels=(6, 7, 8, 9))
+    assert "missing-slotless-grant" not in _codes(sheet, access)
+
+
+def test_slotless_grant_partial_still_incomplete(access):
+    sheet = _wl_sheet(17, slotless_levels=(6,))
+    incompletes = [v for v in check(sheet, access) if v.code == "missing-slotless-grant"]
+    assert sorted(int(v.message.split("level-")[1].split(" ")[0]) for v in incompletes) == [7, 8, 9]
+
+
+def test_below_first_unlock_no_incomplete(access):
+    sheet = _wl_sheet(10)
+    assert "missing-slotless-grant" not in _codes(sheet, access)

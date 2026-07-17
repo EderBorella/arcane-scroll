@@ -401,6 +401,44 @@ def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access,
                               spell_row=srow, uses=_uses_block(g, core, access),
                               secondary_cast=_secondary_cast(g, sources))
 
+    # ── class-owned once-per-rest granted spells chosen from a class list ──
+    # A class grants a spell cast once without a slot (recovery slotless_per_rest), chosen from a
+    # class list.  The spell TIER is not carried in the choice, so it is re-derived from the grant's
+    # acquisition level; the concrete spell is a deterministic canonical pick (lowest catalog id) from
+    # the widened list at that tier.  Only fires once the build has reached the acquisition level.
+    from access.validator import spellcasting as q
+    for c in ident.get("classes", []) or []:
+        cid = _class_id(c, access)
+        if not cid:
+            continue
+        source_key = _source_key_for_kind("class", cid, sources)
+        if not source_key:
+            continue
+        level = c.get("level") or 0
+        for grant in q.slotless_choice_grants(access, "class", cid):
+            gal = grant["gained_at_level"]
+            if gal is not None and level < gal:
+                continue
+            tier = _slotless_grant_tier(grant)
+            if tier is None:
+                continue
+            n = grant["choose_n"] if _is_int(grant["choose_n"]) else 1
+            candidates: list[str] = []
+            for lc in grant["class_list_ids"]:
+                candidates.extend(q.spells_on_class_list_at_level(access, lc, tier))
+            picked: list[str] = []
+            for sid in sorted(dict.fromkeys(candidates)):
+                if len(picked) >= n:
+                    break
+                picked.append(sid)
+            uses = _uses_block(grant, core, access)
+            for sid in picked:
+                srow = _spell_row(access, sid)
+                if not srow:
+                    continue
+                add_spell(srow["name"], source_key, "always", "slotless_per_rest",
+                          spell_row=srow, uses=uses)
+
     # ── player-chosen spells (preserved from previous GRIMOIRE) ──
     if prev_grimoire:
         prev_spells = prev_grimoire.get("spells", []) or []
@@ -677,6 +715,25 @@ def _dynamic_uses_max(grant_row, core, access) -> int | None:
 
 def _is_int(x) -> bool:
     return isinstance(x, int) and not isinstance(x, bool)
+
+
+def _slotless_grant_tier(grant: dict) -> int | None:
+    """Spell tier for a class-owned once-per-rest granted spell chosen from a class list.
+
+    Prefers an explicit spell-level bound when the choice pins one (``spell_level_min`` ==
+    ``spell_level_max``).  Otherwise re-derives the tier from the acquisition level: the first unlock
+    (class level 11) confers a level-6 spell, rising one tier every two class levels (13->7, 15->8,
+    17->9).  Returns None when no tier can be grounded."""
+    lo = grant.get("spell_level_min")
+    hi = grant.get("spell_level_max")
+    if _is_int(lo) and lo == hi:
+        return lo
+    gal = grant.get("gained_at_level")
+    if _is_int(gal):
+        tier = 6 + (gal - 11) // 2
+        if 1 <= tier <= 9:
+            return tier
+    return None
 
 
 def _core_ability_mod(aid, core, access) -> int | None:

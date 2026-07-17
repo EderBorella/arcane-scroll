@@ -519,6 +519,64 @@ def _check_ritual_tag(spells: list, access, v: list[Violation]) -> None:
                                path))
 
 
+def _expected_slotless_tier(grant: dict) -> int | None:
+    """Spell tier a class-owned once-per-rest granted spell confers, re-derived INDEPENDENTLY from
+    the DB grant facts (not from the deriver or gold).  Prefers an explicit spell-level bound; else
+    maps the acquisition level to a tier — first unlock (class level 11) confers a level-6 spell,
+    rising one tier every two class levels (13->7, 15->8, 17->9).  None when ungroundable."""
+    lo = grant.get("spell_level_min")
+    hi = grant.get("spell_level_max")
+    if _int(lo) and lo == hi:
+        return lo
+    gal = grant.get("gained_at_level")
+    if _int(gal):
+        tier = 6 + (gal - 11) // 2
+        if 1 <= tier <= 9:
+            return tier
+    return None
+
+
+def _check_slotless_grant_completeness(sources: dict, spells: list, classes: list, access,
+                                       v: list[Violation]) -> None:
+    """Require the class-owned once-per-rest granted spells (top-tier slotless grants) a build has
+    unlocked.
+
+    Independently re-derives the expected tiers from the DB: for each class the character has, read
+    its class-owned ``slotless_per_rest`` class-list-choice grants, keep those unlocked at or below
+    the class level, and map each to its spell tier.  A tier is satisfied when the spellbook carries a
+    ``slotless_per_rest`` spell of that level from that class source.  A missing one is flagged
+    ``incomplete`` (a completeness gap), never illegal — closing the gap where the grimoire validator
+    did not require these grants."""
+    for c in classes:
+        if not isinstance(c, dict):
+            continue
+        cid = access.resolve("class", c.get("class"))
+        if cid is None:
+            continue
+        level = c.get("level")
+        if not _int(level):
+            continue
+        source_key = f"class:{cid}"
+        for grant in q.slotless_choice_grants(access, "class", cid):
+            gal = grant["gained_at_level"]
+            if gal is not None and level < gal:
+                continue
+            tier = _expected_slotless_tier(grant)
+            if tier is None:
+                continue
+            present = any(
+                isinstance(e, dict)
+                and e.get("source") == source_key
+                and e.get("recovery") == "slotless_per_rest"
+                and e.get("level") == tier
+                for e in spells)
+            if not present:
+                v.append(Violation(DOMAIN, "missing-slotless-grant", "incomplete",
+                                   f"{source_key}: a level-{tier} once-per-rest granted spell "
+                                   f"(unlocked at class level {gal}) is missing from the spellbook",
+                                   "spells"))
+
+
 def _check_secondary_cast(spells: list, v: list[Violation]) -> None:
     for i, entry in enumerate(spells):
         if not isinstance(entry, dict):
@@ -572,5 +630,6 @@ def check(sheet: dict, access) -> list[Violation]:
     _check_recovery_validity(spells, access, v)
     _check_ritual_tag(spells, access, v)
     _check_secondary_cast(spells, v)
+    _check_slotless_grant_completeness(sources, spells, classes, access, v)
 
     return v
