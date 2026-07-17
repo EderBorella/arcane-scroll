@@ -1269,6 +1269,16 @@ def _build_rules_db(path: str) -> None:
                 "'Species L Focus','ability_modifier',NULL,'a1')")
     cur.execute("INSERT INTO grant_resource VALUES ('gr-lin-l1-pb','lineage','lin-l1',1,NULL,"
                 "'Lineage L Power','proficiency_bonus',NULL,NULL)")
+    # feat-owned and subclass-owned grant_resource use-pools (F05-T114). A feat's pool is always-on
+    # (NULL gained_at_level); a subclass's pool gates on THAT class's level (gained_at_level 3), so a
+    # multiclass build whose subclass class is below that level must NOT gain it (per-class gating,
+    # matching the count ladder). Dedicated owners so no existing fixture build changes.
+    cur.execute("INSERT INTO feat VALUES ('feat-res','Feat Res','general',0)")
+    cur.execute("INSERT INTO subclass VALUES ('sub-res','class-a','Sub Res',0,'')")
+    cur.execute("INSERT INTO grant_resource VALUES ('gr-feat-res','feat','feat-res',NULL,NULL,"
+                "'Feat Res Boon','int',1,NULL)")
+    cur.execute("INSERT INTO grant_resource VALUES ('gr-sub-res','subclass','sub-res',3,NULL,"
+                "'Sub Res Power','int',1,NULL)")
 
     # B9: state dimension table + state_compatibility junction table
     cur.execute("CREATE TABLE state (id TEXT PRIMARY KEY, name TEXT)")

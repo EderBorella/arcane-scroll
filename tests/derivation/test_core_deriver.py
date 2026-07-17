@@ -189,6 +189,37 @@ def test_resource_budgets_omitted_when_no_count_ladder(gen_access):
     assert "resource_budgets" not in sheet
 
 
+# ---------------------------------------------- feat/subclass grant_resource budgets (T114)
+
+def test_resource_budgets_from_feat_grant(gen_access):
+    # a feat-owned grant_resource use-pool (always-on) contributes its maximum to the budget.
+    choices = _choices()
+    choices["feats"] = [{"feat": "feat-res"}]
+    budgets = derive_core(choices, gen_access)["resource_budgets"]
+    assert budgets["Feat Res Boon"] == {"max": 1}
+
+
+def test_resource_budgets_from_subclass_grant(gen_access):
+    # a subclass-owned grant_resource gained at that class's level 3 is materialised for a level-3 build.
+    choices = _choices()
+    choices["classes"] = [{"class": "class-a", "level": 3, "subclass": "sub-res"}]
+    budgets = derive_core(choices, gen_access)["resource_budgets"]
+    assert budgets["Sub Res Power"] == {"max": 1}
+
+
+def test_subclass_grant_gated_on_class_level_no_multiclass_leak(gen_access):
+    # a subclass grant gained at class level 3 must NOT leak into a multiclass build whose sub-res
+    # class is only level 2, even though the character's TOTAL level (2 + 5 = 7) is well past 3.
+    choices = _choices()
+    choices["classes"] = [
+        {"class": "class-a", "level": 2, "subclass": "sub-res"},
+        {"class": "class-b", "level": 5},
+    ]
+    sheet = derive_core(choices, gen_access)
+    budgets = sheet.get("resource_budgets", {})
+    assert "Sub Res Power" not in budgets
+
+
 # --------------------------------------------------------------------------- class_detail (T76)
 
 def test_class_detail_emitted_from_choice(gen_access):

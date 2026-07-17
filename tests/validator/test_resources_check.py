@@ -75,3 +75,45 @@ def test_grant_resource_ability_modifier_max(access):
 
 def test_grant_resource_wrong_max_flagged(access):
     assert "resource-max-wrong" in _codes(_grant_sheet({"Lineage L Power": {"max": 4}}), access)
+
+
+# ------------------------------------------------ feat/subclass grant_resource (T114)
+
+def _feat_sheet(budgets):
+    """A build carrying feat-res (an always-on feat use-pool: 'Feat Res Boon', int max 1)."""
+    return {
+        "identity": {"classes": [{"class": "Class A", "level": 3, "subclass": None}]},
+        "feats": [{"name": "feat-res"}],
+        "resource_budgets": budgets,
+    }
+
+
+def test_feat_grant_resource_re_derived(access):
+    assert check(_feat_sheet({"Feat Res Boon": {"max": 1}}), access) == []
+
+
+def test_feat_grant_resource_wrong_max_flagged(access):
+    assert "resource-max-wrong" in _codes(_feat_sheet({"Feat Res Boon": {"max": 2}}), access)
+
+
+def test_subclass_grant_resource_re_derived(access):
+    # sub-res grants 'Sub Res Power' (int max 1) at class level 3; a level-3 build owns it.
+    sheet = _sheet({"Sub Res Power": {"max": 1}},
+                   classes=[{"class": "Class A", "level": 3, "subclass": "Sub Res"}])
+    assert check(sheet, access) == []
+
+
+def test_subclass_grant_wrong_max_flagged(access):
+    sheet = _sheet({"Sub Res Power": {"max": 3}},
+                   classes=[{"class": "Class A", "level": 3, "subclass": "Sub Res"}])
+    assert "resource-max-wrong" in _codes(sheet, access)
+
+
+def test_subclass_grant_gated_on_class_level_no_multiclass_leak(access):
+    # sub-res class is only level 2 (< 3), so 'Sub Res Power' is NOT owned even though the total
+    # level (2 + 5) is past 3 — the check must treat a wrong-max entry as outside its remit, not flag
+    # it against a leaked total-level derivation.
+    sheet = _sheet({"Sub Res Power": {"max": 3}},
+                   classes=[{"class": "Class A", "level": 2, "subclass": "Sub Res"},
+                            {"class": "Class B", "level": 5, "subclass": None}])
+    assert "resource-max-wrong" not in _codes(sheet, access)
