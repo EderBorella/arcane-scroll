@@ -1299,6 +1299,12 @@ def _build_rules_db(path: str) -> None:
                 "'Feat Res Boon','int',1,NULL)")
     cur.execute("INSERT INTO grant_resource VALUES ('gr-sub-res','subclass','sub-res',3,NULL,"
                 "'Sub Res Power','int',1,NULL)")
+    # class-owned grant_resource use-pool (epic R2): an ability-modifier use-pool a class confers
+    # directly (not via a subclass). Gained at THAT class's level 5, so the deriver and the check each
+    # gate it on the class's level (parallel to the subclass grant) -- it must not appear below level 5
+    # and must not leak into a multiclass build whose class-a level is below 5. Uses = mod(a1), min 1.
+    cur.execute("INSERT INTO grant_resource VALUES ('gr-class-res-mod','class','class-a',5,NULL,"
+                "'Class Res Focus','ability_modifier',NULL,'a1')")
 
     # B9: state dimension table + state_compatibility junction table
     cur.execute("CREATE TABLE state (id TEXT PRIMARY KEY, name TEXT)")

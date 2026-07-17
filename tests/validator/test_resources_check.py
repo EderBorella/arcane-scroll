@@ -171,3 +171,39 @@ def test_subclass_count_ladder_gated_on_class_level_no_multiclass_leak(access):
                    classes=[{"class": "Class A", "level": 2, "subclass": "Sub Ladder"},
                             {"class": "Class B", "level": 5, "subclass": None}])
     assert "resource-max-wrong" not in _codes(sheet, access)
+
+
+# ----------------------------------------- class-owned grant_resource use-pool (epic R2)
+
+def _class_grant_sheet(level, budgets):
+    """A class-a build (a1 final 17 -> modifier 3) whose class directly confers the 'Class Res Focus'
+    ability-modifier use-pool, gained at class level 5 (max = mod(a1) = 3, minimum one)."""
+    return {
+        "identity": {"classes": [{"class": "Class A", "level": level, "subclass": None}]},
+        "abilities": {"x1": {"final": 17}},
+        "resource_budgets": budgets,
+    }
+
+
+def test_class_grant_resource_re_derived(access):
+    # the class-owned ability-modifier pool is re-derived (mod(a1) = 3) for a level-5 build.
+    assert check(_class_grant_sheet(5, {"Class Res Focus": {"max": 3}}), access) == []
+
+
+def test_class_grant_resource_wrong_max_flagged(access):
+    assert "resource-max-wrong" in _codes(_class_grant_sheet(5, {"Class Res Focus": {"max": 4}}), access)
+
+
+def test_class_grant_resource_absent_below_first_level(access):
+    # gained at class level 5; a level-4 build does not own it, so the entry is outside the remit.
+    assert check(_class_grant_sheet(4, {"Class Res Focus": {"max": 3}}), access) == []
+
+
+def test_class_grant_gated_on_class_level_no_multiclass_leak(access):
+    # class-a is only level 4 (< 5), so the pool is NOT owned even though the total level (4 + 5) is
+    # past 5 — a wrong-max entry is outside the remit, not flagged on a leaked total-level derivation.
+    sheet = _sheet({"Class Res Focus": {"max": 3}},
+                   classes=[{"class": "Class A", "level": 4, "subclass": None},
+                            {"class": "Class B", "level": 5, "subclass": None}])
+    sheet["abilities"] = {"x1": {"final": 17}}
+    assert "resource-max-wrong" not in _codes(sheet, access)

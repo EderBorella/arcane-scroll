@@ -258,6 +258,38 @@ def test_subclass_count_ladder_gated_on_class_level_no_multiclass_leak(gen_acces
     assert "Sub Ladder Pool" not in budgets
 
 
+# ----------------------------------------- class-owned grant_resource use-pool (epic R2)
+
+def test_resource_budgets_from_class_grant(gen_access):
+    # a class-owned ability-modifier grant_resource ('Class Res Focus', mod(a1) = 3) gained at that
+    # class's level 5 is absent below its first level and materialised from level 5 on.
+    choices = _choices()
+    choices["classes"] = [{"class": "class-a", "level": 4}]
+    assert "Class Res Focus" not in derive_core(choices, gen_access).get("resource_budgets", {})
+    choices["classes"] = [{"class": "class-a", "level": 5}]
+    assert derive_core(choices, gen_access)["resource_budgets"]["Class Res Focus"] == {"max": 3}
+
+
+def test_class_grant_gated_on_class_level_no_multiclass_leak(gen_access):
+    # a class grant gained at class level 5 must NOT leak into a multiclass build whose class-a level is
+    # only 4, even though the character's TOTAL level (4 + 5 = 9) is well past 5.
+    choices = _choices()
+    choices["classes"] = [
+        {"class": "class-a", "level": 4},
+        {"class": "class-b", "level": 5},
+    ]
+    budgets = derive_core(choices, gen_access).get("resource_budgets", {})
+    assert "Class Res Focus" not in budgets
+
+
+def test_class_grant_budget_passes_validate_core(gen_access, access):
+    # the deriver's class-grant maximum and the check's independent re-derivation agree.
+    choices = _choices()
+    choices["classes"] = [{"class": "class-a", "level": 5}]
+    report = validate_core(derive_core(choices, gen_access), access)
+    assert report["legal"] is True, report["violations"]
+
+
 # --------------------------------------------------------------------------- class_detail (T76)
 
 def test_class_detail_emitted_from_choice(gen_access):

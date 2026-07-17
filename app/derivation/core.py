@@ -647,11 +647,11 @@ def _resource_budgets(access, choices: Choices, total_level: int, abilities: dic
       that carry a count column (a pool OF dice) are covered here via that count; a pure die size or a
       flat bonus is a magnitude, not a use count, and the loaded ruleset defines no "number of uses"
       for it, so it is intentionally not emitted.
-    * the **``grant_resource`` use-pool spine** — a species-, lineage-, feat-, or subclass-owned use
-      pool whose maximum is a fixed count, the proficiency bonus, or an ability modifier (see
-      ``_grant_resource_max``). Species/lineage/feat pools are always-on; a subclass pool gates on
-      that class's level (not the character's total level), so a high-level subclass grant does not
-      leak into a low-subclass-level multiclass build.
+    * the **``grant_resource`` use-pool spine** — a species-, lineage-, feat-, class-, or
+      subclass-owned use pool whose maximum is a fixed count, the proficiency bonus, or an ability
+      modifier (see ``_grant_resource_max``). Species/lineage/feat pools are always-on; a class or
+      subclass pool gates on that class's level (not the character's total level), so a high-level
+      class or subclass grant does not leak into a low-level multiclass build.
 
     Keyed by the resource's display name; on a name collision the larger maximum wins."""
     out: dict[str, dict] = {}
@@ -666,12 +666,14 @@ def _resource_budgets(access, choices: Choices, total_level: int, abilities: dic
             if count is not None:
                 put(res["name"], count)
 
+    class_levels: list[tuple[str, int]] = []
     subclass_levels: list[tuple[str, int]] = []
     for c in _classes(choices):
         level = int(c.get("level", 0))
         cid = c.get("class")
         if cid:
             add_ladder("class", cid, level)
+            class_levels.append((cid, level))
         sub_id = c.get("subclass")
         if sub_id:
             add_ladder("subclass", sub_id, level)
@@ -700,6 +702,12 @@ def _resource_budgets(access, choices: Choices, total_level: int, abilities: dic
     lineage_id = choices.get("lineage")
     if lineage_id:
         add_grants("lineage", lineage_id, total_level)
+
+    # A class pool gates on THAT class's level (like the count ladder and the subclass grant), NOT the
+    # character's total level, so a high-level class grant does not leak into a low-class-level
+    # multiclass build.
+    for cid, level in class_levels:
+        add_grants("class", cid, level)
 
     # A subclass pool gates on THAT class's level (like the count ladder), NOT the character's total
     # level, so a high-level subclass grant does not leak into a low-subclass-level multiclass build.

@@ -6,10 +6,11 @@ It covers two owned-resource sources:
 
 * the **class-resource COUNT ladder** — the maximum a class/subclass count ladder confers at the
   build's level.
-* the **``grant_resource`` use-pool spine** — a species-, lineage-, feat-, or subclass-owned use pool
-  whose maximum is a fixed count (``int``), the proficiency bonus (re-derived from total level), or an
-  ability modifier (re-derived from the sheet's abilities, minimum one). Species/lineage/feat pools
-  are always-on; a subclass pool gates on that class's level (not total level).
+* the **``grant_resource`` use-pool spine** — a species-, lineage-, feat-, class-, or subclass-owned
+  use pool whose maximum is a fixed count (``int``), the proficiency bonus (re-derived from total
+  level), or an ability modifier (re-derived from the sheet's abilities, minimum one).
+  Species/lineage/feat pools are always-on; a class or subclass pool gates on that class's level (not
+  total level).
 
 A budget entry whose name matches no resource this build owns (a pool, a pure die/bonus magnitude, or
 a feature use the DB does not model as a queryable maximum) is outside the check's remit and is left
@@ -66,9 +67,9 @@ def _ability_mods(sheet: dict, access) -> dict[str, int]:
 
 def _owned_maxima(sheet: dict, access) -> dict[str, int]:
     """{normalised-resource-name: expected max} for every resource this build owns — count-ladder
-    class/subclass resources at their levels, plus species/lineage/feat/subclass ``grant_resource``
-    use-pools (a subclass pool gated on that class's level). On a name collision the larger maximum
-    wins."""
+    class/subclass resources at their levels, plus species/lineage/feat/class/subclass
+    ``grant_resource`` use-pools (a class or subclass pool gated on that class's level). On a name
+    collision the larger maximum wins."""
     owned: dict[str, int] = {}
     ident = sheet.get("identity", {}) or {}
     if not isinstance(ident, dict):
@@ -80,6 +81,7 @@ def _owned_maxima(sheet: dict, access) -> dict[str, int]:
             owned[nk] = value
 
     total_level = 0
+    class_levels: list[tuple[str, int]] = []
     subclass_levels: list[tuple[str, int]] = []
     for c in ident.get("classes", []) or []:
         if not isinstance(c, dict):
@@ -97,6 +99,8 @@ def _owned_maxima(sheet: dict, access) -> dict[str, int]:
                 cnt = q.resource_count_at(access, res["id"], level)
                 if cnt is not None:
                     put(res["name"], cnt)
+        if cid:
+            class_levels.append((cid, level))
         if sub_id:
             subclass_levels.append((sub_id, level))
 
@@ -115,6 +119,11 @@ def _owned_maxima(sheet: dict, access) -> dict[str, int]:
         owner_id = access.resolve(owner_kind, ident.get(key))
         if owner_id:
             add_grants(owner_kind, owner_id, total_level)
+
+    # A class pool gates on THAT class's level, not the character's total level, so a high-level class
+    # grant does not leak into a low-class-level multiclass build.
+    for cid, level in class_levels:
+        add_grants("class", cid, level)
 
     # A subclass pool gates on THAT class's level, not the character's total level, so a high-level
     # subclass grant does not leak into a low-subclass-level multiclass build.

@@ -1,5 +1,5 @@
 """Resources domain: the class-resource ladder (per-level use counts of class/subclass resources)
-and the ``grant_resource`` use-pool spine (a use pool a species/lineage/other source confers).
+and the ``grant_resource`` use-pool spine (a use pool a species/lineage/class/other source confers).
 
 Pure DB facts — the per-level maximum and the raw grant rows are looked up here; the rule of which
 resources become a sheet ``resource_budgets`` entry, and how a formula use-pool's maximum is computed
