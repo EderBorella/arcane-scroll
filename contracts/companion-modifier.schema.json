@@ -39,7 +39,7 @@
       "properties": {
         "armor_class": {
           "type": ["integer", "null"],
-          "description": "Effective AC including any spell bonuses (Mage Armor, Shield of Faith)."
+          "description": "Effective AC including any spell-granted AC bonuses."
         },
         "hit_points": {
           "type": "object",
