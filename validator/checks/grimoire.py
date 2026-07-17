@@ -520,19 +520,13 @@ def _check_ritual_tag(spells: list, access, v: list[Violation]) -> None:
 
 
 def _expected_slotless_tier(grant: dict) -> int | None:
-    """Spell tier a class-owned once-per-rest granted spell confers, re-derived INDEPENDENTLY from
-    the DB grant facts (not from the deriver or gold).  Prefers an explicit spell-level bound; else
-    maps the acquisition level to a tier — first unlock (class level 11) confers a level-6 spell,
-    rising one tier every two class levels (13->7, 15->8, 17->9).  None when ungroundable."""
+    """Spell tier a class-owned once-per-rest granted spell confers, read INDEPENDENTLY from the DB
+    grant facts (not from the deriver or gold): the explicit spell-level bound the grant's choice pins
+    (``spell_level_min`` == ``spell_level_max``).  None when the choice carries no such bound."""
     lo = grant.get("spell_level_min")
     hi = grant.get("spell_level_max")
     if _int(lo) and lo == hi:
         return lo
-    gal = grant.get("gained_at_level")
-    if _int(gal):
-        tier = 6 + (gal - 11) // 2
-        if 1 <= tier <= 9:
-            return tier
     return None
 
 

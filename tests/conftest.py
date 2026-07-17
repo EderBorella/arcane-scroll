@@ -1480,21 +1480,23 @@ def _build_rules_db(path: str) -> None:
     # ── top-tier once-per-rest granted-spell fixtures (class-owned slotless choice) ──────────────
     # A pact-caster class whose class-owned grants each confer a once-per-rest spell CHOSEN from its
     # own spell list. The spell TIER is NOT carried in the choice (spell_level_min/max are NULL), so
-    # the consumer re-derives it from the grant's acquisition level: the first unlock (class level 11)
-    # confers a level-6 spell, rising one tier every two levels (13->7, 15->8, 17->9). Two level-6
-    # spells (sp-w6a/sp-w6b) exercise the deterministic lowest-catalog-id canonical pick.
+    # the consumer reads the tier from the choice's explicit spell-level bound (spell_level_min ==
+    # spell_level_max): the first unlock (class level 11) confers a level-6 spell, then 13->7, 15->8,
+    # 17->9. Two level-6 spells (sp-w6a/sp-w6b) exercise the deterministic lowest-catalog-id pick.
     cur.execute("INSERT INTO class VALUES ('class-w','Class W',8,3,'pact','all',2,0,'')")
     cur.execute("INSERT INTO recharge_cadence VALUES ('long-rest','Long Rest')")
     for _sid, _lvl in [("sp-w6a", 6), ("sp-w6b", 6), ("sp-w7", 7), ("sp-w8", 8), ("sp-w9", 9)]:
         cur.execute("INSERT INTO spell VALUES (?,?,?,0)", (_sid, _sid.capitalize(), _lvl))
         cur.execute("INSERT INTO spell_class VALUES (?, 'class-w')", (_sid,))
-    for _gid, _gal in [("gsp-w-11", 11), ("gsp-w-13", 13), ("gsp-w-15", 15), ("gsp-w-17", 17)]:
+    for _gid, _gal, _tier in [("gsp-w-11", 11, 6), ("gsp-w-13", 13, 7),
+                              ("gsp-w-15", 15, 8), ("gsp-w-17", 17, 9)]:
         cur.execute(
             "INSERT INTO grant_spell (id,owner_kind,owner_id,gained_at_level,bucket,recovery,"
             "uses_kind,uses_num,recharge_id) VALUES (?,?,?,?,?,?,?,?,?)",
             (_gid, "class", "class-w", _gal, "always", "slotless_per_rest", "int", 1, "long-rest"))
-        cur.execute("INSERT INTO grant_spell_choice (grant_id,choose_n,from_kind) VALUES (?,?,?)",
-                    (_gid, 1, "class_list"))
+        cur.execute("INSERT INTO grant_spell_choice "
+                    "(grant_id,choose_n,from_kind,spell_level_min,spell_level_max) "
+                    "VALUES (?,?,?,?,?)", (_gid, 1, "class_list", _tier, _tier))
         cur.execute("INSERT INTO grant_spell_choice_value VALUES (?, 'class-w')", (_gid,))
 
     # step 3/4: magic items conferring senses/speeds/save bonuses.

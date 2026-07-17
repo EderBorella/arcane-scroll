@@ -403,9 +403,9 @@ def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access,
 
     # ── class-owned once-per-rest granted spells chosen from a class list ──
     # A class grants a spell cast once without a slot (recovery slotless_per_rest), chosen from a
-    # class list.  The spell TIER is not carried in the choice, so it is re-derived from the grant's
-    # acquisition level; the concrete spell is a deterministic canonical pick (lowest catalog id) from
-    # the widened list at that tier.  Only fires once the build has reached the acquisition level.
+    # class list.  The spell TIER comes from the choice's explicit spell-level bound in the DB; the
+    # concrete spell is a deterministic canonical pick (lowest catalog id) from the widened list at
+    # that tier.  Only fires once the build has reached the acquisition level.
     from access.validator import spellcasting as q
     for c in ident.get("classes", []) or []:
         cid = _class_id(c, access)
@@ -720,19 +720,12 @@ def _is_int(x) -> bool:
 def _slotless_grant_tier(grant: dict) -> int | None:
     """Spell tier for a class-owned once-per-rest granted spell chosen from a class list.
 
-    Prefers an explicit spell-level bound when the choice pins one (``spell_level_min`` ==
-    ``spell_level_max``).  Otherwise re-derives the tier from the acquisition level: the first unlock
-    (class level 11) confers a level-6 spell, rising one tier every two class levels (13->7, 15->8,
-    17->9).  Returns None when no tier can be grounded."""
+    Read from the explicit spell-level bound the grant's choice pins (``spell_level_min`` ==
+    ``spell_level_max``).  Returns None when the choice carries no such bound."""
     lo = grant.get("spell_level_min")
     hi = grant.get("spell_level_max")
     if _is_int(lo) and lo == hi:
         return lo
-    gal = grant.get("gained_at_level")
-    if _is_int(gal):
-        tier = 6 + (gal - 11) // 2
-        if 1 <= tier <= 9:
-            return tier
     return None
 
 
