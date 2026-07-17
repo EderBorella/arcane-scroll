@@ -141,3 +141,33 @@ def test_subclass_grant_gated_on_class_level_no_multiclass_leak(access):
                    classes=[{"class": "Class A", "level": 2, "subclass": "Sub Res"},
                             {"class": "Class B", "level": 5, "subclass": None}])
     assert "resource-max-wrong" not in _codes(sheet, access)
+
+
+# ----------------------------------------- subclass-owned count ladder (epic R1)
+
+def _sub_ladder_sheet(level, budgets):
+    return _sheet(budgets, classes=[{"class": "Class A", "level": level, "subclass": "Sub Ladder"}])
+
+
+def test_subclass_count_ladder_re_derived(access):
+    # sub-ladder's 'Sub Ladder Pool' count ladder is 2 at subclass level 3, 3 from level 6.
+    assert check(_sub_ladder_sheet(3, {"Sub Ladder Pool": {"max": 2}}), access) == []
+    assert check(_sub_ladder_sheet(6, {"Sub Ladder Pool": {"max": 3}}), access) == []
+
+
+def test_subclass_count_ladder_wrong_max_flagged(access):
+    assert "resource-max-wrong" in _codes(_sub_ladder_sheet(3, {"Sub Ladder Pool": {"max": 3}}), access)
+
+
+def test_subclass_count_ladder_absent_below_first_level(access):
+    # gained at subclass level 3; a level-2 build does not own it, so the entry is outside the remit.
+    assert check(_sub_ladder_sheet(2, {"Sub Ladder Pool": {"max": 2}}), access) == []
+
+
+def test_subclass_count_ladder_gated_on_class_level_no_multiclass_leak(access):
+    # the sub-ladder class is only level 2 (< 3), so the pool is NOT owned even though the total level
+    # (2 + 5) is past 3 — a wrong-max entry is outside the remit, not flagged on a leaked derivation.
+    sheet = _sheet({"Sub Ladder Pool": {"max": 3}},
+                   classes=[{"class": "Class A", "level": 2, "subclass": "Sub Ladder"},
+                            {"class": "Class B", "level": 5, "subclass": None}])
+    assert "resource-max-wrong" not in _codes(sheet, access)

@@ -614,6 +614,17 @@ def _build_rules_db(path: str) -> None:
     for _lvl, _cnt in [(4, 1), (8, 2)]:
         cur.execute("INSERT INTO class_resource_level VALUES ('class-a-escalating',?,?,NULL,NULL,NULL)",
                     (_lvl, _cnt))
+    # sub-ladder: a SUBCLASS-owned COUNT ladder (owner_kind='subclass') feeding resource_budgets —
+    # gained above level 1 (starts at level 3, so absent below it) and stepping up at a breakpoint
+    # (2 uses from level 3, 3 from level 6). Like a subclass grant it gates on THAT class's level, not
+    # the character's total level, so a low-subclass-level multiclass build must not gain it. This is
+    # the shape a prose-stated subclass use pool takes (resource-completion epic R1); the existing
+    # count-ladder resources are all owner_kind='class', so this exercises the subclass branch.
+    cur.execute("INSERT INTO subclass VALUES ('sub-ladder','class-a','Sub Ladder',0,'')")
+    cur.execute("INSERT INTO class_resource VALUES ('sub-ladder-pool','subclass','sub-ladder','Sub Ladder Pool')")
+    for _lvl, _cnt in [(3, 2), (6, 3)]:
+        cur.execute("INSERT INTO class_resource_level VALUES ('sub-ladder-pool',?,?,NULL,NULL,NULL)",
+                    (_lvl, _cnt))
 
     # recharge_cadence — referenced by grant_spell.recharge_id (e.g. short-rest)
     cur.execute("CREATE TABLE recharge_cadence (id TEXT PRIMARY KEY, name TEXT)")

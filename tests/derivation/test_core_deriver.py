@@ -232,6 +232,32 @@ def test_subclass_grant_gated_on_class_level_no_multiclass_leak(gen_access):
     assert "Sub Res Power" not in budgets
 
 
+# ----------------------------------------- subclass-owned count-ladder budgets (epic R1)
+
+def test_resource_budgets_from_subclass_count_ladder(gen_access):
+    # a subclass-owned COUNT ladder ('Sub Ladder Pool': 2 from subclass level 3, 3 from level 6) is
+    # absent below its first ladder level and steps up at its breakpoint, gated on the class's level.
+    choices = _choices()
+    choices["classes"] = [{"class": "class-a", "level": 2, "subclass": "sub-ladder"}]
+    assert "Sub Ladder Pool" not in derive_core(choices, gen_access).get("resource_budgets", {})
+    choices["classes"] = [{"class": "class-a", "level": 3, "subclass": "sub-ladder"}]
+    assert derive_core(choices, gen_access)["resource_budgets"]["Sub Ladder Pool"] == {"max": 2}
+    choices["classes"] = [{"class": "class-a", "level": 6, "subclass": "sub-ladder"}]
+    assert derive_core(choices, gen_access)["resource_budgets"]["Sub Ladder Pool"] == {"max": 3}
+
+
+def test_subclass_count_ladder_gated_on_class_level_no_multiclass_leak(gen_access):
+    # a subclass count ladder gained at class level 3 must NOT leak into a multiclass build whose
+    # sub-ladder class is only level 2, even though the TOTAL level (2 + 5 = 7) is well past 3.
+    choices = _choices()
+    choices["classes"] = [
+        {"class": "class-a", "level": 2, "subclass": "sub-ladder"},
+        {"class": "class-b", "level": 5},
+    ]
+    budgets = derive_core(choices, gen_access).get("resource_budgets", {})
+    assert "Sub Ladder Pool" not in budgets
+
+
 # --------------------------------------------------------------------------- class_detail (T76)
 
 def test_class_detail_emitted_from_choice(gen_access):
