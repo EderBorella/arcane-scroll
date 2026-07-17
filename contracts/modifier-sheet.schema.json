@@ -96,7 +96,7 @@
           "type": "integer",
           "minimum": 0,
           "default": 0,
-          "description": "Temporary increase to max HP (e.g. Aid spell). Derivable from active states."
+          "description": "Temporary increase to max HP (e.g. a max-HP-boosting spell). Derivable from active states."
         },
         "form_temp_pool": {
           "type": "integer",
