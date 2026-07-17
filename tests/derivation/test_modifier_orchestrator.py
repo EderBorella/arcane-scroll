@@ -169,6 +169,19 @@ def test_fill_mode_absent_treasure_defaults_zero(access):
     assert sheet["treasure"]["sp"] == 0
 
 
+def test_fill_mode_preserves_max_reduction_and_form_pool(access):
+    """A gap-fill re-derive must not clobber a live drain max_reduction or a self-transform form-HP
+    pool the caller supplied (T117). Both are live-play magnitudes once a variable-drain / transform
+    state is present, so they are non-overwritable: the supplied values survive the re-derive even
+    though the static build derives no such effect (base max_reduction 0; no form_temp_pool)."""
+    core = _core()
+    existing = {"hit_points": {"current": 22, "temp": 0, "max_boost": 0,
+                               "max_reduction": 7, "form_temp_pool": 15}}
+    sheet, meta = derive_modifier(core, None, None, existing, "fill", access)
+    assert sheet["hit_points"]["max_reduction"] == 7
+    assert sheet["hit_points"]["form_temp_pool"] == 15
+
+
 # ── mode C: validate ────────────────────────────────────────────────────────
 
 
