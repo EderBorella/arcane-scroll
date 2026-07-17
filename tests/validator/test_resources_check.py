@@ -29,9 +29,29 @@ def test_loose_plural_still_matches_ladder(access):
     assert check(_sheet({"Pool As": {"max": 3}}), access) == []
 
 
-def test_unmodelled_resource_is_ignored(access):
-    # a pool the class-resource ladder does not model is outside this check's remit — no finding.
-    assert check(_sheet({"Some Feature Use": {"max": 1}}), access) == []
+def test_orphan_budget_flagged(access):
+    # epic R5 / T122: a budget key that maps to NO resource this build owns (no count ladder, no
+    # die-only pool, no grant_resource across any owner) is flagged as an orphan, not silently
+    # accepted.
+    assert "resource-budget-orphan" in _codes(_sheet({"Some Feature Use": {"max": 1}}), access)
+
+
+def test_clean_owned_budget_no_orphan(access):
+    # a correctly-owned budget entry raises no orphan finding.
+    assert "resource-budget-orphan" not in _codes(_sheet({"Pool A": {"max": 3}}), access)
+
+
+def test_die_only_pool_not_orphan(access):
+    # a class_resource with no count ladder (a die/bonus pool) is OWNED — it has no queryable
+    # maximum, so it is neither orphan nor max-checked. 'Unarmored Movement' is such a class-a pool.
+    assert _codes(_sheet({"Unarmored Movement": {"max": 2}}), access) == set()
+
+
+def test_orphan_gated_name_not_flagged(access):
+    # a resource the build's owner confers but has not yet reached the level for is a known name, not
+    # an orphan — the level/max concern is the max-check's remit, not the orphan check's.
+    assert "resource-budget-orphan" not in _codes(
+        _esc_sheet(3, {"Pool Esc": {"max": 1}}), access)
 
 
 def test_absent_budgets_no_findings(access):

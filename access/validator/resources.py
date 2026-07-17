@@ -52,6 +52,19 @@ def grant_resources(access: ValidatorAccess, owner_kind: str, owner_id: str,
     return out
 
 
+def owned_resource_names(access: ValidatorAccess, owner_kind: str, owner_id: str) -> list[str]:
+    """Every resource NAME an owner confers — both ``class_resource`` rows (a count-ladder pool AND a
+    die-/bonus-valued pool with no count ladder) and ``grant_resource`` use-pools — regardless of the
+    level gate. This is the name-existence set for the orphan check: a budget key naming any of these
+    denotes a resource the build owns (even one whose maximum is not queryable, e.g. a die pool, or
+    one not yet reached at the build's level), so it is not an orphan. Pure DB read."""
+    names = [r["name"] for r in access.db.q(
+        "SELECT name FROM class_resource WHERE owner_kind=? AND owner_id=?", owner_kind, owner_id)]
+    names += [h["name"] for h in
+              primitives.grants_for(access.db, "grant_resource", owner_kind, owner_id)]
+    return names
+
+
 def ability_abbrev(access: ValidatorAccess, ability_id: str) -> str | None:
     """The lower-cased short abbreviation of an ability (the key CORE uses for it), or None."""
     abbr = access.db.scalar("SELECT abbrev FROM ability WHERE id=?", ability_id)
