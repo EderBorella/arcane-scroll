@@ -770,12 +770,46 @@ def _state_hp(sheet: dict, access) -> tuple[int, int]:
             gate = row["condition_kind"]
             if gate is not None and gate != state_id:
                 continue
+            # A VARIABLE drain (dice, no fixed amount) is a live-play reduction, bounds-checked
+            # separately (T112) — it is NOT part of the exact fixed boost/reduction expectation.
+            if row["die_count"] is not None:
+                continue
             amount = (row["flat"] or 0) + (row["per_level"] or 0)
             if amount >= 0:
                 boost += amount
             else:
                 reduction += -amount
     return boost, reduction
+
+
+def _active_variable_drains(sheet: dict, access) -> list[tuple[int, int]]:
+    """The (min, max) reduction bounds of each active VARIABLE state-gated max-HP drain, re-derived
+    from the drain's dice (die_count .. die_count*die_faces). A variable drain's magnitude is the
+    dice-rolled damage taken — a live-play value the check bounds-checks rather than a fixed number
+    (F05-T112)."""
+    mod = sheet.get("modifier", {}) or {}
+    states = mod.get("character_states", []) or []
+    bounds: list[tuple[int, int]] = []
+    if not isinstance(states, list):
+        return bounds
+    for st in states:
+        if not isinstance(st, dict):
+            continue
+        owner_kind = _owner_kind_for_source_type(st.get("source_type", ""))
+        if owner_kind is None:
+            continue
+        owner_id = access.resolve(owner_kind, st.get("source"))
+        if owner_id is None:
+            continue
+        state_id = st.get("state")
+        for row in vitals_q.state_hp_grants(access, owner_kind, owner_id):
+            gate = row["condition_kind"]
+            if gate is not None and gate != state_id:
+                continue
+            dc, df = row["die_count"], row["die_faces"]
+            if _int(dc) and _int(df):
+                bounds.append((dc, dc * df))
+    return bounds
 
 
 def _check_hp(sheet: dict, access, v: list[Violation], transform: dict | None = None) -> None:
@@ -810,10 +844,55 @@ def _check_hp(sheet: dict, access, v: list[Violation], transform: dict | None = 
         v.append(Violation(DOMAIN, "hp-max-boost-mismatch", "illegal",
                            f"max_boost {actual_boost} != expected {expected_boost}",
                            "hit_points.max_boost"))
-    if actual_reduction != expected_reduction:
+    # A VARIABLE drain contributes a live-play (dice-rolled) reduction that is not a fixed derivable
+    # magnitude, so the exact-equality reduction check is suspended when one is active — the drain is
+    # bounds-checked in _check_hp_drain instead (F05-T112).
+    if not _active_variable_drains(sheet, access) and actual_reduction != expected_reduction:
         v.append(Violation(DOMAIN, "hp-max-reduction-mismatch", "illegal",
                            f"max_reduction {actual_reduction} != expected {expected_reduction}",
                            "hit_points.max_reduction"))
+
+
+def _check_hp_drain(sheet: dict, access, v: list[Violation]) -> None:
+    """Bounds-check the live-play max-HP reduction from any active VARIABLE state-gated drain. The
+    reduction is the dice-rolled damage taken (an inherently variable, live-play amount), so rather
+    than a fixed derived value the check enforces internal book-consistency: the drain portion of
+    ``max_reduction`` must lie within the drain's dice bounds, and the reduction must not push the
+    effective maximum HP below 1 (F05-T112)."""
+    drains = _active_variable_drains(sheet, access)
+    if not drains:
+        return
+    core = sheet.get("core", {}) or {}
+    mod = sheet.get("modifier", {}) or {}
+    hp = mod.get("hit_points")
+    if not isinstance(core, dict) or not isinstance(hp, dict):
+        return
+    actual_reduction = hp.get("max_reduction")
+    actual_boost = hp.get("max_boost")
+    if not _int(actual_reduction) or not _int(actual_boost):
+        return
+
+    # The derivable (fixed) reduction is the base; the variable drains add a live-play amount on top.
+    _, fixed_reduction = _state_hp(sheet, access)
+    total_level = _total_level(core)
+    hp_delta = _con_hp_delta(sheet, access, total_level)
+    base_reduction = fixed_reduction + max(0, -hp_delta)
+    drain_amount = actual_reduction - base_reduction
+
+    low = sum(dmin for dmin, _ in drains)
+    high = sum(dmax for _, dmax in drains)
+    if drain_amount < low or drain_amount > high:
+        v.append(Violation(DOMAIN, "hp-drain-out-of-bounds", "illegal",
+                           f"state-gated max-HP drain {drain_amount} outside the rolled-damage "
+                           f"bounds [{low}, {high}]", "hit_points.max_reduction"))
+
+    core_max = (core.get("hit_points", {}) or {}).get("max")
+    if _int(core_max):
+        effective_max = core_max + actual_boost - actual_reduction
+        if effective_max < 1:
+            v.append(Violation(DOMAIN, "hp-drain-below-floor", "illegal",
+                               f"effective max HP {effective_max} < 1 — the drain cannot reduce the "
+                               f"Hit Point maximum below 1", "hit_points.max_reduction"))
 
 
 def _expected_form_pool(sheet: dict, access, transform: dict) -> int | None:
@@ -1383,6 +1462,7 @@ def check(sheet: dict, access) -> list[Violation]:
     _check_saves(sheet, access, v, transform)
     _check_skills(sheet, access, v, transform)
     _check_hp(sheet, access, v, transform)
+    _check_hp_drain(sheet, access, v)
     _check_form_hp_pool(sheet, access, v, transform)
     if transform is None:
         _check_attacks(sheet, access, v)

@@ -330,7 +330,8 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE grant_ability_set (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
                 "gained_at_level INT, ability_id TEXT, score INT, mode TEXT, condition_kind TEXT)")
     cur.execute("CREATE TABLE grant_hp (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
-                "gained_at_level INT, flat INT, per_level INT, condition_kind TEXT)")
+                "gained_at_level INT, flat INT, per_level INT, condition_kind TEXT, "
+                "die_count INT, die_faces INT)")
     cur.execute("INSERT INTO class VALUES ('class-a','Class A',8,3,'full','all',2,0,'')")
     cur.execute("INSERT INTO class VALUES ('class-b','Class B',10,3,'none','any',2,0,'')")
     cur.execute("INSERT INTO subclass VALUES ('sub-a','class-a','Sub A',1,'')")
@@ -1522,20 +1523,27 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO class_feature VALUES ('cf-hp-state','class-a',99,'HP State Feature A')")
     # ungated state HP boost (condition_kind NULL): applies whenever its owner's state is active,
     # consistent with the gate rule (None = always-on) shared by the deriver and the HP check.
-    cur.execute("INSERT INTO grant_hp VALUES ('ghp-state','class_feature','cf-hp-state',NULL,5,NULL,NULL)")
+    cur.execute("INSERT INTO grant_hp VALUES ('ghp-state','class_feature','cf-hp-state',NULL,5,NULL,NULL,NULL,NULL)")
     # an always-on grant_hp on feat-gen -- never gathered under an active state, so it must NOT
     # reach max_boost (guards the deriver's and validator's state-only HP accumulation).
-    cur.execute("INSERT INTO grant_hp VALUES ('ghp-feat','feat','feat-gen',NULL,7,NULL,NULL)")
+    cur.execute("INSERT INTO grant_hp VALUES ('ghp-feat','feat','feat-gen',NULL,7,NULL,NULL,NULL,NULL)")
 
     # T58 fixtures: a state-gated maximum-HP REDUCTION (drain/curse). A class feature owns a grant_hp
     # with a NEGATIVE flat, gated by condition_kind matching the drain state's id ('drained'). While
     # that state is active the max HP drops by 6 (folds into hit_points.max_reduction). A second
     # feature carries a reduction gated to a DIFFERENT state id, so it stays inert for 'drained'.
     cur.execute("INSERT INTO class_feature VALUES ('cf-hp-drain','class-a',99,'HP Drain Feature A')")
-    cur.execute("INSERT INTO grant_hp VALUES ('ghp-drain','class_feature','cf-hp-drain',NULL,-6,NULL,'drained')")
+    cur.execute("INSERT INTO grant_hp VALUES ('ghp-drain','class_feature','cf-hp-drain',NULL,-6,NULL,'drained',NULL,NULL)")
     cur.execute("INSERT INTO class_feature VALUES ('cf-hp-drain-gated','class-a',99,'HP Drain Feature B')")
     cur.execute("INSERT INTO grant_hp VALUES "
-                "('ghp-drain-gated','class_feature','cf-hp-drain-gated',NULL,-4,NULL,'other-state')")
+                "('ghp-drain-gated','class_feature','cf-hp-drain-gated',NULL,-4,NULL,'other-state',NULL,NULL)")
+    # T112 fixture: a VARIABLE state-gated max-HP drain — the reduction is the (dice-rolled) damage
+    # taken, an inherently variable live-play amount rather than a fixed magnitude. The grant carries
+    # the reduction's DICE (2d6 → bounds [2, 12]) with NO flat; the deriver does not fabricate a value
+    # and the validator bounds-checks the sheet's live-play max_reduction against these dice.
+    cur.execute("INSERT INTO class_feature VALUES ('cf-hp-drain-var','class-a',99,'HP Drain Feature C')")
+    cur.execute("INSERT INTO grant_hp VALUES "
+                "('ghp-drain-var','class_feature','cf-hp-drain-var',NULL,NULL,NULL,'drained-var',2,6)")
 
     # generator choice-space enumeration (F05-T66): the option/list tables the choice grammar reads
     # to enumerate a single-class character's base choices. Content-neutral synthetic ids only.

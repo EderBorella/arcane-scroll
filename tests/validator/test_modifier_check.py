@@ -818,6 +818,56 @@ def test_max_hp_reduction_gate_no_leak_in_check(access):
         _hp_sheet(con_final=12, level=3, vigor=False, states=[state], max_reduction=0), access)
 
 
+# ── VARIABLE state-gated max-HP drain: live-play amount, bounds-checked (T112) ─
+
+
+def _var_drain_state():
+    return {"state": "drained-var", "source": "HP Drain Feature C", "source_type": "feature"}
+
+
+def test_variable_drain_within_bounds_passes(access):
+    """A VARIABLE drain (2d6 → bounds [2, 12]) is a live-play amount: a max_reduction inside the dice
+    bounds is clean, and the exact-equality reduction check is suspended (not fabricated) (F05-T112)."""
+    access = _access_with_con(access)
+    codes = _codes(_hp_sheet(con_final=12, level=3, vigor=False,
+                             states=[_var_drain_state()], max_reduction=6), access)
+    assert "hp-drain-out-of-bounds" not in codes
+    assert "hp-max-reduction-mismatch" not in codes   # exact check suspended for a variable drain
+
+
+def test_variable_drain_below_min_flagged(access):
+    access = _access_with_con(access)
+    assert "hp-drain-out-of-bounds" in _codes(
+        _hp_sheet(con_final=12, level=3, vigor=False,
+                  states=[_var_drain_state()], max_reduction=1), access)   # below 2d6 min (2)
+
+
+def test_variable_drain_above_max_flagged(access):
+    access = _access_with_con(access)
+    assert "hp-drain-out-of-bounds" in _codes(
+        _hp_sheet(con_final=12, level=3, vigor=False,
+                  states=[_var_drain_state()], max_reduction=13), access)  # above 2d6 max (12)
+
+
+def test_variable_drain_below_floor_flagged(access):
+    """The book floor — the drain can't reduce the Hit Point maximum below 1 — is enforced even for an
+    in-bounds reduction (F05-T112)."""
+    access = _access_with_con(access)
+    sheet = _hp_sheet(con_final=12, level=3, vigor=False,
+                      states=[_var_drain_state()], max_reduction=12)      # in bounds [2, 12]
+    sheet["core"]["hit_points"] = {"max": 10}                             # effective max 10-12 = -2
+    assert "hp-drain-below-floor" in _codes(sheet, access)
+
+
+def test_variable_drain_floor_ok_passes(access):
+    access = _access_with_con(access)
+    sheet = _hp_sheet(con_final=12, level=3, vigor=False,
+                      states=[_var_drain_state()], max_reduction=6)
+    sheet["core"]["hit_points"] = {"max": 20}                             # effective max 20-6 = 14 >= 1
+    codes = _codes(sheet, access)
+    assert "hp-drain-below-floor" not in codes and "hp-drain-out-of-bounds" not in codes
+
+
 # ── smoke ────────────────────────────────────────────────────────────────────
 
 

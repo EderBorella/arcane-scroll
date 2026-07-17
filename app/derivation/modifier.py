@@ -434,6 +434,10 @@ def _accumulate_hp(effects: ActiveEffects, access, owner_kind, owner_id, state: 
         gate = row["condition_kind"]
         if gate is not None and gate != state_id:
             continue
+        # A VARIABLE drain (dice, no fixed amount) is the damage rolled — a live-play value, not a
+        # derivable magnitude — so the deriver does not fabricate a reduction from it (F05-T112).
+        if row["die_count"] is not None:
+            continue
         amount = (row["flat"] or 0) + (row["per_level"] or 0)
         if amount >= 0:
             effects.hp_boost += amount
