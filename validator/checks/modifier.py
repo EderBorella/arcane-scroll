@@ -853,12 +853,17 @@ def _check_hp(sheet: dict, access, v: list[Violation], transform: dict | None = 
                            "hit_points.max_reduction"))
 
 
-def _check_hp_drain(sheet: dict, access, v: list[Violation]) -> None:
+def _check_hp_drain(sheet: dict, access, v: list[Violation], transform: dict | None = None) -> None:
     """Bounds-check the live-play max-HP reduction from any active VARIABLE state-gated drain. The
     reduction is the dice-rolled damage taken (an inherently variable, live-play amount), so rather
     than a fixed derived value the check enforces internal book-consistency: the drain portion of
     ``max_reduction`` must lie within the drain's dice bounds, and the reduction must not push the
-    effective maximum HP below 1 (F05-T112)."""
+    effective maximum HP below 1 (F05-T112).
+
+    Under a self-transform the character keeps their OWN Hit Points, so the form's CON does NOT
+    recompute max HP — the CON delta is 0 (T60 fork 2). The drain-base uses the SAME 0-CON-delta rule
+    as ``_check_hp`` so the two HP paths agree; otherwise a miscounted CON base would shift the
+    derived drain amount and spuriously flag an in-bounds live drain."""
     drains = _active_variable_drains(sheet, access)
     if not drains:
         return
@@ -875,7 +880,7 @@ def _check_hp_drain(sheet: dict, access, v: list[Violation]) -> None:
     # The derivable (fixed) reduction is the base; the variable drains add a live-play amount on top.
     _, fixed_reduction = _state_hp(sheet, access)
     total_level = _total_level(core)
-    hp_delta = _con_hp_delta(sheet, access, total_level)
+    hp_delta = 0 if transform else _con_hp_delta(sheet, access, total_level)
     base_reduction = fixed_reduction + max(0, -hp_delta)
     drain_amount = actual_reduction - base_reduction
 
@@ -1462,7 +1467,7 @@ def check(sheet: dict, access) -> list[Violation]:
     _check_saves(sheet, access, v, transform)
     _check_skills(sheet, access, v, transform)
     _check_hp(sheet, access, v, transform)
-    _check_hp_drain(sheet, access, v)
+    _check_hp_drain(sheet, access, v, transform)
     _check_form_hp_pool(sheet, access, v, transform)
     if transform is None:
         _check_attacks(sheet, access, v)
