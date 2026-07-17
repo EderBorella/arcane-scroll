@@ -67,23 +67,23 @@ def item_is_two_handed(access: ValidatorAccess, catalog_item_id: str) -> bool:
 
 
 def base_weapon_id_for_item(access: ValidatorAccess, item_id: str) -> str | None:
-    """The base weapon-stats id for a magic weapon that carries no stats row of its own.
+    """The canonical base weapon-stats id for a magic weapon that carries no stats row of its own.
 
     A magic weapon may be catalogued as a weapon yet have no ``weapon`` row (no dice/tier/
-    properties); its underlying base weapon is recorded in ``magic_item_template.base_item_id``.
-    Returns that base id only when it is UNAMBIGUOUS — exactly one distinct non-NULL base that
-    resolves to a real ``weapon`` row — else None (a multi-base or base-less template stays
-    unresolved). Pure DB read; the attack rule stays with the consuming deriver/check."""
+    properties); its underlying base weapon(s) are recorded in ``magic_item_template.base_item_id``.
+    A template may name SEVERAL bases (the same magic weapon can be built on any of them). To keep the
+    reader-side result deterministic — so the attack-bonus and extra-damage rider re-derivation is not
+    silently skipped for a multi-base template — this returns a single CANONICAL base: among the
+    distinct bases that resolve to a real ``weapon`` row, the lowest id. Returns None only when the
+    template names no base that resolves to a weapon row. Pure DB read; no schema/DB change — the
+    attack rule stays with the consuming deriver/check."""
     rows = access.db.q(
         "SELECT DISTINCT base_item_id FROM magic_item_template "
         "WHERE template_id=? AND base_kind='weapon' AND base_item_id IS NOT NULL", item_id)
-    bases = [r["base_item_id"] for r in rows]
-    if len(bases) != 1:
-        return None
-    base_id = bases[0]
-    if access.db.one("SELECT 1 FROM weapon WHERE id=?", base_id) is None:
-        return None
-    return base_id
+    weapon_bases = sorted(
+        r["base_item_id"] for r in rows
+        if access.db.one("SELECT 1 FROM weapon WHERE id=?", r["base_item_id"]) is not None)
+    return weapon_bases[0] if weapon_bases else None
 
 
 def weapon_attack_facts(access: ValidatorAccess, weapon_id: str) -> dict | None:
@@ -141,6 +141,22 @@ def extra_damage_grants(access: ValidatorAccess, owner_kind: str, owner_id: str)
         "SELECT id, die_count, die_faces, damage_type_id, condition_kind FROM grant_bonus "
         "WHERE owner_kind=? AND owner_id=? AND target_kind='extra_damage'",
         owner_kind, owner_id)
+
+
+def starting_equipment_bundle_exists(access: ValidatorAccess, option_id: str) -> bool:
+    """True if a starting-equipment bundle id resolves to a ``start_equipment_option`` row. Pure DB
+    read — the consuming check decides what to do when a recorded bundle id is unknown."""
+    return access.db.one(
+        "SELECT 1 FROM start_equipment_option WHERE id=?", option_id) is not None
+
+
+def starting_equipment_gp_grants(access: ValidatorAccess, option_id: str) -> list[int]:
+    """The gp amounts of a starting-equipment bundle's coin entries, one per ``start_equipment_entry``
+    row with ``kind='gp'`` (NULLs coerced to 0). Pure DB read — the consuming check owns summing them
+    and comparing the total to the sheet's coin gp."""
+    rows = access.db.q(
+        "SELECT gp_amount FROM start_equipment_entry WHERE option_id=? AND kind='gp'", option_id)
+    return [(r["gp_amount"] or 0) for r in rows]
 
 
 def template_valid(access: ValidatorAccess, template_name: str,

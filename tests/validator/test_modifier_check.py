@@ -887,6 +887,43 @@ def test_variable_drain_floor_ok_passes(access):
     assert "hp-drain-below-floor" not in codes and "hp-drain-out-of-bounds" not in codes
 
 
+# ── starting treasure (re-derived from the chosen equipment bundle) ───────────
+
+
+def test_starting_treasure_matches_bundle_passes(access):
+    """When the sheet records the chosen starting-equipment bundle id, the starting coin gp is
+    re-derived from that bundle's gp grants in the DB. Bundle 'sa-a' grants 15 gp, so a treasure of
+    15 gp is consistent and passes."""
+    sheet = _sheet()
+    sheet["modifier"]["start_equipment_option"] = "sa-a"
+    sheet["modifier"]["treasure"] = {"pp": 0, "gp": 15, "ep": 0, "sp": 0, "cp": 0}
+    assert "starting-treasure-mismatch" not in _codes(sheet, access)
+
+
+def test_starting_treasure_mismatch_flags(access):
+    """A recorded bundle id whose DB gp grant disagrees with the sheet's coin gp is flagged."""
+    sheet = _sheet()
+    sheet["modifier"]["start_equipment_option"] = "sa-a"  # grants 15 gp in the DB
+    sheet["modifier"]["treasure"] = {"pp": 0, "gp": 99, "ep": 0, "sp": 0, "cp": 0}
+    assert "starting-treasure-mismatch" in _codes(sheet, access)
+
+
+def test_starting_treasure_dormant_without_bundle_id(access):
+    """With no recorded bundle id the branch is dormant: even a coin gp that matches no bundle is not
+    flagged by this check (nothing to re-derive against)."""
+    sheet = _sheet()
+    sheet["modifier"]["treasure"] = {"pp": 0, "gp": 99, "ep": 0, "sp": 0, "cp": 0}
+    assert "starting-treasure-mismatch" not in _codes(sheet, access)
+
+
+def test_starting_treasure_unknown_bundle_id_skipped(access):
+    """An unresolvable bundle id has nothing to re-derive from, so the branch skips it (no flag)."""
+    sheet = _sheet()
+    sheet["modifier"]["start_equipment_option"] = "no-such-bundle"
+    sheet["modifier"]["treasure"] = {"pp": 0, "gp": 99, "ep": 0, "sp": 0, "cp": 0}
+    assert "starting-treasure-mismatch" not in _codes(sheet, access)
+
+
 # ── smoke ────────────────────────────────────────────────────────────────────
 
 

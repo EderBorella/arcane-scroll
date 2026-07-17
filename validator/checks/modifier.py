@@ -4,10 +4,12 @@ passives, defenses, features, feats, state compatibility, prepared spells, and s
 enforcement. NOT in ALL_CHECKS — modifier:1-specific."""
 from access.constants import CON_ABBREV
 from access.validator import abilities as abilities_q
+from access.validator import conditions as conditions_q
 from access.validator import creature as creature_q
 from access.validator import defenses as defenses_q
 from access.validator import features as features_q
 from access.validator import inventory as inventory_q
+from access.validator import movement as movement_q
 from access.validator import size as size_q
 from access.validator import skills as skills_q
 from access.validator import vitals as vitals_q
@@ -1019,6 +1021,218 @@ def _check_state_defenses(sheet: dict, access, v: list[Violation]) -> None:
                                    "effective_defenses.resistances"))
 
 
+def _per_level_coeff(modifier: str) -> int:
+    """Parse a ``<coeff>_per_level`` modifier formula into its integer coefficient.
+    Re-implemented here so the check stays independent of the deriver."""
+    try:
+        return int(str(modifier).split("_per_level", 1)[0])
+    except (ValueError, TypeError):
+        return 0
+
+
+def _resolve_base_speeds(grant_rows: list, base_walk: int) -> dict:
+    """Resolve speeds from grant rows (independent of the deriver): sets_total takes MAX,
+    additive SUMs, equals_walk mirrors resolved walk. Zero modes are dropped."""
+    phases = {"walk": base_walk or 0}
+    sets_total_max: dict = {}
+    additive_sum: dict = {}
+    equals_walk: set = set()
+    for row in grant_rows:
+        mode = row["movement_mode_id"]
+        if row["sets_total"]:
+            ft = row["feet"]
+            if ft is not None:
+                sets_total_max[mode] = max(sets_total_max.get(mode, 0), ft)
+        elif row["additive"]:
+            additive_sum[mode] = additive_sum.get(mode, 0) + (row["feet"] or 0)
+        elif row["equals_walk"]:
+            equals_walk.add(mode)
+    for mode, ft in sets_total_max.items():
+        phases[mode] = ft
+    for mode, ft in additive_sum.items():
+        phases[mode] = phases.get(mode, 0) + ft
+    for mode in sorted(equals_walk):
+        if mode != "walk":
+            phases[mode] = phases.get("walk", 0)
+    return {k: val for k, val in phases.items() if val > 0}
+
+
+def _base_effective_speeds(sheet: dict, access) -> dict:
+    """Re-derive the character's effective speeds BEFORE any condition effect, from CORE
+    permanent speed plus active non-condition-state speed grants. Item speed grants are
+    handled by the caller's guard, not here."""
+    core = sheet.get("core", {}) or {}
+    perm = core.get("permanent_speed", {}) or {}
+    if not isinstance(perm, dict):
+        perm = {}
+    base_walk = perm.get("walk", 30)
+    if not _int(base_walk):
+        base_walk = 30
+    grants = []
+    for mode, ft in perm.items():
+        if mode == "walk":
+            continue
+        if _int(ft):
+            grants.append({"movement_mode_id": mode, "feet": ft,
+                           "sets_total": 1, "additive": 0, "equals_walk": 0})
+    mod = sheet.get("modifier", {}) or {}
+    for st in mod.get("character_states", []) or []:
+        if not isinstance(st, dict):
+            continue
+        owner_kind = _owner_kind_for_source_type(st.get("source_type", ""))
+        if owner_kind is None or owner_kind == "condition":
+            continue
+        owner_id = access.resolve(owner_kind, st.get("source"))
+        if not owner_id:
+            continue
+        for row in movement_q.speed_grants(access, owner_kind, owner_id):
+            grants.append(dict(row))
+    return _resolve_base_speeds(grants, base_walk)
+
+
+def _has_item_speed_grants(sheet: dict, access) -> bool:
+    """Whether any magic item on the sheet grants a speed. When true, the condition
+    speed-penalty re-derivation is skipped (item speeds are not re-derived on this path), so
+    an item-boosted speed never false-flags a mismatch. The d20 and speed-zero checks still run."""
+    inv = sheet.get("inventory", {}) or {}
+    if not isinstance(inv, dict):
+        return False
+    items = []
+    equipped = inv.get("equipped", {})
+    if isinstance(equipped, dict):
+        items.extend(equipped.values())
+    backpack = inv.get("backpack", [])
+    if isinstance(backpack, list):
+        items.extend(backpack)
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        name = it.get("name")
+        if not name:
+            continue
+        mid = access.resolve("magic_item", name)
+        if not mid:
+            continue
+        if movement_q.speed_grants(access, "magic_item", mid):
+            return True
+    return False
+
+
+def _check_condition_effects(sheet: dict, access, v: list[Violation]) -> None:
+    """Independently re-derive the sheet-derivable effects of every active condition
+    from condition_effect (never from the deriver) and assert the MODIFIER reflects them:
+    an absolute speed-zero, a per-level speed penalty, a per-level D20-test penalty,
+    resistance to all damage, and condition/damage immunities."""
+    mod = sheet.get("modifier", {}) or {}
+    states = mod.get("character_states", []) or []
+    if not isinstance(states, list):
+        return
+
+    speed_zero = False
+    speed_penalty = 0
+    d20_penalty = 0
+    resistance_all = False
+    cond_immunities: set = set()
+    dmg_immunities: set = set()
+    saw_condition = False
+
+    for st in states:
+        if not isinstance(st, dict):
+            continue
+        if _owner_kind_for_source_type(st.get("source_type", "")) != "condition":
+            continue
+        state_id = st.get("state")
+        if not state_id:
+            continue
+        level = st.get("level")
+        has_level = _int(level)
+        cond_id = conditions_q.condition_id_for_state(access, state_id, has_level)
+        if not cond_id:
+            continue
+        saw_condition = True
+        lvl = level if has_level else 0
+        for row in conditions_q.condition_effects(access, cond_id):
+            kind = row["effect_kind"]
+            m = row["modifier"]
+            tk = row["target_kind"]
+            tid = row["target_id"]
+            if kind == "speed_set" and m == "set_0":
+                speed_zero = True
+            elif kind == "speed_penalty":
+                speed_penalty += abs(_per_level_coeff(m)) * lvl
+            elif kind == "d20_penalty":
+                d20_penalty += abs(_per_level_coeff(m)) * lvl
+            elif kind == "resistance" and m == "resistance_all":
+                resistance_all = True
+            elif kind == "immunity" and tk == "condition" and tid:
+                cond_immunities.add(tid)
+            elif kind == "immunity" and tk == "damage" and tid:
+                dmg_immunities.add(tid)
+
+    if not saw_condition:
+        return
+
+    actual_d20 = mod.get("d20_penalty", 0)
+    if not _int(actual_d20):
+        actual_d20 = 0
+    if actual_d20 != d20_penalty:
+        v.append(Violation(DOMAIN, "condition-d20-penalty-mismatch", "illegal",
+                           f"expected d20_penalty {d20_penalty}, got {actual_d20}",
+                           "d20_penalty"))
+
+    eff = mod.get("effective_defenses", {}) or {}
+    if isinstance(eff, dict):
+        res = set(eff.get("resistances", []) or [])
+        if resistance_all:
+            missing = set(defenses_q.damage_type_ids(access)) - res
+            if missing:
+                v.append(Violation(DOMAIN, "condition-resistance-missing", "incomplete",
+                                   "active condition grants resistance to all damage; "
+                                   f"missing {sorted(missing)}",
+                                   "effective_defenses.resistances"))
+        ci = set(eff.get("condition_immunities", []) or [])
+        for c in sorted(cond_immunities - ci):
+            v.append(Violation(DOMAIN, "condition-immunity-missing", "incomplete",
+                               f"active condition grants immunity to the {c!r} condition, "
+                               "not on effective_defenses",
+                               "effective_defenses.condition_immunities"))
+        di = set(eff.get("immunities", []) or [])
+        for d in sorted(dmg_immunities - di):
+            v.append(Violation(DOMAIN, "condition-damage-immunity-missing", "incomplete",
+                               f"active condition grants immunity to {d} damage, "
+                               "not on effective_defenses",
+                               "effective_defenses.immunities"))
+
+    _check_condition_speed(sheet, access, v, speed_zero, speed_penalty)
+
+
+def _check_condition_speed(sheet: dict, access, v: list[Violation],
+                           speed_zero: bool, speed_penalty: int) -> None:
+    mod = sheet.get("modifier", {}) or {}
+    eff_speed = mod.get("speed", {}) or {}
+    if not isinstance(eff_speed, dict):
+        return
+    if speed_zero:
+        for mode, ft in eff_speed.items():
+            if _int(ft) and ft != 0:
+                v.append(Violation(DOMAIN, "condition-speed-not-zero", "illegal",
+                                   f"active condition sets speed to 0; {mode} is {ft}ft",
+                                   f"speed.{mode}"))
+        return
+    if not speed_penalty:
+        return
+    if _has_item_speed_grants(sheet, access):
+        return
+    base = _base_effective_speeds(sheet, access)
+    for mode, base_ft in base.items():
+        expected = max(0, base_ft - speed_penalty)
+        actual = eff_speed.get(mode)
+        if _int(actual) and actual != expected:
+            v.append(Violation(DOMAIN, "condition-speed-mismatch", "illegal",
+                               f"{mode}: expected {expected}ft after the speed penalty, "
+                               f"got {actual}ft", f"speed.{mode}"))
+
+
 def _check_size(sheet: dict, access, v: list[Violation]) -> None:
     """Independently compute the expected effective_size from CORE.identity.size plus
     active-state size effects (relative steps and set-from-creature transformations),
@@ -1178,6 +1392,37 @@ def _check_prepared_spells(sheet: dict, access, v: list[Violation]) -> None:
             v.append(Violation(DOMAIN, "prepared-spells-invalid", "illegal",
                                f"prepared spell {entry!r} not found in GRIMOIRE",
                                "prepared_spells"))
+
+
+# ── starting treasure (re-derived from the chosen equipment bundle) ───────────
+
+
+def _check_starting_treasure(sheet: dict, access, v: list[Violation]) -> None:
+    """When the MODIFIER records the chosen starting-equipment bundle id, independently re-derive the
+    starting treasure from that bundle's gp grants in the DB and assert the sheet's coin gp matches.
+    Grounded in the reference DB, never the deriver: the expected gp is the sum of the bundle's
+    ``kind='gp'`` entries.
+
+    Dormant when no bundle id is recorded (the field is optional; a sheet that omits it is not checked
+    here). A recorded id that does not resolve to a bundle is skipped — there is nothing to re-derive
+    against (F05-T119, in-layer half)."""
+    mod = sheet.get("modifier", {}) or {}
+    option_id = mod.get("start_equipment_option")
+    if not isinstance(option_id, str) or not option_id:
+        return
+    if not inventory_q.starting_equipment_bundle_exists(access, option_id):
+        return
+    treasure = mod.get("treasure", {}) or {}
+    if not isinstance(treasure, dict):
+        return
+    actual_gp = treasure.get("gp", 0)
+    if not _int(actual_gp):
+        return
+    expected_gp = sum(inventory_q.starting_equipment_gp_grants(access, option_id))
+    if actual_gp != expected_gp:
+        v.append(Violation(DOMAIN, "starting-treasure-mismatch", "illegal",
+                           f"treasure gp {actual_gp} != re-derived starting gp {expected_gp} for "
+                           f"bundle {option_id!r}", "treasure.gp"))
 
 
 # ── state compatibility ──────────────────────────────────────────────────────
@@ -1475,6 +1720,7 @@ def check(sheet: dict, access) -> list[Violation]:
         _check_effective_abilities(sheet, access, v)
         _check_defenses(sheet, v)
         _check_state_defenses(sheet, access, v)
+        _check_condition_effects(sheet, access, v)
     else:
         _check_transform(sheet, access, transform, v)
     _check_size(sheet, access, v)
@@ -1483,5 +1729,6 @@ def check(sheet: dict, access) -> list[Violation]:
     _check_feats(sheet, v)
     _check_prepared_spells(sheet, access, v)
     _check_states(sheet, access, v)
+    _check_starting_treasure(sheet, access, v)
 
     return v

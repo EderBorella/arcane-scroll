@@ -762,7 +762,9 @@ def _build_rules_db(path: str) -> None:
         cur.execute("INSERT INTO damage_type VALUES (?,?)", (did, dname))
     for cid, cname in [("charmed","Charmed"),("frightened","Frightened"),("poisoned","Poisoned"),
                         ("blinded","Blinded"),("incapacitated","Incapacitated"),
-                        ("prone","Prone"),("unconscious","Unconscious")]:
+                        ("prone","Prone"),("unconscious","Unconscious"),
+                        ("grappled","Grappled"),("restrained","Restrained"),
+                        ("petrified","Petrified"),("exhaustion","Exhaustion")]:
         cur.execute("INSERT INTO condition VALUES (?,?)", (cid, cname))
 
     cur.execute("CREATE TABLE grant_resistance (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
@@ -1360,6 +1362,15 @@ def _build_rules_db(path: str) -> None:
         ("poisoned", "attack_disadvantage", "attack", None, "disadvantage", "self_vs_others", ""),
         ("unconscious", "attacks_advantage_against", "attack", None, "advantage", "others_vs_self", ""),
         ("prone", "crawl_only", "movement", None, "crawl_only", "self", ""),
+        # Sheet-derivable effects (consumed by the MODIFIER deriver + validator):
+        # absolute speed-zero, per-level exhaustion penalties, and petrified defences.
+        ("grappled", "speed_set", "speed", None, "set_0", "self", ""),
+        ("restrained", "speed_set", "speed", None, "set_0", "self", ""),
+        ("exhaustion", "speed_penalty", "speed", None, "-5_per_level", "self", ""),
+        ("exhaustion", "d20_penalty", "d20_test", None, "-2_per_level", "self", ""),
+        ("petrified", "speed_set", "speed", None, "set_0", "self", ""),
+        ("petrified", "resistance", "damage", None, "resistance_all", "self", ""),
+        ("petrified", "immunity", "condition", "poisoned", "immunity", "self", ""),
     ]
     cur.executemany("INSERT INTO condition_effect (condition_id, effect_kind, target_kind, target_id, modifier, source_scope, note) VALUES (?,?,?,?,?,?,?)", test_conditions)
 
@@ -1480,21 +1491,23 @@ def _build_rules_db(path: str) -> None:
     # ── top-tier once-per-rest granted-spell fixtures (class-owned slotless choice) ──────────────
     # A pact-caster class whose class-owned grants each confer a once-per-rest spell CHOSEN from its
     # own spell list. The spell TIER is NOT carried in the choice (spell_level_min/max are NULL), so
-    # the consumer re-derives it from the grant's acquisition level: the first unlock (class level 11)
-    # confers a level-6 spell, rising one tier every two levels (13->7, 15->8, 17->9). Two level-6
-    # spells (sp-w6a/sp-w6b) exercise the deterministic lowest-catalog-id canonical pick.
+    # the consumer reads the tier from the choice's explicit spell-level bound (spell_level_min ==
+    # spell_level_max): the first unlock (class level 11) confers a level-6 spell, then 13->7, 15->8,
+    # 17->9. Two level-6 spells (sp-w6a/sp-w6b) exercise the deterministic lowest-catalog-id pick.
     cur.execute("INSERT INTO class VALUES ('class-w','Class W',8,3,'pact','all',2,0,'')")
     cur.execute("INSERT INTO recharge_cadence VALUES ('long-rest','Long Rest')")
     for _sid, _lvl in [("sp-w6a", 6), ("sp-w6b", 6), ("sp-w7", 7), ("sp-w8", 8), ("sp-w9", 9)]:
         cur.execute("INSERT INTO spell VALUES (?,?,?,0)", (_sid, _sid.capitalize(), _lvl))
         cur.execute("INSERT INTO spell_class VALUES (?, 'class-w')", (_sid,))
-    for _gid, _gal in [("gsp-w-11", 11), ("gsp-w-13", 13), ("gsp-w-15", 15), ("gsp-w-17", 17)]:
+    for _gid, _gal, _tier in [("gsp-w-11", 11, 6), ("gsp-w-13", 13, 7),
+                              ("gsp-w-15", 15, 8), ("gsp-w-17", 17, 9)]:
         cur.execute(
             "INSERT INTO grant_spell (id,owner_kind,owner_id,gained_at_level,bucket,recovery,"
             "uses_kind,uses_num,recharge_id) VALUES (?,?,?,?,?,?,?,?,?)",
             (_gid, "class", "class-w", _gal, "always", "slotless_per_rest", "int", 1, "long-rest"))
-        cur.execute("INSERT INTO grant_spell_choice (grant_id,choose_n,from_kind) VALUES (?,?,?)",
-                    (_gid, 1, "class_list"))
+        cur.execute("INSERT INTO grant_spell_choice "
+                    "(grant_id,choose_n,from_kind,spell_level_min,spell_level_max) "
+                    "VALUES (?,?,?,?,?)", (_gid, 1, "class_list", _tier, _tier))
         cur.execute("INSERT INTO grant_spell_choice_value VALUES (?, 'class-w')", (_gid,))
 
     # step 3/4: magic items conferring senses/speeds/save bonuses.
@@ -1716,6 +1729,15 @@ def _build_rules_db(path: str) -> None:
                 "('class-wm-weapon-mastery','class','class-wm','Weapon Mastery')")
     cur.execute("INSERT INTO class_resource_level VALUES ('class-wm-weapon-mastery',1,2,NULL,NULL,NULL)")
     cur.execute("INSERT INTO class_resource_level VALUES ('class-wm-weapon-mastery',5,3,NULL,NULL,NULL)")
+    # class-wm2: a SECOND weapon-mastery-granting class (flat ladder, 1 at level 1) so a multiclass
+    # build combining two mastery-granting classes exercises the STACKING (sum) combine rule -- each
+    # class's count adds, rather than the higher one winning. Minimal: only the class row + its
+    # weapon-mastery resource ladder are needed for the count derivation.
+    cur.execute("INSERT INTO class VALUES ('class-wm2','Class WM2',10,3,'none','all',2,0,'')")
+    cur.execute("INSERT INTO class_feature VALUES ('cf-wm2-1','class-wm2',1,'Weapon Mastery')")
+    cur.execute("INSERT INTO class_resource VALUES "
+                "('class-wm2-weapon-mastery','class','class-wm2','Weapon Mastery')")
+    cur.execute("INSERT INTO class_resource_level VALUES ('class-wm2-weapon-mastery',1,1,NULL,NULL,NULL)")
     cur.execute("UPDATE catalog_item SET weight_lb=3.0 WHERE id='blade-a'")
     cur.execute("UPDATE catalog_item SET weight_lb=7.0 WHERE id='weapon-a'")
     cur.execute("UPDATE catalog_item SET weight_lb=8.0 WHERE id='armor-e'")

@@ -27,6 +27,11 @@ from validator.report import Violation
 
 DOMAIN = "resources"
 
+# The owner kinds the owned-name derivation knows how to resolve from a sheet's identity/feats. A
+# grant_resource owner kind outside this set cannot be resolved, so a budget legitimately owned via
+# that kind would otherwise be mis-classified as an orphan — the check guards that case instead.
+KNOWN_OWNER_KINDS = frozenset({"class", "subclass", "species", "lineage", "feat"})
+
 
 def _proficiency_bonus(total_level: int) -> int:
     """Proficiency bonus re-derived from total level (independent of the deriver)."""
@@ -188,11 +193,27 @@ def check(sheet: dict, access) -> list[Violation]:
 
     owned = _owned_maxima(sheet, access)
     owned_names = _owned_names(sheet, access)
+
+    # Guard the orphan check against a grant_resource owner kind the owned-name derivation cannot
+    # resolve from a sheet. If the spine carries such a kind, a budget legitimately owned via it would
+    # be mis-flagged as an orphan — so surface it as an internal finding and suspend orphan
+    # classification for this run rather than emit a false orphan. Derived from the DB, not hardcoded.
+    unaccounted = q.grant_resource_owner_kinds(access) - KNOWN_OWNER_KINDS
+    if unaccounted:
+        v.append(Violation(DOMAIN, "orphan-owner-kind-unaccounted", "internal",
+                           "grant_resource carries owner kind(s) the orphan check cannot resolve "
+                           f"({', '.join(sorted(unaccounted))}); orphan classification suspended",
+                           "resource_budgets"))
+
     for key, budget in budgets.items():
         if not isinstance(budget, dict):
             continue
         nk = _norm(key)
         if nk not in owned_names:
+            if unaccounted:
+                # An owner kind the check cannot resolve is present, so this key may be owned via it —
+                # do not risk a false orphan; the internal finding above already flags the gap.
+                continue
             # An orphan: the budget declares a pool no resource this build owns confers — not a count
             # ladder, not a die-only pool, not a grant_resource across any owner. It cannot be
             # verified against anything real, so it is flagged rather than silently accepted.

@@ -1,5 +1,7 @@
 """Resource-budget check (F05-T74): a class-resource-ladder budget entry must declare the maximum
 the ladder confers at the build's level. Entries the ladder does not model are outside its remit."""
+import sqlite3
+
 from validator.checks.resources import check
 
 
@@ -227,3 +229,23 @@ def test_class_grant_gated_on_class_level_no_multiclass_leak(access):
                             {"class": "Class B", "level": 5, "subclass": None}])
     sheet["abilities"] = {"x1": {"final": 17}}
     assert "resource-max-wrong" not in _codes(sheet, access)
+
+
+# ----------------------------------------- orphan owner-kind guard (T127)
+
+def test_unknown_grant_owner_kind_guarded_as_internal(rules_db):
+    # A grant_resource row whose owner kind the owned-name derivation cannot resolve from a sheet is
+    # guarded: the check surfaces an internal finding and SUSPENDS orphan classification, rather than
+    # mis-flagging an otherwise-orphan budget key as an orphan. The owner-kind set is derived from the
+    # DB, so a newly-modelled kind is detected without editing the check.
+    con = sqlite3.connect(rules_db)
+    con.execute("INSERT INTO grant_resource VALUES "
+                "('gr-synth','background','bg-x',NULL,NULL,'Synthetic Pool','int',1,NULL)")
+    con.commit()
+    con.close()
+
+    from access.validator import ValidatorAccess
+    access = ValidatorAccess(path=rules_db)
+    codes = _codes(_sheet({"Some Feature Use": {"max": 1}}), access)
+    assert "orphan-owner-kind-unaccounted" in codes
+    assert "resource-budget-orphan" not in codes
