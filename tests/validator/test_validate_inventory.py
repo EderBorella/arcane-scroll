@@ -328,3 +328,33 @@ def test_omitted_facts_not_flagged(access):
     # the sheet need not restate every catalogue fact — an omission is not a contradiction
     sheet = _make_sheet(equipped={"main_hand": {"id": "w1", "name": "Weapon A"}})
     assert "enrichment-mismatch" not in _codes(sheet, access)
+
+
+# ── C-I1b3: armour-category vocabulary normalisation (F05-T120) ───────────────
+# "Armor A" (armor-d) has DB category_id 'heavy'. A sheet may carry the short corpus
+# display form or the DB id; both must compare equal, while a wrong category flags.
+
+
+def test_armor_category_short_display_form_passes(access):
+    sheet = _make_sheet(equipped={"armor": {"id": "a1", "name": "Armor A", "armor_category": "heavy"}})
+    assert "enrichment-mismatch" not in _codes(sheet, access)
+
+
+def test_armor_category_db_id_form_passes(access):
+    sheet = _make_sheet(
+        equipped={"armor": {"id": "a1", "name": "Armor A", "armor_category": "heavy-armor"}})
+    assert "enrichment-mismatch" not in _codes(sheet, access)
+
+
+def test_wrong_armor_category_fires(access):
+    # Armor A is heavy; stating a light category is a genuine contradiction
+    sheet = _make_sheet(equipped={"armor": {"id": "a1", "name": "Armor A", "armor_category": "light"}})
+    assert "enrichment-mismatch" in _codes(sheet, access)
+
+
+def test_shield_category_short_and_id_both_pass(access):
+    short = _make_sheet(equipped={"shield": {"id": "s1", "name": "Shield", "armor_category": "shield"}})
+    plural = _make_sheet(
+        equipped={"shield": {"id": "s1", "name": "Shield", "armor_category": "shields"}})
+    assert "enrichment-mismatch" not in _codes(short, access)
+    assert "enrichment-mismatch" not in _codes(plural, access)

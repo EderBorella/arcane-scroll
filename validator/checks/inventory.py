@@ -8,6 +8,7 @@ attribution (consumable-missing-inventory).
 
 Violation paths point directly into the inventory:1 shape: ``equipped.<slot>``, ``backpack[<i>]``."""
 from access.validator import inventory as q
+from validator.checks._vocab import armor_category_id
 from validator.report import Violation
 
 DOMAIN = "inventory"
@@ -117,7 +118,7 @@ def _check_two_handed_shield_combo(sheet: dict, access,
     if main_id is not None and q.item_is_two_handed(access, main_id):
         off_name = off_hand.get("name", "")
         off_cat = off_hand.get("category") or off_hand.get("armor_category") or ""
-        if off_cat.lower() == "shield":
+        if armor_category_id(off_cat) == "shield":
             v.append(Violation(DOMAIN, "two-handed-plus-shield", "illegal",
                                f"two-handed weapon {main_name!r} + shield in off_hand",
                                "equipped.main_hand"))
@@ -149,7 +150,7 @@ def _grounded_slots(access, name: str) -> set[str] | None:
         category = facts["category_id"] if facts else None
         if category is None:
             return None
-        return {"shield"} if category == "shield" else {"armor"}
+        return {"shield"} if armor_category_id(category) == "shield" else {"armor"}
     return None
 
 
@@ -188,9 +189,10 @@ def _check_enrichment(items: list[tuple[str | None, dict, str]],
 
     Only genuine CONTRADICTIONS are flagged — a value the sheet states that differs from the DB fact.
     An omitted fact is not an error (the sheet need not restate every catalogue fact), and a magic
-    item is skipped (its facts derive from the magic item, not a mundane base row). Display-vocabulary
-    fields whose corpus form differs from the DB id (an item's category label, the armour-category
-    label) are deliberately NOT equality-checked here — see the surfaced follow-up (F05-T102)."""
+    item is skipped (its facts derive from the magic item, not a mundane base row). The armour-category
+    label is compared through the shared vocabulary normaliser (F05-T120), so a short corpus display
+    form (``heavy``) and the DB id (``heavy-armor``) compare equal while a genuinely wrong category
+    still flags."""
     for _slot, item, path in items:
         name = item.get("name")
         if not isinstance(name, str) or not name:
@@ -240,6 +242,14 @@ def _enrich_armor(item: dict, armor: dict, path: str, v: list[Violation]) -> Non
         if _int(stated) and _int(expected) and stated != expected:
             v.append(Violation(DOMAIN, "enrichment-mismatch", "illegal",
                                f"{path}: {field} {stated} != DB {expected}", f"{path}.{field}"))
+
+    stated_cat = item.get("armor_category")
+    db_cat = armor.get("category_id")
+    if isinstance(stated_cat, str) and stated_cat and db_cat:
+        if armor_category_id(stated_cat) != armor_category_id(db_cat):
+            v.append(Violation(DOMAIN, "enrichment-mismatch", "illegal",
+                               f"{path}: armor_category {stated_cat!r} != DB {db_cat!r}",
+                               f"{path}.armor_category"))
 
 
 # ── C-I1c: template resolution ───────────────────────────────────────────────

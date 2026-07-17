@@ -6,20 +6,10 @@ pool to every tool in the category (the sheet picks are opaque, so any category-
 """
 from access import primitives
 from access.validator import proficiencies as q
+from validator.checks._vocab import armor_category_id
 from validator.report import Violation
 
 DOMAIN = "proficiencies_equip"
-
-
-def _armor_id(name: str) -> str:
-    """Normalize a sheet armor proficiency name to an armor_category DB id."""
-    n = name.strip().lower()
-    if n == "shields":
-        n = "shield"
-    n = n.replace(" ", "-")
-    if n in ("light", "medium", "heavy"):
-        n = n + "-armor"
-    return n
 
 
 def _weapon_id(name: str) -> str:
@@ -53,7 +43,7 @@ def _weapon_tier_for_name(name: str, access) -> str | None:
 
 
 def _resolve_armor(name: str, access) -> str | None:
-    aid = _armor_id(name)
+    aid = armor_category_id(name)
     row = access.db.one("SELECT id FROM armor_category WHERE id=?", aid)
     if row:
         return row["id"]
