@@ -380,6 +380,11 @@
       "type": "integer",
       "description": "Initiative modifier added to the d20 (Dex modifier + bonuses)."
     },
+    "d20_penalty": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Flat penalty applied to every D20 Test, derived from an active state's per-level condition effect. Additive field — absent means no penalty (0)."
+    },
     "speed": {
       "description": "Effective current movement speeds. Key = mode catalog ID -> feet. Includes conditional bonuses (spell-granted speed modifiers, class-feature speed bonuses).",
       "type": "object",

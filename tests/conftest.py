@@ -762,7 +762,9 @@ def _build_rules_db(path: str) -> None:
         cur.execute("INSERT INTO damage_type VALUES (?,?)", (did, dname))
     for cid, cname in [("charmed","Charmed"),("frightened","Frightened"),("poisoned","Poisoned"),
                         ("blinded","Blinded"),("incapacitated","Incapacitated"),
-                        ("prone","Prone"),("unconscious","Unconscious")]:
+                        ("prone","Prone"),("unconscious","Unconscious"),
+                        ("grappled","Grappled"),("restrained","Restrained"),
+                        ("petrified","Petrified"),("exhaustion","Exhaustion")]:
         cur.execute("INSERT INTO condition VALUES (?,?)", (cid, cname))
 
     cur.execute("CREATE TABLE grant_resistance (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
@@ -1360,6 +1362,15 @@ def _build_rules_db(path: str) -> None:
         ("poisoned", "attack_disadvantage", "attack", None, "disadvantage", "self_vs_others", ""),
         ("unconscious", "attacks_advantage_against", "attack", None, "advantage", "others_vs_self", ""),
         ("prone", "crawl_only", "movement", None, "crawl_only", "self", ""),
+        # Sheet-derivable effects (consumed by the MODIFIER deriver + validator):
+        # absolute speed-zero, per-level exhaustion penalties, and petrified defences.
+        ("grappled", "speed_set", "speed", None, "set_0", "self", ""),
+        ("restrained", "speed_set", "speed", None, "set_0", "self", ""),
+        ("exhaustion", "speed_penalty", "speed", None, "-5_per_level", "self", ""),
+        ("exhaustion", "d20_penalty", "d20_test", None, "-2_per_level", "self", ""),
+        ("petrified", "speed_set", "speed", None, "set_0", "self", ""),
+        ("petrified", "resistance", "damage", None, "resistance_all", "self", ""),
+        ("petrified", "immunity", "condition", "poisoned", "immunity", "self", ""),
     ]
     cur.executemany("INSERT INTO condition_effect (condition_id, effect_kind, target_kind, target_id, modifier, source_scope, note) VALUES (?,?,?,?,?,?,?)", test_conditions)
 

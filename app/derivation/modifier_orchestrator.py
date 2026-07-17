@@ -300,6 +300,11 @@ def derive_modifier(core: dict, inventory: dict | None, grimoire: dict | None,
     if form_temp_pool is not None:
         full["hit_points"]["form_temp_pool"] = form_temp_pool
 
+    # An additive field, present only while an active condition imposes a flat per-level D20-test
+    # penalty. Absent means no penalty (0). Non-sheet-representable combat riders stay out.
+    if effects.d20_penalty:
+        full["d20_penalty"] = effects.d20_penalty
+
     if mode == "fill" and existing_modifier is not None:
         full = _deep_merge(full, existing_modifier)
 
