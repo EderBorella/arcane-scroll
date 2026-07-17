@@ -189,6 +189,18 @@ def test_resource_budgets_omitted_when_no_count_ladder(gen_access):
     assert "resource_budgets" not in sheet
 
 
+def test_resource_budgets_pool_gained_above_level_1(gen_access):
+    # a class count-ladder gained above level 1 ('Pool Esc': 1 from level 4, 2 from level 8) is absent
+    # below its first ladder level and steps up at its breakpoint (F05-T113 shape).
+    choices = _choices()
+    choices["classes"] = [{"class": "class-a", "level": 3}]
+    assert "Pool Esc" not in derive_core(choices, gen_access).get("resource_budgets", {})
+    choices["classes"] = [{"class": "class-a", "level": 4}]
+    assert derive_core(choices, gen_access)["resource_budgets"]["Pool Esc"] == {"max": 1}
+    choices["classes"] = [{"class": "class-a", "level": 8}]
+    assert derive_core(choices, gen_access)["resource_budgets"]["Pool Esc"] == {"max": 2}
+
+
 # ---------------------------------------------- feat/subclass grant_resource budgets (T114)
 
 def test_resource_budgets_from_feat_grant(gen_access):

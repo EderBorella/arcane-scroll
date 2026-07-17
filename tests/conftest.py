@@ -605,6 +605,15 @@ def _build_rules_db(path: str) -> None:
     for _lvl, _cnt in [(1, 2), (3, 3), (5, 4)]:
         cur.execute("INSERT INTO class_resource_level VALUES ('class-a-pool',?,?,NULL,NULL,NULL)",
                     (_lvl, _cnt))
+    # class-a-escalating: a COUNT-ladder pool GAINED above level 1 (its ladder starts at level 4, so
+    # the pool is absent below it) that steps up mid-progression (1 use from level 4, 2 from level 8).
+    # This is the shape a class use pool stated only in feature prose takes — gained at a later level
+    # and escalating at breakpoints — so the deriver and the check are exercised on a class count
+    # ladder that does not start at level 1 (F05-T113).
+    cur.execute("INSERT INTO class_resource VALUES ('class-a-escalating','class','class-a','Pool Esc')")
+    for _lvl, _cnt in [(4, 1), (8, 2)]:
+        cur.execute("INSERT INTO class_resource_level VALUES ('class-a-escalating',?,?,NULL,NULL,NULL)",
+                    (_lvl, _cnt))
 
     # recharge_cadence — referenced by grant_spell.recharge_id (e.g. short-rest)
     cur.execute("CREATE TABLE recharge_cadence (id TEXT PRIMARY KEY, name TEXT)")

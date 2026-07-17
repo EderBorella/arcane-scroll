@@ -48,6 +48,30 @@ def test_ladder_max_gated_by_level(access):
     assert "resource-max-wrong" in _codes(sheet, access)
 
 
+# --------------------------------- class use pool gained above level 1 (F05-T113 shape)
+
+def _esc_sheet(level, budgets):
+    return _sheet(budgets, classes=[{"class": "Class A", "level": level, "subclass": None}])
+
+
+def test_pool_gained_above_level_1_absent_below_it(access):
+    # 'Pool Esc' is gained at level 4; a level-3 build does not own it, so a budget entry for it is
+    # outside the check's remit — the pool is correctly gated below its first ladder level.
+    assert check(_esc_sheet(3, {"Pool Esc": {"max": 1}}), access) == []
+
+
+def test_pool_gained_above_level_1_first_step_max(access):
+    assert check(_esc_sheet(4, {"Pool Esc": {"max": 1}}), access) == []
+
+
+def test_pool_gained_above_level_1_wrong_first_step_flagged(access):
+    assert "resource-max-wrong" in _codes(_esc_sheet(4, {"Pool Esc": {"max": 2}}), access)
+
+
+def test_pool_gained_above_level_1_second_step_max(access):
+    assert check(_esc_sheet(8, {"Pool Esc": {"max": 2}}), access) == []
+
+
 # ------------------------------------------------------- species/lineage grant_resource (T101/T98)
 
 def _grant_sheet(budgets):
