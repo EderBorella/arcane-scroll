@@ -350,12 +350,22 @@ def _build_rules_db(path: str) -> None:
     # neither, so it doubles as the negative ("offers no sub-choice") case for the enumeration/grammar.
     cur.execute("INSERT INTO species VALUES ('species-l','Species L','type-a',30,'')")
     cur.execute("INSERT INTO species VALUES ('species-v','Species V','type-a',30,'')")
+    # species-mv: a multi-axis variant species (two independent variant axes) -- F05-T100.
+    cur.execute("INSERT INTO species VALUES ('species-mv','Species MV','type-a',30,'')")
     # two lineages of species-l (ordered by id when enumerated)
     cur.execute("INSERT INTO lineage VALUES ('lin-l1','species-l','Lineage One','none',NULL,'')")
     cur.execute("INSERT INTO lineage VALUES ('lin-l2','species-l','Lineage Two','none',NULL,'')")
     # a variant axis of species-v: two options, each resolving to a damage type
     cur.execute("INSERT INTO species_variant_option VALUES ('svo-a','species-v','axis-a','Variant A','fire')")
     cur.execute("INSERT INTO species_variant_option VALUES ('svo-b','species-v','axis-a','Variant B','cold')")
+    # species-mv offers TWO independent variant axes (a multi-axis species): axis-a and axis-b, each
+    # with two options resolving to a damage type. A single species_variant field cannot record both
+    # picks -- the per-axis species_variants map does (F05-T100). Kept separate from species-v so the
+    # single-axis grammar/enumeration fixtures (the deferred generator half) are untouched.
+    cur.execute("INSERT INTO species_variant_option VALUES ('svm-a','species-mv','axis-a','Variant A','fire')")
+    cur.execute("INSERT INTO species_variant_option VALUES ('svm-b','species-mv','axis-a','Variant B','cold')")
+    cur.execute("INSERT INTO species_variant_option VALUES ('svm-c','species-mv','axis-b','Variant C','poison')")
+    cur.execute("INSERT INTO species_variant_option VALUES ('svm-d','species-mv','axis-b','Variant D','cold')")
     cur.execute("INSERT INTO background VALUES ('bg-a','Background A','feat-origin',0,NULL,NULL,'')")
     # bg-b: a background with no origin feat grant (feat_id NULL) -- the negative case for the
     # background.feat_id-sourced origin budget
@@ -760,6 +770,12 @@ def _build_rules_db(path: str) -> None:
     # species_variant option (damage_type_id NULL here; variant_axis names the axis to resolve).
     cur.execute("INSERT INTO grant_resistance VALUES "
                 "('gre-species-v','species','species-v',NULL,NULL,'axis-a','fixed',1,NULL,NULL,0,NULL)")
+    # species-mv's two variant axes each carry their own axis-resolved resistance, so a multi-axis
+    # build's two picks each materialise a distinct resistance (F05-T100).
+    cur.execute("INSERT INTO grant_resistance VALUES "
+                "('gre-species-mv-a','species','species-mv',NULL,NULL,'axis-a','fixed',1,NULL,NULL,0,NULL)")
+    cur.execute("INSERT INTO grant_resistance VALUES "
+                "('gre-species-mv-b','species','species-mv',NULL,NULL,'axis-b','fixed',1,NULL,NULL,0,NULL)")
     # lineage lin-l2 grants a fixed cold resistance -> a lineage-granted resistance landing in CORE.
     cur.execute("INSERT INTO grant_resistance VALUES "
                 "('gre-lin-l2','lineage','lin-l2',NULL,'cold',NULL,'fixed',1,NULL,NULL,0,NULL)")

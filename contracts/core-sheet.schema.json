@@ -59,7 +59,13 @@
           "type": ["string", "null"]
         },
         "species_variant": {
+          "description": "Single-axis species variant pick (the chosen option name). For a species offering more than one independent variant axis, use species_variants.",
           "type": ["string", "null"]
+        },
+        "species_variants": {
+          "description": "Per-axis species variant picks for a species with more than one independent variant axis: a map of axis name to the chosen option name.",
+          "type": ["object", "null"],
+          "additionalProperties": { "type": "string" }
         },
         "size": {
           "type": "string"

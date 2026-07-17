@@ -59,7 +59,8 @@ from access.validator import vitals as vitals_q
 #   "species":            species_id,
 #   "size":               size_id | None,      # chosen size when the species offers several
 #   "lineage":            lineage_id | None,   # optional (sub-species)
-#   "species_variant":    str | None,          # optional (full support is a later card)
+#   "species_variant":    str | None,          # optional single-axis variant pick (option name)
+#   "species_variants":   { axis: option_name, ... } | None,  # optional multi-axis variant picks
 #   "alignment":          str | None,
 #   "classes": [ {"class": class_id, "level": int, "subclass": subclass_id | None}, ... ],
 #   "background":         background_id,
@@ -104,6 +105,19 @@ def _display(access, dim: str, id_value: str | None) -> str | None:
     if access.resolve(dim, id_value) is not None:
         return id_value
     return catalog.name_of(access, dim, id_value)
+
+
+def _variant_pick_for_axis(identity: dict, axis: str) -> str | None:
+    """The chosen species-variant option name for a given variant axis: the per-axis pick in
+    ``identity.species_variants`` when present, otherwise the single-axis ``identity.species_variant``
+    (so a one-axis build still resolves without the multi-axis map)."""
+    variants = identity.get("species_variants")
+    if isinstance(variants, dict):
+        pick = variants.get(axis)
+        if isinstance(pick, str) and pick:
+            return pick
+    single = identity.get("species_variant")
+    return single if isinstance(single, str) and single else None
 
 
 def _con_modifier(access, abilities_out: dict, key_of: dict) -> int:
@@ -181,8 +195,10 @@ def _identity(access, choices: Choices) -> dict:
     #
     # ``lineage`` is a resolver dim: choices carry its canonical id, so it is rendered to its display
     # name here (the grant walkers resolve identity.lineage back to the id to gather lineage grants).
-    # ``species_variant`` is a name-keyed field (matched by (species, axis, option_name); no resolver
-    # dim), so the chosen option name is carried verbatim.
+    # ``species_variant`` / ``species_variants`` are name-keyed (matched by (species, axis,
+    # option_name); no resolver dim), so the chosen option name(s) are carried verbatim.
+    # ``species_variants`` records a pick PER axis for a species offering more than one independent
+    # variant axis (the single ``species_variant`` field is the one-axis form).
     lineage_id = choices.get("lineage")
     if lineage_id is not None:
         identity["lineage"] = _display(access, "lineage", lineage_id)
@@ -190,6 +206,9 @@ def _identity(access, choices: Choices) -> dict:
                        ("alignment", choices.get("alignment"))):
         if value is not None:
             identity[key] = value
+    species_variants = choices.get("species_variants")
+    if isinstance(species_variants, dict) and species_variants:
+        identity["species_variants"] = {str(axis): str(opt) for axis, opt in species_variants.items()}
     return identity
 
 
@@ -684,19 +703,22 @@ def _permanent_defenses(access, partial: dict) -> dict:
     resistance_set = {r["damage_type_id"] for r in res_rows
                       if r["mode"] == "fixed" and r["damage_type_id"]}
     # A variant-axis resistance names its axis but not its damage type — the concrete type is decided
-    # by the chosen species_variant option. Resolve it here (deriver-owned, re-derived from the DB, so
+    # by the chosen option on THAT axis. A species may offer more than one independent variant axis, so
+    # each axis is resolved to its own pick (identity.species_variants[axis], falling back to the
+    # single-axis identity.species_variant). Resolved here (deriver-owned, re-derived from the DB, so
     # the deriver stays independent of the validator's own variant resolution).
     ident = partial.get("identity", {}) or {}
-    variant_name = ident.get("species_variant")
-    if isinstance(variant_name, str) and variant_name:
-        spid = access.resolve("species", ident.get("species"))
-        if spid:
-            for row in res_rows:
-                if row["variant_axis"]:
-                    dmg = defenses_q.variant_damage_type(
-                        access, spid, row["variant_axis"], variant_name)
-                    if dmg:
-                        resistance_set.add(dmg)
+    spid = access.resolve("species", ident.get("species"))
+    if spid:
+        for row in res_rows:
+            axis = row["variant_axis"]
+            if not axis:
+                continue
+            pick = _variant_pick_for_axis(ident, axis)
+            if pick:
+                dmg = defenses_q.variant_damage_type(access, spid, axis, pick)
+                if dmg:
+                    resistance_set.add(dmg)
     resistances = sorted(resistance_set)
 
     cond_rows = defenses_q.gather_owner_grants(access, partial, defenses_q.condition_grants)

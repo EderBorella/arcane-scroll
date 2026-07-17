@@ -369,6 +369,54 @@ def test_variant_build_is_legal(gen_access, access):
     assert report["complete"] is True, report["violations"]
 
 
+# ------------------------------------------------------------ multi-axis species variants (T100)
+
+def _multi_axis_choices():
+    """species-mv offers two independent variant axes; the build picks an option on each. axis-a
+    Variant A -> fire, axis-b Variant C -> poison."""
+    choices = _variant_choices()
+    del choices["species_variant"]
+    choices["species"] = "species-mv"
+    choices["size"] = "size-a"
+    choices["species_variants"] = {"axis-a": "Variant A", "axis-b": "Variant C"}
+    return choices
+
+
+def test_multi_axis_variants_carried(gen_access):
+    # both axis picks are recorded without loss.
+    sheet = derive_core(_multi_axis_choices(), gen_access)
+    assert sheet["identity"]["species_variants"] == {"axis-a": "Variant A", "axis-b": "Variant C"}
+
+
+def test_multi_axis_each_axis_materialises_its_effect(gen_access):
+    # each axis resolves independently to its own resistance.
+    resistances = derive_core(_multi_axis_choices(), gen_access)["permanent_defenses"]["resistances"]
+    assert "fire" in resistances     # axis-a -> Variant A
+    assert "poison" in resistances   # axis-b -> Variant C
+
+
+def test_multi_axis_other_option_resolves_differently(gen_access):
+    choices = _multi_axis_choices()
+    choices["species_variants"]["axis-b"] = "Variant D"
+    resistances = derive_core(choices, gen_access)["permanent_defenses"]["resistances"]
+    assert "fire" in resistances     # axis-a unchanged -> Variant A
+    assert "cold" in resistances     # axis-b -> Variant D
+    assert "poison" not in resistances
+
+
+def test_multi_axis_build_is_legal(gen_access, access):
+    # the defenses check re-derives each axis independently, so the build validates.
+    report = validate_core(derive_core(_multi_axis_choices(), gen_access), access)
+    assert report["legal"] is True, report["violations"]
+    assert report["complete"] is True, report["violations"]
+
+
+def test_multi_axis_variants_omitted_when_absent(core_sheet):
+    # a species with no variant axes carries neither variant field.
+    assert "species_variant" not in core_sheet["identity"]
+    assert "species_variants" not in core_sheet["identity"]
+
+
 def test_no_subchoice_species_omits_fields(gen_access):
     # species-a offers neither sub-choice: the fields are absent from identity
     sheet = derive_core(_choices(), gen_access)

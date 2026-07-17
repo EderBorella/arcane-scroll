@@ -11,6 +11,19 @@ from validator.report import Violation
 DOMAIN = "defenses"
 
 
+def _variant_pick_for_axis(identity: dict, axis: str) -> str | None:
+    """The chosen species-variant option name for a variant axis: the per-axis pick in
+    ``identity.species_variants`` when present, otherwise the single-axis ``identity.species_variant``
+    (so a one-axis build still resolves without the multi-axis map)."""
+    variants = identity.get("species_variants")
+    if isinstance(variants, dict):
+        pick = variants.get(axis)
+        if isinstance(pick, str) and pick:
+            return pick
+    single = identity.get("species_variant")
+    return single if isinstance(single, str) and single else None
+
+
 def check(sheet: dict, access) -> list[Violation]:
     v: list[Violation] = []
 
@@ -29,15 +42,20 @@ def check(sheet: dict, access) -> list[Violation]:
     ident = sheet.get("identity", {}) or {}
     if not isinstance(ident, dict):
         ident = {}
-    variant_name = ident.get("species_variant")
-    if variant_name and isinstance(variant_name, str):
-        spid = access.resolve("species", ident.get("species"))
-        if spid:
-            for row in resistance_rows:
-                if row["variant_axis"]:
-                    dmg = q.variant_damage_type(access, spid, row["variant_axis"], variant_name)
-                    if dmg:
-                        expected_resistances.add(dmg)
+    # A variant-axis resistance is resolved to the option chosen on THAT axis. A species may offer
+    # more than one independent variant axis, so each axis takes its own pick from
+    # identity.species_variants (falling back to the single-axis identity.species_variant).
+    spid = access.resolve("species", ident.get("species"))
+    if spid:
+        for row in resistance_rows:
+            axis = row["variant_axis"]
+            if not axis:
+                continue
+            pick = _variant_pick_for_axis(ident, axis)
+            if pick:
+                dmg = q.variant_damage_type(access, spid, axis, pick)
+                if dmg:
+                    expected_resistances.add(dmg)
 
     condition_rows = q.gather_owner_grants(access, sheet, q.condition_grants)
     condition_rows.extend(
