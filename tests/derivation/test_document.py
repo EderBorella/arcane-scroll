@@ -247,6 +247,27 @@ def test_assembled_items_get_unique_ids(gen_access):
     assert inv["backpack"][1]["quantity"] == 3
 
 
+def test_item_ids_match_corpus_positional_form(gen_access):
+    # Sheet ids are positional (F05-T102): item-<slot> for an equipped item, item-backpack-<i> for a
+    # backpack entry — matching the gold corpus form, not a global running counter or a catalog id.
+    choices = _equipped_choices()
+    core = derive_document(choices, gen_access)["core"]
+    inv = assemble_inventory(choices, core, gen_access)
+    assert inv["equipped"]["main_hand"]["id"] == "item-main_hand"
+    assert [i["id"] for i in inv["backpack"]] == ["item-backpack-0", "item-backpack-1"]
+
+
+def test_generator_equipment_ids_do_not_leak_catalog_id(gen_access):
+    # apply_equipment carries the catalog id as a merge key; the assembled SHEET id must still be the
+    # positional form, never the catalog id that leaked through before F05-T102.
+    choices = _noncaster_choices()
+    choices["equipment"] = {"equipped": {"main_hand": {"id": "weapon-a", "name": "Weapon A"}},
+                            "backpack": [{"id": "gear-a", "name": "Weapon A"}]}
+    inv = assemble_inventory(choices, derive_document(choices, gen_access)["core"], gen_access)
+    assert inv["equipped"]["main_hand"]["id"] == "item-main_hand"
+    assert inv["backpack"][0]["id"] == "item-backpack-0"
+
+
 def test_equipped_document_all_schemas_pass(gen_access, access):
     document = derive_document(_equipped_choices(), gen_access)
     assert validate_core(document["core"], access)["legal"] is True

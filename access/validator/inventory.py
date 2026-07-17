@@ -14,6 +14,51 @@ def item_exists(access: ValidatorAccess, name: str) -> bool:
             access.resolve("magic_item", name) is not None)
 
 
+def item_is_magic(access: ValidatorAccess, name: str) -> bool:
+    """True if a name resolves to a magic_item. A magic item's slot and combat facts derive from the
+    magic item itself, not a mundane base row, so the slot-grounding / enrichment re-derivation skips
+    it. Pure name resolution."""
+    return access.resolve("magic_item", name) is not None
+
+
+def catalog_kind(access: ValidatorAccess, item_id: str) -> str | None:
+    """The catalog ``kind`` of an item (``weapon`` / ``armor`` / ``gear`` / …), or None for an
+    unknown id. Pure DB read — the slot/enrichment rule stays with the consuming check."""
+    return access.db.scalar("SELECT kind FROM catalog_item WHERE id=?", item_id)
+
+
+def armor_facts(access: ValidatorAccess, item_id: str) -> dict | None:
+    """An armour item's defensive facts (category, base AC, Dex cap, shield AC bonus, Strength
+    requirement), or None when the id has no ``armor`` row. Pure DB reads — the consuming check owns
+    the wear/hold slot rule and the fact comparison. Mirrors the generator-side reader so the
+    validator re-derives the same DB facts through its OWN access surface (no cross-consumer import)."""
+    row = access.db.one(
+        "SELECT category_id, base_ac, dex_cap, ac_bonus, strength_req FROM armor WHERE id=?",
+        item_id)
+    if row is None:
+        return None
+    return {"category_id": row["category_id"], "base_ac": row["base_ac"],
+            "dex_cap": row["dex_cap"], "ac_bonus": row["ac_bonus"],
+            "strength_req": row["strength_req"]}
+
+
+def weapon_damage_facts(access: ValidatorAccess, item_id: str) -> dict | None:
+    """A weapon's base damage facts (dice as an ``NdM`` string, damage-type id, mastery id) plus its
+    weapon-property id set, or None when the id is not a weapon. Pure DB reads — the dice string is
+    formatted here from the dice-triple, but no rule math (crit, ability mod) is applied."""
+    row = access.db.one(
+        "SELECT dmg_dice_count, dmg_die_faces, damage_type_id, mastery_id FROM weapon WHERE id=?",
+        item_id)
+    if row is None:
+        return None
+    dc, df = row["dmg_dice_count"], row["dmg_die_faces"]
+    dice = f"{dc}d{df}" if dc and df else None
+    props = {r["property_id"] for r in access.db.q(
+        "SELECT property_id FROM weapon_property_map WHERE weapon_id=?", item_id)}
+    return {"damage_dice": dice, "damage_type_id": row["damage_type_id"],
+            "mastery_id": row["mastery_id"], "properties": props}
+
+
 def item_is_two_handed(access: ValidatorAccess, catalog_item_id: str) -> bool:
     """True if a weapon has the 'two-handed' property in weapon_property_map."""
     return access.db.one(
