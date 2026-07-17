@@ -647,8 +647,11 @@ def _resource_budgets(access, choices: Choices, total_level: int, abilities: dic
       that carry a count column (a pool OF dice) are covered here via that count; a pure die size or a
       flat bonus is a magnitude, not a use count, and the loaded ruleset defines no "number of uses"
       for it, so it is intentionally not emitted.
-    * the **``grant_resource`` use-pool spine** — a species- or lineage-owned use pool whose maximum
-      is a fixed count, the proficiency bonus, or an ability modifier (see ``_grant_resource_max``).
+    * the **``grant_resource`` use-pool spine** — a species-, lineage-, feat-, or subclass-owned use
+      pool whose maximum is a fixed count, the proficiency bonus, or an ability modifier (see
+      ``_grant_resource_max``). Species/lineage/feat pools are always-on; a subclass pool gates on
+      that class's level (not the character's total level), so a high-level subclass grant does not
+      leak into a low-subclass-level multiclass build.
 
     Keyed by the resource's display name; on a name collision the larger maximum wins."""
     out: dict[str, dict] = {}
@@ -663,6 +666,7 @@ def _resource_budgets(access, choices: Choices, total_level: int, abilities: dic
             if count is not None:
                 put(res["name"], count)
 
+    subclass_levels: list[tuple[str, int]] = []
     for c in _classes(choices):
         level = int(c.get("level", 0))
         cid = c.get("class")
@@ -671,10 +675,11 @@ def _resource_budgets(access, choices: Choices, total_level: int, abilities: dic
         sub_id = c.get("subclass")
         if sub_id:
             add_ladder("subclass", sub_id, level)
+            subclass_levels.append((sub_id, level))
 
-    # species / lineage grant_resource use-pools. The maximum for a proficiency-bonus or
-    # ability-modifier pool needs the character's proficiency bonus and ability modifiers, so those
-    # are computed here from the already-derived total level and abilities.
+    # grant_resource use-pools. The maximum for a proficiency-bonus or ability-modifier pool needs the
+    # character's proficiency bonus and ability modifiers, so those are computed here from the
+    # already-derived total level and abilities.
     proficiency_bonus = _proficiency_bonus(total_level)
     ability_mods: dict[str, int] = {}
     for aid, abbrev in key_of.items():
@@ -682,18 +687,35 @@ def _resource_budgets(access, choices: Choices, total_level: int, abilities: dic
         if isinstance(entry, dict) and isinstance(entry.get("final"), int):
             ability_mods[aid] = (entry["final"] - 10) // 2
 
-    def add_grants(owner_kind: str, owner_id: str) -> None:
-        for res in resources_q.grant_resources(access, owner_kind, owner_id, at_level=total_level):
+    def add_grants(owner_kind: str, owner_id: str, at_level: int) -> None:
+        for res in resources_q.grant_resources(access, owner_kind, owner_id, at_level=at_level):
             value = _grant_resource_max(res, proficiency_bonus, ability_mods)
             if value is not None:
                 put(res["name"], value)
 
+    # Species / lineage pools are always-on, gated on total level.
     species_id = choices.get("species")
     if species_id:
-        add_grants("species", species_id)
+        add_grants("species", species_id, total_level)
     lineage_id = choices.get("lineage")
     if lineage_id:
-        add_grants("lineage", lineage_id)
+        add_grants("lineage", lineage_id, total_level)
+
+    # A subclass pool gates on THAT class's level (like the count ladder), NOT the character's total
+    # level, so a high-level subclass grant does not leak into a low-subclass-level multiclass build.
+    for sub_id, level in subclass_levels:
+        add_grants("subclass", sub_id, level)
+
+    # Feat pools are always-on (a NULL gained_at_level always applies): the build's chosen feats plus
+    # the background's origin feat.
+    for f in choices.get("feats") or []:
+        fid = f.get("feat") if isinstance(f, dict) else f
+        if fid:
+            add_grants("feat", fid, total_level)
+    bg_id = choices.get("background")
+    origin = bg_q.background_origin_feat(access, bg_id) if bg_id else None
+    if origin:
+        add_grants("feat", origin[0], total_level)
 
     return out
 

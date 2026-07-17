@@ -23,6 +23,10 @@ NON_OVERWRITABLE = frozenset({
     "xp",
     "treasure.*",
     "hit_points.current", "hit_points.temp",
+    # A live variable-drain magnitude and a self-transform's temporary form-HP pool are live-play
+    # amounts, not static-derivable facts (T112 / T108), so a gap-fill re-derive must preserve a
+    # supplied value rather than clobber it with the static build's 0/absent derivation (T117).
+    "hit_points.max_reduction", "hit_points.form_temp_pool",
     "death_saves.*",
     "hit_dice.*.remaining",
     "spell_slots.*.remaining", "pact_slots.*.remaining",

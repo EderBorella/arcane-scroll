@@ -764,7 +764,10 @@ def test_deriver_does_not_import_validator_senses_or_speed_resolver():
 
     tree = ast.parse(inspect.getsource(modmod))
     banned_modules = {"validator.checks.movement", "validator.checks.senses"}
-    banned_names = {"_resolve_speeds", "_gather_owner_grants", "_gather_class_bonuses"}
+    # The validator's rule-bearing resolvers — importing either would make the movement/senses checks
+    # agree with the deriver by construction (F05-T78/T96). The grant-gather walkers are legitimately
+    # shared access helpers post-T96, so they are NOT banned; the resolver names are what must stay out.
+    banned_names = {"_resolve_speeds", "_resolve_senses"}
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             assert node.module not in banned_modules, (
