@@ -108,6 +108,24 @@ def masterable_weapon_ids(access: ValidatorAccess) -> set[str]:
     return names
 
 
+def masterable_weapon_count(access: ValidatorAccess) -> int:
+    """How many distinct weapons carry a mastery property -- the size of the masterable-weapon pool,
+    the ceiling on how many distinct weapons a build can be entitled to. Pure DB read."""
+    return access.db.scalar("SELECT COUNT(*) FROM weapon WHERE mastery_id IS NOT NULL") or 0
+
+
+def weapon_mastery_count(access: ValidatorAccess, class_id: str, level: int) -> int:
+    """The number of weapon-mastery weapon choices a class confers by ``level`` -- the count at the
+    highest step at or below ``level`` on the class's weapon-mastery resource ladder (flat for some
+    classes, scaling for others, so the step is read from the ruleset, never assumed). Returns 0 when
+    the class confers no weapon-mastery resource. Pure DB read, re-derived independently of the
+    generator's equivalent reader."""
+    return access.db.scalar(
+        "SELECT l.count FROM class_resource_level l JOIN class_resource r ON r.id=l.resource_id "
+        "WHERE r.owner_kind='class' AND r.owner_id=? AND r.name='Weapon Mastery' AND l.level<=? "
+        "ORDER BY l.level DESC LIMIT 1", class_id, level) or 0
+
+
 def expertise_grants(access: ValidatorAccess, owner_kind: str, owner_id: str, at_level: int) -> list[dict]:
     """grant_expertise rows for an owner gained at or below `at_level`, each as
     {choose_n, mode, skill_id, values} where `values` is the resolved grant_expertise_value pool
