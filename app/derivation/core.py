@@ -595,33 +595,87 @@ def _permanent_speed(access, choices: Choices, partial: dict) -> dict:
     return _derive_speeds(grants, _base_walk(access, choices), bonuses)
 
 
-def _resource_budgets(access, choices: Choices) -> dict:
-    """Per-resource maximums from the class-resource ladder.
+def _grant_resource_max(res: dict, proficiency_bonus: int, ability_mods: dict) -> int | None:
+    """The maximum uses a ``grant_resource`` use-pool confers, re-derived from the rule its
+    ``uses_kind`` names (deriver-owned; the validator computes the same maximum independently):
 
-    For each class (and its subclass) the build takes, every resource with a COUNT ladder — a
-    whole-number use pool (a per-rest use count), as opposed to a die or a flat bonus — contributes
-    its maximum at that class's level, keyed by the resource's display name.
-    On a name collision across a multiclass the larger maximum wins. Dice/bonus resources and
-    formula-based feature uses are not on this ladder and are intentionally not emitted here."""
+    * ``int`` — a fixed number of uses (``uses_num``), e.g. a once-per-long-rest species trait.
+    * ``proficiency_bonus`` — a number of uses equal to the proficiency bonus (a lineage ancestry
+      benefit usable "a number of times equal to your Proficiency Bonus").
+    * ``ability_modifier`` — a number of uses equal to an ability modifier, minimum one.
+
+    Any other kind yields None (not materialised)."""
+    kind = res.get("uses_kind")
+    if kind == "int":
+        n = res.get("uses_num")
+        return n if isinstance(n, int) else None
+    if kind == "proficiency_bonus":
+        return proficiency_bonus
+    if kind == "ability_modifier":
+        mod = ability_mods.get(res.get("uses_ability_id"), 0)
+        return max(1, mod)
+    return None
+
+
+def _resource_budgets(access, choices: Choices, total_level: int, abilities: dict,
+                      key_of: dict) -> dict:
+    """Per-resource maximums a build carries.
+
+    Two sources feed this block:
+
+    * the **class-resource COUNT ladder** — for each class (and its subclass), every resource with a
+      whole-number use-count ladder contributes its maximum at that class's level. Dice-pool resources
+      that carry a count column (a pool OF dice) are covered here via that count; a pure die size or a
+      flat bonus is a magnitude, not a use count, and the loaded ruleset defines no "number of uses"
+      for it, so it is intentionally not emitted.
+    * the **``grant_resource`` use-pool spine** — a species- or lineage-owned use pool whose maximum
+      is a fixed count, the proficiency bonus, or an ability modifier (see ``_grant_resource_max``).
+
+    Keyed by the resource's display name; on a name collision the larger maximum wins."""
     out: dict[str, dict] = {}
 
-    def add(owner_kind: str, owner_id: str, level: int) -> None:
+    def put(name: str, value: int) -> None:
+        prev = out.get(name, {}).get("max")
+        out[name] = {"max": value if prev is None else max(prev, value)}
+
+    def add_ladder(owner_kind: str, owner_id: str, level: int) -> None:
         for res in resources_q.count_class_resources(access, owner_kind, owner_id):
             count = resources_q.resource_count_at(access, res["id"], level)
-            if count is None:
-                continue
-            name = res["name"]
-            prev = out.get(name, {}).get("max")
-            out[name] = {"max": count if prev is None else max(prev, count)}
+            if count is not None:
+                put(res["name"], count)
 
     for c in _classes(choices):
         level = int(c.get("level", 0))
         cid = c.get("class")
         if cid:
-            add("class", cid, level)
+            add_ladder("class", cid, level)
         sub_id = c.get("subclass")
         if sub_id:
-            add("subclass", sub_id, level)
+            add_ladder("subclass", sub_id, level)
+
+    # species / lineage grant_resource use-pools. The maximum for a proficiency-bonus or
+    # ability-modifier pool needs the character's proficiency bonus and ability modifiers, so those
+    # are computed here from the already-derived total level and abilities.
+    proficiency_bonus = _proficiency_bonus(total_level)
+    ability_mods: dict[str, int] = {}
+    for aid, abbrev in key_of.items():
+        entry = abilities.get(abbrev)
+        if isinstance(entry, dict) and isinstance(entry.get("final"), int):
+            ability_mods[aid] = (entry["final"] - 10) // 2
+
+    def add_grants(owner_kind: str, owner_id: str) -> None:
+        for res in resources_q.grant_resources(access, owner_kind, owner_id, at_level=total_level):
+            value = _grant_resource_max(res, proficiency_bonus, ability_mods)
+            if value is not None:
+                put(res["name"], value)
+
+    species_id = choices.get("species")
+    if species_id:
+        add_grants("species", species_id)
+    lineage_id = choices.get("lineage")
+    if lineage_id:
+        add_grants("lineage", lineage_id)
+
     return out
 
 
@@ -710,7 +764,7 @@ def derive_core(choices: Choices, access) -> dict:
     }
     # Per-resource maximums from the class-resource ladder — emitted only when the build has at least
     # one count-ladder resource, matching the corpus (an optional, absent-when-empty block).
-    resource_budgets = _resource_budgets(access, choices)
+    resource_budgets = _resource_budgets(access, choices, total_level, abilities, key_of)
     if resource_budgets:
         sheet["resource_budgets"] = resource_budgets
     return sheet

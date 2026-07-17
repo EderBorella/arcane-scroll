@@ -320,6 +320,34 @@ def test_lineage_build_is_legal(gen_access, access):
     assert report["complete"] is True, report["violations"]
 
 
+# ------------------------------------------------------------ species/lineage grant_resource (T101/T98)
+
+def test_species_lineage_grant_resources_materialised(gen_access):
+    # a level-3 lineage build (PB 2; a1 final 17 -> modifier 3) carries the three grant_resource
+    # use-pools with maxima re-derived from each uses_kind:
+    #   int -> 1, ability_modifier(a1) -> 3, proficiency_bonus -> 2.
+    budgets = derive_core(_lineage_choices(), gen_access)["resource_budgets"]
+    assert budgets["Species L Boon"] == {"max": 1}
+    assert budgets["Species L Focus"] == {"max": 3}
+    assert budgets["Lineage L Power"] == {"max": 2}
+
+
+def test_grant_resource_budgets_pass_validate_core(gen_access, access):
+    # the resources check independently re-derives the same three maxima and agrees.
+    report = validate_core(derive_core(_lineage_choices(), gen_access), access)
+    assert report["legal"] is True, report["violations"]
+    assert report["complete"] is True, report["violations"]
+
+
+def test_grant_resource_max_wrong_is_flagged(gen_access, access):
+    # a proficiency-bonus pool declared with the wrong maximum must be caught (independence proof).
+    bad = derive_core(_lineage_choices(), gen_access)
+    bad["resource_budgets"]["Lineage L Power"] = {"max": 5}
+    report = validate_core(bad, access)
+    assert report["legal"] is False
+    assert any("Lineage L Power" in v["message"] for v in report["violations"])
+
+
 def test_variant_resistance_lands(gen_access):
     sheet = derive_core(_variant_choices(), gen_access)
     assert sheet["identity"]["species_variant"] == "Variant A"

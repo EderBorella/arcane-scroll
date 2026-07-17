@@ -1242,6 +1242,17 @@ def _build_rules_db(path: str) -> None:
                 "uses_ability_id TEXT)")
     cur.execute("INSERT INTO grant_resource VALUES ('gr-a1','class','class-a',NULL,NULL,'Class Resource A',"
                 "'per_long_rest',2,NULL)")
+    # species/lineage grant_resource use-pools -- one of each uses_kind, so the CORE deriver and the
+    # resources check each independently re-derive the maximum (F05-T101/T98):
+    #   int              -> a fixed count (uses_num)                     : 'Species L Boon'  max 1
+    #   ability_modifier -> the named ability modifier, minimum one      : 'Species L Focus' max = mod(a1)
+    #   proficiency_bonus-> a number of uses equal to the proficiency bonus: 'Lineage L Power' max = PB
+    cur.execute("INSERT INTO grant_resource VALUES ('gr-species-l-int','species','species-l',NULL,NULL,"
+                "'Species L Boon','int',1,NULL)")
+    cur.execute("INSERT INTO grant_resource VALUES ('gr-species-l-mod','species','species-l',NULL,NULL,"
+                "'Species L Focus','ability_modifier',NULL,'a1')")
+    cur.execute("INSERT INTO grant_resource VALUES ('gr-lin-l1-pb','lineage','lin-l1',1,NULL,"
+                "'Lineage L Power','proficiency_bonus',NULL,NULL)")
 
     # B9: state dimension table + state_compatibility junction table
     cur.execute("CREATE TABLE state (id TEXT PRIMARY KEY, name TEXT)")
