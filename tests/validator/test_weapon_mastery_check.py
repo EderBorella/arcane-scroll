@@ -162,3 +162,17 @@ def test_no_entitlement_not_flagged_when_empty(access):
         "weapon_masteries": [],
     }
     assert check(s, access) == []
+
+
+def test_unresolved_class_suspends_entitlement(access):
+    """A mastery-bearing sheet whose class does not resolve yields an `internal` finding
+    (entitlement not derivable), NOT a spurious `mastery-not-entitled` illegal."""
+    s = {
+        "identity": {"species": "Species A",
+                     "classes": [{"class": "no-such-class", "level": 5}]},
+        "features": [],
+        "weapon_masteries": ["weapon-a"],
+    }
+    codes = _codes(s, access)
+    assert "class-unresolved" in codes
+    assert "mastery-not-entitled" not in codes

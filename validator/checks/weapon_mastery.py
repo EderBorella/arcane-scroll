@@ -63,6 +63,22 @@ def _resolved_class_levels(sheet: dict, access) -> list[tuple[str, int]]:
     return out
 
 
+def _unresolved_classes(sheet: dict, access) -> bool:
+    """True if any class entry carries a class value that does not resolve -- the entitlement can't
+    then be derived, so the entitlement assertion is suspended (an ``internal`` finding) rather than
+    yielding a spurious ``illegal`` (mirrors the resilient owner-kind handling in the resources check)."""
+    ident = sheet.get("identity")
+    if not isinstance(ident, dict):
+        return False
+    classes = ident.get("classes")
+    if not isinstance(classes, list):
+        return False
+    for c in classes:
+        if isinstance(c, dict) and c.get("class") and access.resolve("class", c.get("class")) is None:
+            return True
+    return False
+
+
 def _expected_mastery_count(sheet: dict, access) -> int:
     """The weapon-mastery allowance the build's classes confer -- the SUM of each class's count at its
     OWN level (the counts stack across classes; see the module docstring), capped at the
@@ -87,6 +103,14 @@ def check(sheet: dict, access) -> list[Violation]:
     # A build whose classes confer no weapon-mastery allowance may not carry any
     # masteries -- flagged whether or not a Weapon Mastery feature dict is present.
     if has_masteries and expected == 0:
+        # A zero entitlement caused by an unresolvable class is a data-integrity problem, not a
+        # genuine "no entitlement" -- surface it as internal and suspend, don't false-flag illegal.
+        if _unresolved_classes(sheet, access):
+            v.append(Violation(
+                DOMAIN, "class-unresolved", "internal",
+                "a class entry did not resolve; weapon-mastery entitlement not derivable",
+                "identity.classes"))
+            return v
         v.append(Violation(
             DOMAIN, "mastery-not-entitled", "illegal",
             "weapon_masteries present but no class confers a weapon-mastery entitlement",
