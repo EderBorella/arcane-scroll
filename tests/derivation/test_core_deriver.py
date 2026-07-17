@@ -205,6 +205,37 @@ def test_class_detail_omitted_when_absent(core_sheet):
     assert "class_detail" not in core_sheet["identity"]["classes"][0]
 
 
+# --------------------------------------------------------------------------- class_detail proficiencies (T97)
+
+def _order_choices():
+    """A build that picks an order-style class detail (do-order-a) conferring heavy armour + a martial
+    weapon tier on top of class-a's own light/medium armour + simple weapons."""
+    choices = _choices()
+    choices["classes"] = [{"class": "class-a", "level": 3, "subclass": "sub-a",
+                           "class_detail": "do-order-a"}]
+    return choices
+
+
+def test_class_detail_proficiencies_materialised(gen_access):
+    # the class-detail choice's fixed grants land in the derived proficiency sets.
+    sheet = derive_core(_order_choices(), gen_access)
+    assert "heavy armor" in sheet["proficiencies"]["armor"]
+    assert "martial weapons" in sheet["proficiencies"]["weapons"]
+
+
+def test_class_detail_proficiencies_absent_without_choice(core_sheet):
+    # no order chosen -> the heavier grants are not conferred.
+    assert "heavy armor" not in core_sheet["proficiencies"]["armor"]
+    assert "martial weapons" not in core_sheet["proficiencies"]["weapons"]
+
+
+def test_class_detail_proficiency_build_is_legal(gen_access, access):
+    # the equip check independently re-derives the class-detail grants, so the build validates.
+    report = validate_core(derive_core(_order_choices(), gen_access), access)
+    assert report["legal"] is True, report["violations"]
+    assert report["complete"] is True, report["violations"]
+
+
 # --------------------------------------------------------------------------- RED: malformed CORE
 
 def test_ungranted_proficiency_is_flagged_illegal(core_sheet, access):

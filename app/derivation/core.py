@@ -399,6 +399,16 @@ def _proficiencies(access, choices: Choices) -> dict:
         sub_id = c.get("subclass")
         if sub_id:
             merge(*_fixed_equip_grants(access, "subclass", sub_id, at_level=level))
+        # A class-detail / subclass-detail choice (an order-style sub-choice) can confer heavier
+        # armour and a broader weapon tier — materialise those exactly like any other fixed grant.
+        # Both a class-owned and a subclass-owned detail option carry their grants under owner_kind
+        # ``class_detail`` on the grant spine; the choice supplies the detail option's id.
+        detail_id = c.get("class_detail")
+        if detail_id:
+            merge(*_fixed_equip_grants(access, "class_detail", detail_id, at_level=level))
+        sub_detail_id = c.get("subclass_detail")
+        if sub_detail_id:
+            merge(*_fixed_equip_grants(access, "class_detail", sub_detail_id, at_level=level))
 
     for f in choices.get("feats") or []:
         fid = f.get("feat") if isinstance(f, dict) else f

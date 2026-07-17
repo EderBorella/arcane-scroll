@@ -483,6 +483,15 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO grant_proficiency (id,owner_kind,owner_id,gained_at_level,target_kind,mode,from_any,choose_n,multiclass_only) VALUES ('gpr-classb-weapon','class','class-b',NULL,'weapon_tier','fixed',0,NULL,1)")
     cur.execute("INSERT INTO grant_proficiency_value VALUES ('gpr-classb-weapon','martial')")
 
+    # class-detail 'do-order-a' (an order-style class sub-choice on class-a; detail_option row added in
+    # the features section) confers heavier armour (heavy-armor) and a broader weapon tier (martial) --
+    # a fixed grant owned by owner_kind='class_detail'. Exercises the deriver materialising, and the
+    # equip check independently re-deriving, class-detail-sourced armour/weapon proficiencies (F05-T97).
+    cur.execute("INSERT INTO grant_proficiency (id,owner_kind,owner_id,gained_at_level,target_kind,mode,from_any,choose_n,multiclass_only) VALUES ('gpr-order-a-armor','class_detail','do-order-a',1,'armor_category','fixed',0,NULL,0)")
+    cur.execute("INSERT INTO grant_proficiency_value VALUES ('gpr-order-a-armor','heavy-armor')")
+    cur.execute("INSERT INTO grant_proficiency (id,owner_kind,owner_id,gained_at_level,target_kind,mode,from_any,choose_n,multiclass_only) VALUES ('gpr-order-a-weapon','class_detail','do-order-a',1,'weapon_tier','fixed',0,NULL,0)")
+    cur.execute("INSERT INTO grant_proficiency_value VALUES ('gpr-order-a-weapon','martial')")
+
     # feats domain: feat catalog, prerequisite rows, ASI/Epic-Boon slot spine (class_feature), and
     # the origin-feat grant spine (grant_feat)
     cur.execute("CREATE TABLE feat (id TEXT PRIMARY KEY, name TEXT, category TEXT, repeatable INT)")
@@ -1080,6 +1089,11 @@ def _build_rules_db(path: str) -> None:
 
     cur.execute("INSERT INTO detail_option VALUES ('do-sch-a','class','class-a','school','School A',NULL)")
     cur.execute("INSERT INTO detail_option VALUES ('do-sch-b','class','class-a','school','School B',NULL)")
+
+    # do-order-a: an order-style class sub-choice on class-a whose grant_proficiency rows (added in the
+    # proficiencies section) confer heavy armour + a martial weapon tier -- the class-detail proficiency
+    # source the CORE deriver materialises and the equip check re-derives (F05-T97).
+    cur.execute("INSERT INTO detail_option VALUES ('do-order-a','class','class-a','order','Order A',NULL)")
 
     # weapon mastery domain: catalog_item, weapon, mastery_property tables
     cur.execute("CREATE TABLE IF NOT EXISTS mastery_property (id TEXT PRIMARY KEY, name TEXT)")
