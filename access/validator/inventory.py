@@ -143,6 +143,22 @@ def extra_damage_grants(access: ValidatorAccess, owner_kind: str, owner_id: str)
         owner_kind, owner_id)
 
 
+def starting_equipment_bundle_exists(access: ValidatorAccess, option_id: str) -> bool:
+    """True if a starting-equipment bundle id resolves to a ``start_equipment_option`` row. Pure DB
+    read — the consuming check decides what to do when a recorded bundle id is unknown."""
+    return access.db.one(
+        "SELECT 1 FROM start_equipment_option WHERE id=?", option_id) is not None
+
+
+def starting_equipment_gp_grants(access: ValidatorAccess, option_id: str) -> list[int]:
+    """The gp amounts of a starting-equipment bundle's coin entries, one per ``start_equipment_entry``
+    row with ``kind='gp'`` (NULLs coerced to 0). Pure DB read — the consuming check owns summing them
+    and comparing the total to the sheet's coin gp."""
+    rows = access.db.q(
+        "SELECT gp_amount FROM start_equipment_entry WHERE option_id=? AND kind='gp'", option_id)
+    return [(r["gp_amount"] or 0) for r in rows]
+
+
 def template_valid(access: ValidatorAccess, template_name: str,
                    base_item_name: str | None) -> str | None:
     """Check template validity. Returns None if valid, or an error string if invalid."""

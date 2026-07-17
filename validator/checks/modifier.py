@@ -1394,6 +1394,37 @@ def _check_prepared_spells(sheet: dict, access, v: list[Violation]) -> None:
                                "prepared_spells"))
 
 
+# ── starting treasure (re-derived from the chosen equipment bundle) ───────────
+
+
+def _check_starting_treasure(sheet: dict, access, v: list[Violation]) -> None:
+    """When the MODIFIER records the chosen starting-equipment bundle id, independently re-derive the
+    starting treasure from that bundle's gp grants in the DB and assert the sheet's coin gp matches.
+    Grounded in the reference DB, never the deriver: the expected gp is the sum of the bundle's
+    ``kind='gp'`` entries.
+
+    Dormant when no bundle id is recorded (the field is optional; a sheet that omits it is not checked
+    here). A recorded id that does not resolve to a bundle is skipped — there is nothing to re-derive
+    against (F05-T119, in-layer half)."""
+    mod = sheet.get("modifier", {}) or {}
+    option_id = mod.get("start_equipment_option")
+    if not isinstance(option_id, str) or not option_id:
+        return
+    if not inventory_q.starting_equipment_bundle_exists(access, option_id):
+        return
+    treasure = mod.get("treasure", {}) or {}
+    if not isinstance(treasure, dict):
+        return
+    actual_gp = treasure.get("gp", 0)
+    if not _int(actual_gp):
+        return
+    expected_gp = sum(inventory_q.starting_equipment_gp_grants(access, option_id))
+    if actual_gp != expected_gp:
+        v.append(Violation(DOMAIN, "starting-treasure-mismatch", "illegal",
+                           f"treasure gp {actual_gp} != re-derived starting gp {expected_gp} for "
+                           f"bundle {option_id!r}", "treasure.gp"))
+
+
 # ── state compatibility ──────────────────────────────────────────────────────
 
 
@@ -1698,5 +1729,6 @@ def check(sheet: dict, access) -> list[Violation]:
     _check_feats(sheet, v)
     _check_prepared_spells(sheet, access, v)
     _check_states(sheet, access, v)
+    _check_starting_treasure(sheet, access, v)
 
     return v
