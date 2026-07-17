@@ -7,9 +7,11 @@ _WM_FEATURE = [{"name": "Weapon Mastery", "source": "Class A 1"}]
 
 def _sheet(masteries=None, features=None):
     """Build a sheet. ``masteries`` populates the top-level weapon_masteries field
-    (omitted entirely when None). ``features`` defaults to a Weapon Mastery feature."""
+    (omitted entirely when None). ``features`` defaults to a Weapon Mastery feature.
+    The default class (class-wm at level 1) confers an allowance of 2, so WHICH-picks
+    tests that carry two entries are not perturbed by the count or entitlement checks."""
     s = {
-        "identity": {"species": "Species A", "classes": [{"class": "Class A", "level": 3}]},
+        "identity": {"species": "Species A", "classes": [{"class": "class-wm", "level": 1}]},
         "features": _WM_FEATURE if features is None else features,
     }
     if masteries is not None:
@@ -48,9 +50,14 @@ def test_no_weapon_mastery_feature_ignored(access):
     assert check(s, access) == []
 
 
-def test_field_ignored_without_feature(access):
-    # weapon_masteries populated but no Weapon Mastery feature -> not this check's concern
-    s = _sheet(masteries=["fakename"], features=[{"name": "Spellcasting"}])
+def test_field_ignored_without_feature_when_entitled(access):
+    # weapon_masteries populated and a class DOES confer an entitlement, but no Weapon Mastery
+    # feature dict is present -> which/count validation is feature-gated, so nothing flags here.
+    s = {
+        "identity": {"species": "Species A", "classes": [{"class": "class-wm", "level": 1}]},
+        "features": [{"name": "Spellcasting"}],
+        "weapon_masteries": ["fakename"],
+    }
     assert check(s, access) == []
 
 
@@ -59,7 +66,7 @@ def test_case_insensitive_names(access):
 
 
 def test_case_insensitive_feature_name(access):
-    s = _sheet(masteries=["weapon-a"], features=[{"name": "weapon mastery"}])
+    s = _sheet(masteries=["weapon-a", "weapon-b"], features=[{"name": "weapon mastery"}])
     assert check(s, access) == []
 
 
@@ -123,7 +130,35 @@ def test_count_capped_at_masterable_pool(access):
                            ["weapon-a", "weapon-b", "weapon-c"]), access) == []
 
 
-def test_count_skipped_when_no_class_confers_a_count(access):
-    # class-a confers no weapon-mastery resource: there is no allowance to derive, so the count check
-    # is skipped even though the feature is present (WHICH-picks validation still applies).
-    assert "mastery-count-mismatch" not in _codes(_wm_sheet([("class-a", 3)], ["weapon-a"]), access)
+def test_no_entitlement_flags_with_feature(access):
+    # class-a confers no weapon-mastery count: there is no allowance, so carrying masteries is an
+    # illegal no-entitlement finding (not a count mismatch), even though the feature is present.
+    vs = check(_wm_sheet([("class-a", 3)], ["weapon-a"]), access)
+    codes = {v.code for v in vs}
+    assert "mastery-not-entitled" in codes
+    assert "mastery-count-mismatch" not in codes
+    m = [v for v in vs if v.code == "mastery-not-entitled"]
+    assert m[0].kind == "illegal"
+
+
+def test_no_entitlement_flags_without_feature(access):
+    # a build with no weapon-mastery-granting class and no Weapon Mastery feature may not carry
+    # weapon_masteries at all -- carrying them anyway is an illegal no-entitlement finding.
+    s = {
+        "identity": {"species": "Species A", "classes": [{"class": "class-a", "level": 3}]},
+        "features": [{"name": "Spellcasting"}],
+        "weapon_masteries": ["weapon-a", "weapon-b"],
+    }
+    vs = check(s, access)
+    m = [v for v in vs if v.code == "mastery-not-entitled"]
+    assert len(m) == 1 and m[0].kind == "illegal"
+
+
+def test_no_entitlement_not_flagged_when_empty(access):
+    # a no-entitlement build with an empty (or absent) weapon_masteries list is fine.
+    s = {
+        "identity": {"species": "Species A", "classes": [{"class": "class-a", "level": 3}]},
+        "features": [{"name": "Spellcasting"}],
+        "weapon_masteries": [],
+    }
+    assert check(s, access) == []
