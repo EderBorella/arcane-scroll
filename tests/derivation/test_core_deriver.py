@@ -169,10 +169,10 @@ def test_senses_and_speed_resolved_independently(core_sheet):
 
 def test_resource_budgets_from_count_ladder(core_sheet):
     # class-a has a COUNT-ladder resource ('Pool A': 2/3/4 at levels 1/3/5); at level 3 the
-    # budget maximum is 3. The BONUS-ladder resource ('Unarmored Movement') is NOT a budget entry.
+    # budget maximum is 3. The BONUS-ladder resource ('Bonus Speed') is NOT a budget entry.
     budgets = core_sheet["resource_budgets"]
     assert budgets["Pool A"] == {"max": 3}
-    assert "Unarmored Movement" not in budgets
+    assert "Bonus Speed" not in budgets
 
 
 def test_resource_budgets_pass_validate_core(core_sheet, access):
@@ -230,6 +230,64 @@ def test_subclass_grant_gated_on_class_level_no_multiclass_leak(gen_access):
     sheet = derive_core(choices, gen_access)
     budgets = sheet.get("resource_budgets", {})
     assert "Sub Res Power" not in budgets
+
+
+# ----------------------------------------- subclass-owned count-ladder budgets (epic R1)
+
+def test_resource_budgets_from_subclass_count_ladder(gen_access):
+    # a subclass-owned COUNT ladder ('Sub Ladder Pool': 2 from subclass level 3, 3 from level 6) is
+    # absent below its first ladder level and steps up at its breakpoint, gated on the class's level.
+    choices = _choices()
+    choices["classes"] = [{"class": "class-a", "level": 2, "subclass": "sub-ladder"}]
+    assert "Sub Ladder Pool" not in derive_core(choices, gen_access).get("resource_budgets", {})
+    choices["classes"] = [{"class": "class-a", "level": 3, "subclass": "sub-ladder"}]
+    assert derive_core(choices, gen_access)["resource_budgets"]["Sub Ladder Pool"] == {"max": 2}
+    choices["classes"] = [{"class": "class-a", "level": 6, "subclass": "sub-ladder"}]
+    assert derive_core(choices, gen_access)["resource_budgets"]["Sub Ladder Pool"] == {"max": 3}
+
+
+def test_subclass_count_ladder_gated_on_class_level_no_multiclass_leak(gen_access):
+    # a subclass count ladder gained at class level 3 must NOT leak into a multiclass build whose
+    # sub-ladder class is only level 2, even though the TOTAL level (2 + 5 = 7) is well past 3.
+    choices = _choices()
+    choices["classes"] = [
+        {"class": "class-a", "level": 2, "subclass": "sub-ladder"},
+        {"class": "class-b", "level": 5},
+    ]
+    budgets = derive_core(choices, gen_access).get("resource_budgets", {})
+    assert "Sub Ladder Pool" not in budgets
+
+
+# ----------------------------------------- class-owned grant_resource use-pool (epic R2)
+
+def test_resource_budgets_from_class_grant(gen_access):
+    # a class-owned ability-modifier grant_resource ('Class Res Focus', mod(a1) = 3) gained at that
+    # class's level 5 is absent below its first level and materialised from level 5 on.
+    choices = _choices()
+    choices["classes"] = [{"class": "class-a", "level": 4}]
+    assert "Class Res Focus" not in derive_core(choices, gen_access).get("resource_budgets", {})
+    choices["classes"] = [{"class": "class-a", "level": 5}]
+    assert derive_core(choices, gen_access)["resource_budgets"]["Class Res Focus"] == {"max": 3}
+
+
+def test_class_grant_gated_on_class_level_no_multiclass_leak(gen_access):
+    # a class grant gained at class level 5 must NOT leak into a multiclass build whose class-a level is
+    # only 4, even though the character's TOTAL level (4 + 5 = 9) is well past 5.
+    choices = _choices()
+    choices["classes"] = [
+        {"class": "class-a", "level": 4},
+        {"class": "class-b", "level": 5},
+    ]
+    budgets = derive_core(choices, gen_access).get("resource_budgets", {})
+    assert "Class Res Focus" not in budgets
+
+
+def test_class_grant_budget_passes_validate_core(gen_access, access):
+    # the deriver's class-grant maximum and the check's independent re-derivation agree.
+    choices = _choices()
+    choices["classes"] = [{"class": "class-a", "level": 5}]
+    report = validate_core(derive_core(choices, gen_access), access)
+    assert report["legal"] is True, report["violations"]
 
 
 # --------------------------------------------------------------------------- class_detail (T76)

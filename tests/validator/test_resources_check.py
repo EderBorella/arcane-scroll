@@ -29,9 +29,29 @@ def test_loose_plural_still_matches_ladder(access):
     assert check(_sheet({"Pool As": {"max": 3}}), access) == []
 
 
-def test_unmodelled_resource_is_ignored(access):
-    # a pool the class-resource ladder does not model is outside this check's remit — no finding.
-    assert check(_sheet({"Some Feature Use": {"max": 1}}), access) == []
+def test_orphan_budget_flagged(access):
+    # epic R5 / T122: a budget key that maps to NO resource this build owns (no count ladder, no
+    # die-only pool, no grant_resource across any owner) is flagged as an orphan, not silently
+    # accepted.
+    assert "resource-budget-orphan" in _codes(_sheet({"Some Feature Use": {"max": 1}}), access)
+
+
+def test_clean_owned_budget_no_orphan(access):
+    # a correctly-owned budget entry raises no orphan finding.
+    assert "resource-budget-orphan" not in _codes(_sheet({"Pool A": {"max": 3}}), access)
+
+
+def test_die_only_pool_not_orphan(access):
+    # a class_resource with no count ladder (a die/bonus pool) is OWNED — it has no queryable
+    # maximum, so it is neither orphan nor max-checked. 'Bonus Speed' is such a class-a pool.
+    assert _codes(_sheet({"Bonus Speed": {"max": 2}}), access) == set()
+
+
+def test_orphan_gated_name_not_flagged(access):
+    # a resource the build's owner confers but has not yet reached the level for is a known name, not
+    # an orphan — the level/max concern is the max-check's remit, not the orphan check's.
+    assert "resource-budget-orphan" not in _codes(
+        _esc_sheet(3, {"Pool Esc": {"max": 1}}), access)
 
 
 def test_absent_budgets_no_findings(access):
@@ -140,4 +160,70 @@ def test_subclass_grant_gated_on_class_level_no_multiclass_leak(access):
     sheet = _sheet({"Sub Res Power": {"max": 3}},
                    classes=[{"class": "Class A", "level": 2, "subclass": "Sub Res"},
                             {"class": "Class B", "level": 5, "subclass": None}])
+    assert "resource-max-wrong" not in _codes(sheet, access)
+
+
+# ----------------------------------------- subclass-owned count ladder (epic R1)
+
+def _sub_ladder_sheet(level, budgets):
+    return _sheet(budgets, classes=[{"class": "Class A", "level": level, "subclass": "Sub Ladder"}])
+
+
+def test_subclass_count_ladder_re_derived(access):
+    # sub-ladder's 'Sub Ladder Pool' count ladder is 2 at subclass level 3, 3 from level 6.
+    assert check(_sub_ladder_sheet(3, {"Sub Ladder Pool": {"max": 2}}), access) == []
+    assert check(_sub_ladder_sheet(6, {"Sub Ladder Pool": {"max": 3}}), access) == []
+
+
+def test_subclass_count_ladder_wrong_max_flagged(access):
+    assert "resource-max-wrong" in _codes(_sub_ladder_sheet(3, {"Sub Ladder Pool": {"max": 3}}), access)
+
+
+def test_subclass_count_ladder_absent_below_first_level(access):
+    # gained at subclass level 3; a level-2 build does not own it, so the entry is outside the remit.
+    assert check(_sub_ladder_sheet(2, {"Sub Ladder Pool": {"max": 2}}), access) == []
+
+
+def test_subclass_count_ladder_gated_on_class_level_no_multiclass_leak(access):
+    # the sub-ladder class is only level 2 (< 3), so the pool is NOT owned even though the total level
+    # (2 + 5) is past 3 — a wrong-max entry is outside the remit, not flagged on a leaked derivation.
+    sheet = _sheet({"Sub Ladder Pool": {"max": 3}},
+                   classes=[{"class": "Class A", "level": 2, "subclass": "Sub Ladder"},
+                            {"class": "Class B", "level": 5, "subclass": None}])
+    assert "resource-max-wrong" not in _codes(sheet, access)
+
+
+# ----------------------------------------- class-owned grant_resource use-pool (epic R2)
+
+def _class_grant_sheet(level, budgets):
+    """A class-a build (a1 final 17 -> modifier 3) whose class directly confers the 'Class Res Focus'
+    ability-modifier use-pool, gained at class level 5 (max = mod(a1) = 3, minimum one)."""
+    return {
+        "identity": {"classes": [{"class": "Class A", "level": level, "subclass": None}]},
+        "abilities": {"x1": {"final": 17}},
+        "resource_budgets": budgets,
+    }
+
+
+def test_class_grant_resource_re_derived(access):
+    # the class-owned ability-modifier pool is re-derived (mod(a1) = 3) for a level-5 build.
+    assert check(_class_grant_sheet(5, {"Class Res Focus": {"max": 3}}), access) == []
+
+
+def test_class_grant_resource_wrong_max_flagged(access):
+    assert "resource-max-wrong" in _codes(_class_grant_sheet(5, {"Class Res Focus": {"max": 4}}), access)
+
+
+def test_class_grant_resource_absent_below_first_level(access):
+    # gained at class level 5; a level-4 build does not own it, so the entry is outside the remit.
+    assert check(_class_grant_sheet(4, {"Class Res Focus": {"max": 3}}), access) == []
+
+
+def test_class_grant_gated_on_class_level_no_multiclass_leak(access):
+    # class-a is only level 4 (< 5), so the pool is NOT owned even though the total level (4 + 5) is
+    # past 5 — a wrong-max entry is outside the remit, not flagged on a leaked total-level derivation.
+    sheet = _sheet({"Class Res Focus": {"max": 3}},
+                   classes=[{"class": "Class A", "level": 4, "subclass": None},
+                            {"class": "Class B", "level": 5, "subclass": None}])
+    sheet["abilities"] = {"x1": {"final": 17}}
     assert "resource-max-wrong" not in _codes(sheet, access)

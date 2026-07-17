@@ -357,3 +357,50 @@ class TestDeriveGrimoire:
         g2 = derive_grimoire(core, g1, access)
         cantrips = [s for s in g2["spells"] if s.get("bucket") == "cantrip" and s.get("source") == "class:class-a"]
         assert len(cantrips) >= 1
+
+
+class TestSlotlessChoiceGrant:
+    """A class-owned once-per-rest spell chosen from a class list (the top-tier slotless grant).
+
+    The tier is re-derived from the grant's acquisition level (class-w: level 11 -> tier 6, rising a
+    tier every two levels), and the concrete spell is a deterministic lowest-catalog-id pick from the
+    widened list at that tier. The synthetic pact class 'class-w' models this pattern."""
+
+    def _wl_core(self, level):
+        core = _core_sheet()
+        core["identity"]["classes"] = [{"class": "Class W", "level": level, "subclass": None,
+                                        "subclass_detail": None, "class_detail": None}]
+        core["identity"]["total_level"] = level
+        core["identity"]["species"] = "Species A"
+        core["feats"] = []
+        return core
+
+    def _slotless(self, grimoire):
+        return [s for s in grimoire["spells"]
+                if s.get("source") == "class:class-w" and s.get("recovery") == "slotless_per_rest"]
+
+    def test_level_17_all_four_tiers(self, access):
+        g = derive_grimoire(self._wl_core(17), None, access)
+        entries = self._slotless(g)
+        assert sorted(s["level"] for s in entries) == [6, 7, 8, 9]
+        for s in entries:
+            assert s["bucket"] == "always"
+            assert s["recovery"] == "slotless_per_rest"
+            assert s["uses"]["max"] == 1
+            assert s["uses"]["recharge"] == "long-rest"
+
+    def test_canonical_lowest_id_pick(self, access):
+        g = derive_grimoire(self._wl_core(11), None, access)
+        entries = self._slotless(g)
+        assert len(entries) == 1
+        # two level-6 spells exist (Sp-w6a, Sp-w6b); the lowest catalog id wins
+        assert entries[0]["level"] == 6
+        assert entries[0]["name"] == "Sp-w6a"
+
+    def test_level_13_two_tiers(self, access):
+        g = derive_grimoire(self._wl_core(13), None, access)
+        assert sorted(s["level"] for s in self._slotless(g)) == [6, 7]
+
+    def test_below_first_unlock_none(self, access):
+        g = derive_grimoire(self._wl_core(10), None, access)
+        assert self._slotless(g) == []

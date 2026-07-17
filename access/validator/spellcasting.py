@@ -109,6 +109,54 @@ def granted_spell_ids(access: ValidatorAccess, owner_kind: str, owner_id: str) -
     return ids
 
 
+def spells_on_class_list_at_level(access: ValidatorAccess, class_id: str,
+                                  spell_level: int) -> list[str]:
+    """Spell ids on a class's list at a given spell level, ordered by catalog id (deterministic,
+    rebuild-stable)."""
+    return [row["spell_id"] for row in access.db.q(
+        "SELECT sc.spell_id FROM spell_class sc JOIN spell s ON s.id=sc.spell_id "
+        "WHERE sc.class_id=? AND s.level=? ORDER BY sc.spell_id", class_id, spell_level)]
+
+
+def slotless_choice_grants(access: ValidatorAccess, owner_kind: str,
+                           owner_id: str) -> list[dict]:
+    """Grants that confer a once-per-rest (``slotless_per_rest``) spell CHOSEN from a class list.
+
+    Signature: a ``grant_spell`` header with recovery ``slotless_per_rest`` plus a
+    ``grant_spell_choice`` of ``from_kind='class_list'`` (the spell is picked from a class's list
+    rather than fixed). Returns pure DB facts per grant -- the tier and level-gating math live in the
+    consumer (deriver/check), which re-derive them independently.
+
+    Each result: ``{grant_id, gained_at_level, choose_n, spell_level_min, spell_level_max,
+    uses_kind, uses_num, uses_ability_id, uses_resource_id, recharge_id, class_list_ids}``.
+    """
+    results: list[dict] = []
+    for header in primitives.grants_for(access.db, "grant_spell", owner_kind, owner_id):
+        if header["recovery"] != "slotless_per_rest":
+            continue
+        children = primitives.children_of(access.db, "grant_spell", header["id"])
+        cl_choices = [c for c in children.get("grant_spell_choice", [])
+                      if c["from_kind"] == "class_list"]
+        if not cl_choices:
+            continue
+        list_ids = [r["value_id"] for r in children.get("grant_spell_choice_value", [])]
+        for ch in cl_choices:
+            results.append({
+                "grant_id": header["id"],
+                "gained_at_level": header["gained_at_level"],
+                "choose_n": ch["choose_n"],
+                "spell_level_min": ch["spell_level_min"],
+                "spell_level_max": ch["spell_level_max"],
+                "uses_kind": header["uses_kind"],
+                "uses_num": header["uses_num"],
+                "uses_ability_id": header["uses_ability_id"],
+                "uses_resource_id": header["uses_resource_id"],
+                "recharge_id": header["recharge_id"],
+                "class_list_ids": list_ids,
+            })
+    return results
+
+
 def class_list_spell_choices(access: ValidatorAccess, owner_kind: str,
                              owner_id: str) -> list[dict]:
     """Return class_list-choice grants for an owner.

@@ -1,5 +1,5 @@
 """Resources domain: the class-resource ladder (per-level use counts of class/subclass resources)
-and the ``grant_resource`` use-pool spine (a use pool a species/lineage/other source confers).
+and the ``grant_resource`` use-pool spine (a use pool a species/lineage/class/other source confers).
 
 Pure DB facts — the per-level maximum and the raw grant rows are looked up here; the rule of which
 resources become a sheet ``resource_budgets`` entry, and how a formula use-pool's maximum is computed
@@ -50,6 +50,19 @@ def grant_resources(access: ValidatorAccess, owner_kind: str, owner_id: str,
             "uses_ability_id": h["uses_ability_id"],
         })
     return out
+
+
+def owned_resource_names(access: ValidatorAccess, owner_kind: str, owner_id: str) -> list[str]:
+    """Every resource NAME an owner confers — both ``class_resource`` rows (a count-ladder pool AND a
+    die-/bonus-valued pool with no count ladder) and ``grant_resource`` use-pools — regardless of the
+    level gate. This is the name-existence set for the orphan check: a budget key naming any of these
+    denotes a resource the build owns (even one whose maximum is not queryable, e.g. a die pool, or
+    one not yet reached at the build's level), so it is not an orphan. Pure DB read."""
+    names = [r["name"] for r in access.db.q(
+        "SELECT name FROM class_resource WHERE owner_kind=? AND owner_id=?", owner_kind, owner_id)]
+    names += [h["name"] for h in
+              primitives.grants_for(access.db, "grant_resource", owner_kind, owner_id)]
+    return names
 
 
 def ability_abbrev(access: ValidatorAccess, ability_id: str) -> str | None:

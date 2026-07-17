@@ -595,11 +595,11 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE class_resource (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, name TEXT)")
     cur.execute("CREATE TABLE class_resource_level (resource_id TEXT, level INTEGER, count INTEGER, "
                 "die_count INTEGER, die_faces INTEGER, bonus INTEGER)")
-    cur.execute("INSERT INTO class_resource VALUES ('unarmored-movement','class','class-a','Unarmored Movement')")
-    cur.execute("INSERT INTO class_resource_level VALUES ('unarmored-movement',2,NULL,NULL,NULL,10)")
-    cur.execute("INSERT INTO class_resource_level VALUES ('unarmored-movement',6,NULL,NULL,NULL,15)")
+    cur.execute("INSERT INTO class_resource VALUES ('bonus-speed','class','class-a','Bonus Speed')")
+    cur.execute("INSERT INTO class_resource_level VALUES ('bonus-speed',2,NULL,NULL,NULL,10)")
+    cur.execute("INSERT INTO class_resource_level VALUES ('bonus-speed',6,NULL,NULL,NULL,15)")
     # class-a-pool: a COUNT-ladder resource (a whole-number use pool) — exercises resource_budgets
-    # derivation and its independent cross-check. 'unarmored-movement' above is a BONUS ladder (no
+    # derivation and its independent cross-check. 'bonus-speed' above is a BONUS ladder (no
     # count) and must NOT become a budget entry.
     cur.execute("INSERT INTO class_resource VALUES ('class-a-pool','class','class-a','Pool A')")
     for _lvl, _cnt in [(1, 2), (3, 3), (5, 4)]:
@@ -613,6 +613,17 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO class_resource VALUES ('class-a-escalating','class','class-a','Pool Esc')")
     for _lvl, _cnt in [(4, 1), (8, 2)]:
         cur.execute("INSERT INTO class_resource_level VALUES ('class-a-escalating',?,?,NULL,NULL,NULL)",
+                    (_lvl, _cnt))
+    # sub-ladder: a SUBCLASS-owned COUNT ladder (owner_kind='subclass') feeding resource_budgets —
+    # gained above level 1 (starts at level 3, so absent below it) and stepping up at a breakpoint
+    # (2 uses from level 3, 3 from level 6). Like a subclass grant it gates on THAT class's level, not
+    # the character's total level, so a low-subclass-level multiclass build must not gain it. This is
+    # the shape a prose-stated subclass use pool takes (resource-completion epic R1); the existing
+    # count-ladder resources are all owner_kind='class', so this exercises the subclass branch.
+    cur.execute("INSERT INTO subclass VALUES ('sub-ladder','class-a','Sub Ladder',0,'')")
+    cur.execute("INSERT INTO class_resource VALUES ('sub-ladder-pool','subclass','sub-ladder','Sub Ladder Pool')")
+    for _lvl, _cnt in [(3, 2), (6, 3)]:
+        cur.execute("INSERT INTO class_resource_level VALUES ('sub-ladder-pool',?,?,NULL,NULL,NULL)",
                     (_lvl, _cnt))
 
     # recharge_cadence — referenced by grant_spell.recharge_id (e.g. short-rest)
@@ -1288,6 +1299,12 @@ def _build_rules_db(path: str) -> None:
                 "'Feat Res Boon','int',1,NULL)")
     cur.execute("INSERT INTO grant_resource VALUES ('gr-sub-res','subclass','sub-res',3,NULL,"
                 "'Sub Res Power','int',1,NULL)")
+    # class-owned grant_resource use-pool (epic R2): an ability-modifier use-pool a class confers
+    # directly (not via a subclass). Gained at THAT class's level 5, so the deriver and the check each
+    # gate it on the class's level (parallel to the subclass grant) -- it must not appear below level 5
+    # and must not leak into a multiclass build whose class-a level is below 5. Uses = mod(a1), min 1.
+    cur.execute("INSERT INTO grant_resource VALUES ('gr-class-res-mod','class','class-a',5,NULL,"
+                "'Class Res Focus','ability_modifier',NULL,'a1')")
 
     # B9: state dimension table + state_compatibility junction table
     cur.execute("CREATE TABLE state (id TEXT PRIMARY KEY, name TEXT)")
@@ -1459,6 +1476,26 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO grant_spell (id,owner_kind,owner_id,bucket,recovery,uses_kind,uses_resource_id,ability_id) "
                 "VALUES ('gsp-dyn-cr','feat','feat-dyn-cr','always','slotless_per_rest','class_resource','cr-dyn','a1')")
     cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-dyn-cr','spd3')")
+
+    # ── top-tier once-per-rest granted-spell fixtures (class-owned slotless choice) ──────────────
+    # A pact-caster class whose class-owned grants each confer a once-per-rest spell CHOSEN from its
+    # own spell list. The spell TIER is NOT carried in the choice (spell_level_min/max are NULL), so
+    # the consumer re-derives it from the grant's acquisition level: the first unlock (class level 11)
+    # confers a level-6 spell, rising one tier every two levels (13->7, 15->8, 17->9). Two level-6
+    # spells (sp-w6a/sp-w6b) exercise the deterministic lowest-catalog-id canonical pick.
+    cur.execute("INSERT INTO class VALUES ('class-w','Class W',8,3,'pact','all',2,0,'')")
+    cur.execute("INSERT INTO recharge_cadence VALUES ('long-rest','Long Rest')")
+    for _sid, _lvl in [("sp-w6a", 6), ("sp-w6b", 6), ("sp-w7", 7), ("sp-w8", 8), ("sp-w9", 9)]:
+        cur.execute("INSERT INTO spell VALUES (?,?,?,0)", (_sid, _sid.capitalize(), _lvl))
+        cur.execute("INSERT INTO spell_class VALUES (?, 'class-w')", (_sid,))
+    for _gid, _gal in [("gsp-w-11", 11), ("gsp-w-13", 13), ("gsp-w-15", 15), ("gsp-w-17", 17)]:
+        cur.execute(
+            "INSERT INTO grant_spell (id,owner_kind,owner_id,gained_at_level,bucket,recovery,"
+            "uses_kind,uses_num,recharge_id) VALUES (?,?,?,?,?,?,?,?,?)",
+            (_gid, "class", "class-w", _gal, "always", "slotless_per_rest", "int", 1, "long-rest"))
+        cur.execute("INSERT INTO grant_spell_choice (grant_id,choose_n,from_kind) VALUES (?,?,?)",
+                    (_gid, 1, "class_list"))
+        cur.execute("INSERT INTO grant_spell_choice_value VALUES (?, 'class-w')", (_gid,))
 
     # step 3/4: magic items conferring senses/speeds/save bonuses.
     # attuned item — darkvision 60 + fly 30 (materialise at MODIFIER only when attuned)
