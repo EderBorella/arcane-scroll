@@ -762,7 +762,9 @@ def _build_rules_db(path: str) -> None:
         cur.execute("INSERT INTO damage_type VALUES (?,?)", (did, dname))
     for cid, cname in [("charmed","Charmed"),("frightened","Frightened"),("poisoned","Poisoned"),
                         ("blinded","Blinded"),("incapacitated","Incapacitated"),
-                        ("prone","Prone"),("unconscious","Unconscious")]:
+                        ("prone","Prone"),("unconscious","Unconscious"),
+                        ("grappled","Grappled"),("restrained","Restrained"),
+                        ("petrified","Petrified"),("exhaustion","Exhaustion")]:
         cur.execute("INSERT INTO condition VALUES (?,?)", (cid, cname))
 
     cur.execute("CREATE TABLE grant_resistance (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
@@ -1360,6 +1362,15 @@ def _build_rules_db(path: str) -> None:
         ("poisoned", "attack_disadvantage", "attack", None, "disadvantage", "self_vs_others", ""),
         ("unconscious", "attacks_advantage_against", "attack", None, "advantage", "others_vs_self", ""),
         ("prone", "crawl_only", "movement", None, "crawl_only", "self", ""),
+        # Sheet-derivable effects (consumed by the MODIFIER deriver + validator):
+        # absolute speed-zero, per-level exhaustion penalties, and petrified defences.
+        ("grappled", "speed_set", "speed", None, "set_0", "self", ""),
+        ("restrained", "speed_set", "speed", None, "set_0", "self", ""),
+        ("exhaustion", "speed_penalty", "speed", None, "-5_per_level", "self", ""),
+        ("exhaustion", "d20_penalty", "d20_test", None, "-2_per_level", "self", ""),
+        ("petrified", "speed_set", "speed", None, "set_0", "self", ""),
+        ("petrified", "resistance", "damage", None, "resistance_all", "self", ""),
+        ("petrified", "immunity", "condition", "poisoned", "immunity", "self", ""),
     ]
     cur.executemany("INSERT INTO condition_effect (condition_id, effect_kind, target_kind, target_id, modifier, source_scope, note) VALUES (?,?,?,?,?,?,?)", test_conditions)
 
@@ -1718,6 +1729,15 @@ def _build_rules_db(path: str) -> None:
                 "('class-wm-weapon-mastery','class','class-wm','Weapon Mastery')")
     cur.execute("INSERT INTO class_resource_level VALUES ('class-wm-weapon-mastery',1,2,NULL,NULL,NULL)")
     cur.execute("INSERT INTO class_resource_level VALUES ('class-wm-weapon-mastery',5,3,NULL,NULL,NULL)")
+    # class-wm2: a SECOND weapon-mastery-granting class (flat ladder, 1 at level 1) so a multiclass
+    # build combining two mastery-granting classes exercises the STACKING (sum) combine rule -- each
+    # class's count adds, rather than the higher one winning. Minimal: only the class row + its
+    # weapon-mastery resource ladder are needed for the count derivation.
+    cur.execute("INSERT INTO class VALUES ('class-wm2','Class WM2',10,3,'none','all',2,0,'')")
+    cur.execute("INSERT INTO class_feature VALUES ('cf-wm2-1','class-wm2',1,'Weapon Mastery')")
+    cur.execute("INSERT INTO class_resource VALUES "
+                "('class-wm2-weapon-mastery','class','class-wm2','Weapon Mastery')")
+    cur.execute("INSERT INTO class_resource_level VALUES ('class-wm2-weapon-mastery',1,1,NULL,NULL,NULL)")
     cur.execute("UPDATE catalog_item SET weight_lb=3.0 WHERE id='blade-a'")
     cur.execute("UPDATE catalog_item SET weight_lb=7.0 WHERE id='weapon-a'")
     cur.execute("UPDATE catalog_item SET weight_lb=8.0 WHERE id='armor-e'")

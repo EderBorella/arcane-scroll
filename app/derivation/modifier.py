@@ -3,6 +3,7 @@ CORE + INVENTORY + GRIMOIRE + DB + active state effects. No orchestrator, no non
 field protection, no stacking-rule enforcement — those are C-M2."""
 from access.primitives import grants_for
 from access.validator import abilities as abilities_q
+from access.validator import conditions as conditions_q
 from access.validator import creature as creature_q
 from access.validator import defenses as defenses_q
 from access.validator import features as features_q
@@ -200,6 +201,12 @@ class ActiveEffects:
         self.extra_damage: list[dict] = []
         self.hp_boost: int = 0
         self.hp_reduction: int = 0
+        # Condition-derived effects (read from condition_effect): an absolute
+        # speed-zero, a cumulative per-level speed penalty in feet, and a
+        # cumulative per-level flat penalty applied to every D20 Test.
+        self.speed_zero: bool = False
+        self.speed_penalty: int = 0
+        self.d20_penalty: int = 0
         self.ac_floor: int | None = None
         self.sense_grants: list[dict] = []
         # Self-transform: {creature_id, kind} when a transform state is active
@@ -232,6 +239,12 @@ def resolve_active_effects(core: dict, inventory: dict | None,
 
         owner_kind = _owner_kind_for_source_type(source_type)
         if owner_kind is None:
+            continue
+        # A condition's mechanical effects live in condition_effect, keyed by the
+        # condition (the state id), not on grant_* rows owned by ``source``. So it
+        # takes its own path and does not resolve an owner from ``source``.
+        if owner_kind == "condition":
+            _accumulate_condition_effects(effects, access, sname, state)
             continue
         owner_id = access.resolve(owner_kind, source_name)
         if owner_id is None:
@@ -372,6 +385,46 @@ def _accumulate_extra_damage(effects: ActiveEffects, access, owner_kind, owner_i
 def _accumulate_speeds(effects: ActiveEffects, access, owner_kind, owner_id):
     for row in grants_for(access.db, "grant_speed", owner_kind, owner_id):
         effects.speed_grants.append(dict(row))
+
+
+def _per_level_coeff(modifier: str) -> int:
+    """Parse a ``<coeff>_per_level`` modifier formula into its integer coefficient
+    (e.g. ``'-5_per_level'`` → -5). Non-conforming values yield 0."""
+    try:
+        return int(str(modifier).split("_per_level", 1)[0])
+    except (ValueError, TypeError):
+        return 0
+
+
+def _accumulate_condition_effects(effects: ActiveEffects, access, state_id, state: dict):
+    """Materialise the sheet-derivable subset of an active condition's effects from
+    condition_effect: an absolute speed-zero, a per-level speed penalty, a per-level
+    D20-test penalty, resistance to all damage, and any condition/damage immunities.
+    Combat-only riders (advantage/disadvantage, auto-fail) are out of remit."""
+    level = state.get("level") if isinstance(state, dict) else None
+    has_level = _int(level)
+    cond_id = conditions_q.condition_id_for_state(access, state_id, has_level)
+    if not cond_id:
+        return
+    lvl = level if has_level else 0
+    for row in conditions_q.condition_effects(access, cond_id):
+        kind = row["effect_kind"]
+        mod = row["modifier"]
+        tk = row["target_kind"]
+        tid = row["target_id"]
+        if kind == "speed_set" and mod == "set_0":
+            effects.speed_zero = True
+        elif kind == "speed_penalty":
+            effects.speed_penalty += abs(_per_level_coeff(mod)) * lvl
+        elif kind == "d20_penalty":
+            effects.d20_penalty += abs(_per_level_coeff(mod)) * lvl
+        elif kind == "resistance" and mod == "resistance_all":
+            for dt in defenses_q.damage_type_ids(access):
+                effects.resistances.add(dt)
+        elif kind == "immunity" and tk == "condition" and tid:
+            effects.condition_immunities.add(tid)
+        elif kind == "immunity" and tk == "damage" and tid:
+            effects.immunities.add(tid)
 
 
 def _accumulate_ability_sets(effects: ActiveEffects, access, owner_kind, owner_id):
@@ -683,6 +736,22 @@ def _resolve_speeds(grant_rows: list, base_walk: int, class_bonuses: list) -> di
     return {k: v for k, v in phases.items() if v > 0}
 
 
+def _apply_condition_speed(speeds: dict, effects: ActiveEffects) -> dict:
+    """Fold condition-derived speed effects onto resolved speeds. An absolute
+    speed-zero forces every mode to 0; otherwise a flat penalty is subtracted from
+    each mode, floored at 0. Walk is always retained (a stationary character still
+    reports walk 0) so the speed map is never empty."""
+    if effects.speed_zero:
+        return {"walk": 0}
+    if not effects.speed_penalty:
+        return speeds
+    reduced = {mode: max(0, ft - effects.speed_penalty) for mode, ft in speeds.items()}
+    reduced = {mode: ft for mode, ft in reduced.items() if ft > 0 or mode == "walk"}
+    if not reduced:
+        reduced = {"walk": 0}
+    return reduced
+
+
 def derive_speed(core: dict, effects: ActiveEffects, access) -> tuple[dict, dict]:
     """Returns (speed_dict, speed_detail).
 
@@ -716,6 +785,7 @@ def derive_speed(core: dict, effects: ActiveEffects, access) -> tuple[dict, dict
             })
 
     speeds = _resolve_speeds(all_grants, base_walk, [])
+    speeds = _apply_condition_speed(speeds, effects)
 
     detail = {
         "base": base_walk,
