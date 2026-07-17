@@ -31,7 +31,7 @@ def movement_mode_ids(access: ValidatorAccess) -> list[str]:
 
 def class_speed_bonus(access: ValidatorAccess, class_id: str, level: int) -> int | None:
     """Highest bonus from class_resource_level at or below the given level for a speed-related
-    class resource (e.g. Unarmored Movement). Only resources whose name includes 'movement'
+    class resource (e.g. Bonus Speed). Only resources whose name includes 'movement'
     or 'speed' are considered — other class_resource.bonus columns (like a damage-boost resource) are
     not speed bonuses."""
     return access.db.scalar(

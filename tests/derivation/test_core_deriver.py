@@ -169,10 +169,10 @@ def test_senses_and_speed_resolved_independently(core_sheet):
 
 def test_resource_budgets_from_count_ladder(core_sheet):
     # class-a has a COUNT-ladder resource ('Pool A': 2/3/4 at levels 1/3/5); at level 3 the
-    # budget maximum is 3. The BONUS-ladder resource ('Unarmored Movement') is NOT a budget entry.
+    # budget maximum is 3. The BONUS-ladder resource ('Bonus Speed') is NOT a budget entry.
     budgets = core_sheet["resource_budgets"]
     assert budgets["Pool A"] == {"max": 3}
-    assert "Unarmored Movement" not in budgets
+    assert "Bonus Speed" not in budgets
 
 
 def test_resource_budgets_pass_validate_core(core_sheet, access):

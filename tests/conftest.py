@@ -595,11 +595,11 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE class_resource (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, name TEXT)")
     cur.execute("CREATE TABLE class_resource_level (resource_id TEXT, level INTEGER, count INTEGER, "
                 "die_count INTEGER, die_faces INTEGER, bonus INTEGER)")
-    cur.execute("INSERT INTO class_resource VALUES ('unarmored-movement','class','class-a','Unarmored Movement')")
-    cur.execute("INSERT INTO class_resource_level VALUES ('unarmored-movement',2,NULL,NULL,NULL,10)")
-    cur.execute("INSERT INTO class_resource_level VALUES ('unarmored-movement',6,NULL,NULL,NULL,15)")
+    cur.execute("INSERT INTO class_resource VALUES ('bonus-speed','class','class-a','Bonus Speed')")
+    cur.execute("INSERT INTO class_resource_level VALUES ('bonus-speed',2,NULL,NULL,NULL,10)")
+    cur.execute("INSERT INTO class_resource_level VALUES ('bonus-speed',6,NULL,NULL,NULL,15)")
     # class-a-pool: a COUNT-ladder resource (a whole-number use pool) — exercises resource_budgets
-    # derivation and its independent cross-check. 'unarmored-movement' above is a BONUS ladder (no
+    # derivation and its independent cross-check. 'bonus-speed' above is a BONUS ladder (no
     # count) and must NOT become a budget entry.
     cur.execute("INSERT INTO class_resource VALUES ('class-a-pool','class','class-a','Pool A')")
     for _lvl, _cnt in [(1, 2), (3, 3), (5, 4)]:

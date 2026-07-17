@@ -43,8 +43,8 @@ def test_clean_owned_budget_no_orphan(access):
 
 def test_die_only_pool_not_orphan(access):
     # a class_resource with no count ladder (a die/bonus pool) is OWNED — it has no queryable
-    # maximum, so it is neither orphan nor max-checked. 'Unarmored Movement' is such a class-a pool.
-    assert _codes(_sheet({"Unarmored Movement": {"max": 2}}), access) == set()
+    # maximum, so it is neither orphan nor max-checked. 'Bonus Speed' is such a class-a pool.
+    assert _codes(_sheet({"Bonus Speed": {"max": 2}}), access) == set()
 
 
 def test_orphan_gated_name_not_flagged(access):
