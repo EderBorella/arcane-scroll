@@ -46,10 +46,8 @@ from access.validator import movement as movement_q
 from access.validator import proficiencies as prof_q
 from access.validator import resources as resources_q
 from access.validator import saving_throws as saves_q
+from access.validator import senses as senses_q
 from access.validator import vitals as vitals_q
-from validator.checks import defenses as defenses_check
-from validator.checks import movement as movement_check
-from validator.checks import senses as senses_check
 
 # A choice-space structure — the generator's selections, all as catalog ids (except free-text player
 # input like languages). Documented here rather than in a JSON contract; the ids are content-neutral
@@ -565,7 +563,7 @@ def _derive_speeds(grant_rows: list, base_walk: int, class_bonuses: list[int]) -
 
 
 def _permanent_senses(access, partial: dict) -> dict:
-    return _derive_senses(senses_check._gather_owner_grants(access, partial))
+    return _derive_senses(senses_q.gather_owner_grants(access, partial))
 
 
 def _base_walk(access, choices: Choices) -> int:
@@ -582,8 +580,8 @@ def _base_walk(access, choices: Choices) -> int:
 
 
 def _permanent_speed(access, choices: Choices, partial: dict) -> dict:
-    grants = movement_check._gather_owner_grants(access, partial)
-    bonuses = movement_check._gather_class_bonuses(access, partial)
+    grants = movement_q.gather_owner_grants(access, partial)
+    bonuses = movement_q.gather_class_bonuses(access, partial)
     return _derive_speeds(grants, _base_walk(access, choices), bonuses)
 
 
@@ -618,7 +616,7 @@ def _resource_budgets(access, choices: Choices) -> dict:
 
 
 def _permanent_defenses(access, partial: dict) -> dict:
-    res_rows = defenses_check._gather_owner_grants(access, partial, defenses_q.resistance_grants)
+    res_rows = defenses_q.gather_owner_grants(access, partial, defenses_q.resistance_grants)
     resistance_set = {r["damage_type_id"] for r in res_rows
                       if r["mode"] == "fixed" and r["damage_type_id"]}
     # A variant-axis resistance names its axis but not its damage type — the concrete type is decided
@@ -637,7 +635,7 @@ def _permanent_defenses(access, partial: dict) -> dict:
                         resistance_set.add(dmg)
     resistances = sorted(resistance_set)
 
-    cond_rows = defenses_check._gather_owner_grants(access, partial, defenses_q.condition_grants)
+    cond_rows = defenses_q.gather_owner_grants(access, partial, defenses_q.condition_grants)
     condition_immunities = sorted({r["condition_id"] for r in cond_rows if r["effect"] == "immunity"})
     condition_advantages = []
     for r in cond_rows:
@@ -645,7 +643,7 @@ def _permanent_defenses(access, partial: dict) -> dict:
             effect = "avoid_or_end" if r["effect"] == "advantage_to_avoid_or_end" else "end"
             condition_advantages.append({"condition": r["condition_id"], "effect": effect})
 
-    sa_rows = defenses_check._gather_owner_grants(access, partial, defenses_q.save_advantage_grants)
+    sa_rows = defenses_q.gather_owner_grants(access, partial, defenses_q.save_advantage_grants)
     save_advantages = sorted({s for s in (defenses_q.save_scope_for(access, r) for r in sa_rows) if s})
 
     return {

@@ -1,15 +1,12 @@
 """Vitals domain: hit-dice pool (face + count per class) and HP-range consistency (con modifier +
 class hit dice + species HP riders). Every expectation is derived from the DB; malformed or missing
 sheet data is skipped rather than raised."""
+from access.constants import CON_ABBREV
 from access.validator import abilities as abilities_q
 from access.validator import vitals as q
 from validator.report import Violation
 
 DOMAIN = "vitals"
-
-# The real-DB abbrev for the constitution ability (per contract v6, sheet ability keys are
-# abbreviations: str/dex/con/int/wis/cha).
-CON_ABBREV = "con"
 
 
 def _resolved_classes(classes, access) -> list[tuple[str, int, int]]:

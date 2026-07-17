@@ -879,7 +879,7 @@ def derive_hp_effects(core: dict, effects: ActiveEffects, ability_mods: dict, ac
     already-derived effective CON modifier, ``hp_delta = (eff_con_mod − core_con_mod) × total_level``
     adds max(0, hp_delta) to max_boost (on top of the state hp_boost) and max(0, −hp_delta) to
     max_reduction."""
-    from validator.checks.vitals import CON_ABBREV
+    from access.constants import CON_ABBREV
 
     # Under a self-transform the character retains their OWN Hit Points/Hit Dice, so the
     # effective-CON change from the form does NOT recompute max HP (the form's HP is a

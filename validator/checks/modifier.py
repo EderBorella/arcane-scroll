@@ -2,6 +2,7 @@
 CORE/INVENTORY/GRIMOIRE inputs. Checks cover AC, saves, skills, attacks, effective abilities,
 passives, defenses, features, feats, state compatibility, prepared spells, and stacking-rule
 enforcement. NOT in ALL_CHECKS — modifier:1-specific."""
+from access.constants import CON_ABBREV
 from access.validator import abilities as abilities_q
 from access.validator import creature as creature_q
 from access.validator import defenses as defenses_q
@@ -9,7 +10,6 @@ from access.validator import inventory as inventory_q
 from access.validator import size as size_q
 from access.validator import vitals as vitals_q
 from access.validator.state_compatibility import blocked_states
-from validator.checks.vitals import CON_ABBREV
 from validator.report import Violation
 
 DOMAIN = "modifier"
