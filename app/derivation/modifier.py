@@ -120,10 +120,17 @@ def _form_save_mods(access, creature_id: str) -> dict:
     return out
 
 
+def _form_save_proficiencies(access, creature_id: str) -> set:
+    """The full ability ids the form is proficient in for saves (``creature_save``). Under a
+    PHYSICAL transform the character GAINS these proficiencies and applies their OWN PB to them."""
+    return {r["ability_id"] for r in creature_q.creature_saves(access, creature_id)}
+
+
 def _form_skill_mods(access, creature_id: str) -> dict:
     """The form's stat-block skill modifier per skill id (``creature_skill.bonus`` — already the
     form's ability mod plus its proficiency). Used for the self-transform higher-of (physical) and
-    the form-authoritative skills (full)."""
+    the form-authoritative skills (full). The keys are also the form's skill proficiencies, which a
+    PHYSICAL transform GAINS (applying the character's OWN PB)."""
     return {r["skill_id"]: r["bonus"]
             for r in creature_q.creature_skills(access, creature_id) if _int(r["bonus"])}
 
@@ -765,13 +772,14 @@ def derive_saving_throws(core: dict, abilities: dict, pb, effects: ActiveEffects
                          access) -> dict:
     """Returns saving_throws: {aid: {modifier}}. Under a FULL transform saves are the FORM's
     stat-block saves — the form's ability modifier plus the form's own proficiency bonus where the
-    form is proficient (T63), no character proficiency/PB (the form's block is authoritative). A
-    PHYSICAL transform keeps the character's own proficiencies/PB on the (partly replaced) ability
-    modifiers, then takes the HIGHER OF the character's own save and the form's — gaining the form's
-    save proficiency where the form's proficiency-inclusive save is better (T65)."""
+    form is proficient (T63), no character proficiency/PB (the form's game statistics replace the
+    character's entirely). A PHYSICAL transform follows the shape-shift rule (T65): the character
+    keeps their own save proficiencies AND GAINS the form's, applying their OWN proficiency bonus to
+    all of them, then uses the higher of that value and the form's stat-block save."""
     tf = effects.transform
     saves = core.get("saving_throws", {}) or {}
     form_saves = _form_save_mods(access, tf["creature_id"]) if tf else {}
+    form_save_prof = _form_save_proficiencies(access, tf["creature_id"]) if tf else set()
     result = {}
     for aid, ab_mod in abilities.items():
         # `aid` is the CORE key (a short code); grant target ids / form saves are full DB ids, so
@@ -786,6 +794,9 @@ def derive_saving_throws(core: dict, abilities: dict, pb, effects: ActiveEffects
             proficient = save_data.get("proficient", False)
         else:
             proficient = bool(save_data)
+        # PHYSICAL transform: gain the form's save proficiencies (applied with the character's OWN PB).
+        if tf and full_aid in form_save_prof:
+            proficient = True
         if proficient and _int(pb):
             mod += pb
         for b in effects.bonuses:
@@ -797,7 +808,7 @@ def derive_saving_throws(core: dict, abilities: dict, pb, effects: ActiveEffects
                 if not tid or tid == full_aid:
                     if b["value"]:
                         mod += b["value"]
-        if tf:  # PHYSICAL transform: higher of own vs the form's save
+        if tf:  # PHYSICAL transform: higher of the character's own save and the form's stat block
             mod = max(mod, form_saves.get(full_aid, mod))
         result[aid] = {"modifier": mod}
     return result
@@ -807,10 +818,10 @@ def derive_skills(core: dict, abilities: dict, pb, effects: ActiveEffects,
                   access) -> dict:
     """Returns skills: {sid: {modifier}}. Under a FULL transform skills are the FORM's stat-block
     skills — the form's skill bonus where the form has that skill, else the form's ability modifier,
-    with NO character proficiency/PB (the form's block is authoritative). A PHYSICAL transform keeps
-    the character's own proficiencies/PB (on the partly replaced ability modifiers), then takes the
-    HIGHER OF the character's own skill and the form's — gaining the form's skill proficiency where
-    the form's bonus is better (T65)."""
+    with NO character proficiency/PB (the form's game statistics replace the character's entirely). A
+    PHYSICAL transform follows the shape-shift rule (T65): the character keeps their own skill
+    proficiencies/expertise AND GAINS the form's, applying their OWN proficiency bonus to gained
+    ones, then uses the higher of that value and the form's stat-block skill bonus."""
     tf = effects.transform
     full = bool(tf and tf["kind"] == TRANSFORM_FULL)
     form_skills = _form_skill_mods(access, tf["creature_id"]) if tf else {}
@@ -822,20 +833,21 @@ def derive_skills(core: dict, abilities: dict, pb, effects: ActiveEffects,
         sk_ability = skill_obj.get("ability", "")
         ab_mod = abilities.get(sk_ability, 0)
         # `sid` is the sheet's skill key (a display name); the form's skills are keyed by the DB
-        # skill id, so resolve before looking up a form skill bonus.
+        # skill id, so resolve before looking up a form skill bonus / proficiency.
         form_sid = access.resolve("skill", sid) or sid if tf else None
         if full:
             result[sid] = {"modifier": form_skills.get(form_sid, ab_mod)}
             continue
         mod = ab_mod
         if _int(pb):
-            prof = skill_obj.get("proficient", False)
             exp = skill_obj.get("expertise", False)
+            # PHYSICAL transform: gain the form's skill proficiency (own PB) in addition to own.
+            prof = skill_obj.get("proficient", False) or (bool(tf) and form_sid in form_skills)
             if exp:
                 mod += pb * 2
             elif prof:
                 mod += pb
-        if tf:  # PHYSICAL transform: higher of own vs the form's skill
+        if tf:  # PHYSICAL transform: higher of the character's own skill and the form's stat block
             mod = max(mod, form_skills.get(form_sid, mod))
         result[sid] = {"modifier": mod}
     return result

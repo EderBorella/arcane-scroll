@@ -208,6 +208,7 @@ def _check_saves(sheet: dict, access, v: list[Violation], transform: dict | None
     full_transform = bool(transform and transform["kind"] == TRANSFORM_FULL)
     item_all_bonus, item_per_ability = (0, {}) if full_transform else _item_save_bonuses(sheet, access)
     form_saves = _form_save_mods(access, transform["creature_id"]) if transform else {}
+    form_save_prof = _form_save_proficiencies(access, transform["creature_id"]) if transform else set()
 
     for aid, save_obj in mod_saves.items():
         if not isinstance(save_obj, dict):
@@ -234,6 +235,9 @@ def _check_saves(sheet: dict, access, v: list[Violation], transform: dict | None
             proficient = core_save.get("proficient", False)
         else:
             proficient = bool(core_save)
+        # PHYSICAL transform: gain the form's save proficiencies (applied with the character's OWN PB).
+        if transform and full_aid in form_save_prof:
+            proficient = True
         ab_data = mod_abilities.get(aid, {}) or {}
         ab_mod = ab_data.get("modifier", 0)
 
@@ -241,7 +245,7 @@ def _check_saves(sheet: dict, access, v: list[Violation], transform: dict | None
         if proficient and _int(pb):
             expected += pb
         expected += item_all_bonus + item_per_ability.get(full_aid, 0)
-        if transform:  # PHYSICAL transform: higher of own vs the form's save
+        if transform:  # PHYSICAL transform: higher of the character's own save and the form's block
             expected = max(expected, form_saves.get(full_aid, expected))
 
         if actual != expected:
@@ -284,18 +288,20 @@ def _check_skills(sheet: dict, access, v: list[Violation], transform: dict | Non
         ab_data = mod_abilities.get(sk_ability, {}) or {}
         ab_mod = ab_data.get("modifier", 0)
         # `sid` is the sheet's skill key (a display name); the form's skills are keyed by the DB
-        # skill id, so resolve before looking up a form skill bonus.
+        # skill id, so resolve before looking up a form skill bonus / proficiency.
         form_sid = access.resolve("skill", sid) or sid if transform else None
         if full_transform:
             expected = form_skills.get(form_sid, ab_mod)
         else:
             expected = ab_mod
             if _int(pb):
+                # PHYSICAL transform: gain the form's skill proficiency (own PB) in addition to own.
+                prof = core_skill.get("proficient") or (bool(transform) and form_sid in form_skills)
                 if core_skill.get("expertise"):
                     expected += pb * 2
-                elif core_skill.get("proficient"):
+                elif prof:
                     expected += pb
-            if transform:  # PHYSICAL transform: higher of own vs the form's skill
+            if transform:  # PHYSICAL transform: higher of the character's own skill and the form's
                 expected = max(expected, form_skills.get(form_sid, expected))
 
         if actual != expected:
@@ -1132,9 +1138,16 @@ def _form_save_mods(access, creature_id: str) -> dict:
     return out
 
 
+def _form_save_proficiencies(access, creature_id: str) -> set:
+    """The full ability ids the form is proficient in for saves (``creature_save``). Under a
+    PHYSICAL transform the character GAINS these proficiencies and applies their OWN PB to them."""
+    return {r["ability_id"] for r in creature_q.creature_saves(access, creature_id)}
+
+
 def _form_skill_mods(access, creature_id: str) -> dict:
     """The form's stat-block skill modifier per skill id (``creature_skill.bonus``), re-derived
-    from the catalog for the self-transform higher-of (physical) / form-authoritative (full) skills."""
+    from the catalog for the self-transform higher-of (physical) / form-authoritative (full) skills.
+    The keys are also the form's skill proficiencies, which a PHYSICAL transform GAINS (own PB)."""
     return {r["skill_id"]: r["bonus"]
             for r in creature_q.creature_skills(access, creature_id) if _int(r["bonus"])}
 

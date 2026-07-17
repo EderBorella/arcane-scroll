@@ -150,6 +150,32 @@ def test_full_skill_uses_form_skill_bonus(access):
     assert skills["sk1"]["modifier"] == 9   # form's stat-block skill bonus
 
 
+def test_physical_gains_form_save_proficiency_with_own_pb(access):
+    """Book rule: a PHYSICAL transform GAINS the form's save proficiencies and applies the
+    character's OWN PB to them, then takes the higher of that and the form's stat block. A high
+    retained wisdom + high own PB beats the form's own (lower-PB) wisdom save — distinguishing the
+    correct rule from a plain higher-of that ignores the gained own-PB proficiency."""
+    eff = ActiveEffects()
+    eff.transform = {"creature_id": "creature-form-sp", "kind": TRANSFORM_PHYSICAL}
+    core = {"saving_throws": {}}                 # character proficient in NO save of their own
+    ability_mods = {"a1": 4, "a2": -2, "a3": 2, "wis": 6}
+    saves = derive_saving_throws(core, ability_mods, 4, eff, access)
+    # gained wisdom proficiency, own PB: 6 + 4 = 10, higher than the form's stat-block save (8)
+    assert saves["wis"]["modifier"] == 10
+
+
+def test_physical_gains_form_skill_proficiency_with_own_pb(access):
+    """PHYSICAL transform gains the form's skill proficiency with the character's OWN PB, then
+    higher-of the form's stat-block bonus."""
+    eff = ActiveEffects()
+    eff.transform = {"creature_id": "creature-form-sp", "kind": TRANSFORM_PHYSICAL}
+    core = {"skills": {"sk1": {"ability": "a1", "proficient": False, "expertise": False}}}
+    ability_mods = {"a1": 4, "a2": -2, "a3": 2, "wis": 0}
+    skills = derive_skills(core, ability_mods, 6, eff, access)
+    # gained sk1 proficiency, own PB: 4 + 6 = 10, higher than the form's stat-block bonus (9)
+    assert skills["sk1"]["modifier"] == 10
+
+
 # ── validator: routing + independent re-derivation + retained-mental split ────
 
 
@@ -364,4 +390,20 @@ def test_full_save_without_form_proficiency_flagged(access):
     """Under FULL the form's save proficiency applies; dropping it (wisdom = form mod only) is illegal."""
     sheet = _sp_transform_sheet(TRANSFORM_FULL)
     sheet["modifier"]["saving_throws"]["wis"]["modifier"] = 4   # form mod without the form's PB
+    assert "save-modifier-mismatch" in _codes(sheet, access)
+
+
+def test_physical_gained_save_uses_own_pb(access):
+    """Book rule: a save the FORM is proficient in but the character is not — the character GAINS
+    the proficiency and applies their OWN (higher) PB, then higher-of vs the form's stat block. A
+    high retained wisdom (mod +6) with own PB 4 => 10, beating the form's 8."""
+    sheet = _sp_transform_sheet(TRANSFORM_PHYSICAL)
+    sheet["core"]["abilities"]["wis"] = {"final": 22}          # retained high wisdom (mod +6)
+    sheet["core"]["proficiency_bonus"] = 4
+    sheet["modifier"]["abilities"]["wis"] = {"modifier": 6, "reduction": 0}
+    sheet["modifier"]["effective_abilities"]["wis"] = 22
+    sheet["modifier"]["saving_throws"]["wis"]["modifier"] = 10  # gained prof + own PB
+    assert "save-modifier-mismatch" not in _codes(sheet, access)
+    # taking only the form's stat-block value (8), i.e. not applying the character's own PB, is wrong
+    sheet["modifier"]["saving_throws"]["wis"]["modifier"] = 8
     assert "save-modifier-mismatch" in _codes(sheet, access)
