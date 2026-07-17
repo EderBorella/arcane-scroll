@@ -6,8 +6,10 @@ from access.constants import CON_ABBREV
 from access.validator import abilities as abilities_q
 from access.validator import creature as creature_q
 from access.validator import defenses as defenses_q
+from access.validator import features as features_q
 from access.validator import inventory as inventory_q
 from access.validator import size as size_q
+from access.validator import skills as skills_q
 from access.validator import vitals as vitals_q
 from access.validator.state_compatibility import blocked_states
 from validator.report import Violation
@@ -290,7 +292,12 @@ def _check_skills(sheet: dict, access, v: list[Violation], transform: dict | Non
         # `sid` is the sheet's skill key (a display name); the form's skills are keyed by the DB
         # skill id, so resolve before looking up a form skill bonus / proficiency.
         form_sid = access.resolve("skill", sid) or sid if transform else None
-        if full_transform:
+        form_only = bool(transform) and sid not in core_skills and form_sid in form_skills
+        if form_only:
+            # A skill the form is proficient in that the base character does not list (T108) — the
+            # gained skill takes the form's stat-block bonus.
+            expected = form_skills[form_sid]
+        elif full_transform:
             expected = form_skills.get(form_sid, ab_mod)
         else:
             expected = ab_mod
@@ -308,6 +315,19 @@ def _check_skills(sheet: dict, access, v: list[Violation], transform: dict | Non
             v.append(Violation(DOMAIN, "skill-modifier-mismatch", "illegal",
                                f"{sid}: modifier {actual} != expected {expected}",
                                f"skills.{sid}.modifier"))
+
+    # Form-only skills (T108): each skill the form is proficient in that the base character does not
+    # list must be emitted on the transformed sheet — re-derived here independently of the deriver.
+    if transform and form_skills:
+        core_ids = {access.resolve("skill", k) or k for k in core_skills}
+        present_ids = {access.resolve("skill", k) or k for k in mod_skills}
+        for form_sid in form_skills:
+            if form_sid in core_ids or form_sid in present_ids:
+                continue
+            name = skills_q.skill_name(access, form_sid) or form_sid
+            v.append(Violation(DOMAIN, "form-skill-missing", "incomplete",
+                               f"gained form skill {name} not emitted",
+                               f"skills.{name}"))
 
 
 # ── attacks ──────────────────────────────────────────────────────────────────
@@ -796,6 +816,56 @@ def _check_hp(sheet: dict, access, v: list[Violation], transform: dict | None = 
                            "hit_points.max_reduction"))
 
 
+def _expected_form_pool(sheet: dict, access, transform: dict) -> int | None:
+    """Independently re-derive the self-transform temporary form-HP pool from DB facts + CORE (T108):
+    a FULL transform's pool is the form's own hit points; a PHYSICAL transform's pool is the level of
+    the class whose feature grants the transform. Returns None when the pool cannot be derived."""
+    if transform["kind"] == TRANSFORM_FULL:
+        row = creature_q.creature_row(access, transform["creature_id"])
+        return row["hp_average"] if row is not None and _int(row["hp_average"]) else None
+    # PHYSICAL: the granting class's level, resolved from the transform's source class feature
+    if transform.get("owner_kind") != "class_feature" or not transform.get("owner_id"):
+        return None
+    class_id = features_q.class_feature_class(access, transform["owner_id"])
+    if not class_id:
+        return None
+    core = sheet.get("core", {}) or {}
+    ident = core.get("identity", {}) or {}
+    classes = ident.get("classes", []) if isinstance(ident, dict) else []
+    if isinstance(classes, list):
+        for c in classes:
+            if not isinstance(c, dict) or not _int(c.get("level")):
+                continue
+            if access.resolve("class", c.get("class")) == class_id:
+                return c["level"]
+    return None
+
+
+def _check_form_hp_pool(sheet: dict, access, v: list[Violation],
+                        transform: dict | None = None) -> None:
+    """Assert MODIFIER.hit_points.form_temp_pool matches the independently re-derived self-transform
+    temporary form-HP pool. Only runs while a transform is active; a pool that cannot be derived
+    (missing owner/class context) yields no assertion (T108)."""
+    if not transform:
+        return
+    mod = sheet.get("modifier", {}) or {}
+    hp = mod.get("hit_points")
+    if not isinstance(hp, dict):
+        return
+    expected = _expected_form_pool(sheet, access, transform)
+    if expected is None:
+        return
+    actual = hp.get("form_temp_pool")
+    if actual is None:
+        v.append(Violation(DOMAIN, "form-hp-pool-missing", "incomplete",
+                           f"self-transform temporary HP pool {expected} not emitted",
+                           "hit_points.form_temp_pool"))
+    elif actual != expected:
+        v.append(Violation(DOMAIN, "form-hp-pool-mismatch", "illegal",
+                           f"form_temp_pool {actual} != expected {expected}",
+                           "hit_points.form_temp_pool"))
+
+
 # ── defenses ─────────────────────────────────────────────────────────────────
 
 
@@ -1069,14 +1139,16 @@ def _active_transform(sheet: dict, access) -> dict | None:
         owner_kind = _owner_kind_for_source_type(st.get("source_type", ""))
         if owner_kind is None:
             continue
-        if access.resolve(owner_kind, st.get("source")) is None:
+        owner_id = access.resolve(owner_kind, st.get("source"))
+        if owner_id is None:
             continue
         detail = st.get("detail")
         detail = detail if isinstance(detail, dict) else {}
         into = detail.get("into")
         kind = detail.get("transform")
         if into and kind in _TRANSFORM_KINDS:
-            return {"creature_id": into, "kind": kind}
+            return {"creature_id": into, "kind": kind,
+                    "owner_kind": owner_kind, "owner_id": owner_id}
     return None
 
 
@@ -1311,6 +1383,7 @@ def check(sheet: dict, access) -> list[Violation]:
     _check_saves(sheet, access, v, transform)
     _check_skills(sheet, access, v, transform)
     _check_hp(sheet, access, v, transform)
+    _check_form_hp_pool(sheet, access, v, transform)
     if transform is None:
         _check_attacks(sheet, access, v)
         _check_attack_damage(sheet, access, v)

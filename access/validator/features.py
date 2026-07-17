@@ -10,6 +10,11 @@ def class_features(access: ValidatorAccess, class_id: str, level: int) -> list:
         class_id, level)
 
 
+def class_feature_class(access: ValidatorAccess, feature_id: str) -> str | None:
+    """The class id that owns a class feature, or None if the feature is unknown."""
+    return access.db.scalar("SELECT class_id FROM class_feature WHERE id=?", feature_id)
+
+
 def subclass_features(access: ValidatorAccess, subclass_id: str, class_level: int) -> list:
     """Features gained by a subclass at or below the given class level."""
     return access.db.q(

@@ -9,6 +9,7 @@ from app.derivation.modifier import (
     ActiveEffects, _accumulate_transform,
     derive_abilities, derive_ac, derive_speed, derive_senses,
     derive_defenses, derive_saving_throws, derive_skills,
+    derive_form_temp_pool,
     TRANSFORM_PHYSICAL, TRANSFORM_FULL,
 )
 from validator.checks.modifier import check
@@ -200,7 +201,8 @@ def _transform_sheet(kind, **mod_over):
         "armor_class": 15,
         "armor_class_detail": {"source": "creature-form", "base": 15, "dex_bonus": 0,
                                "bonuses": [], "floor": None},
-        "hit_points": {"current": 20, "temp": 20, "max_boost": 0, "max_reduction": 0},
+        "hit_points": {"current": 20, "temp": 20, "max_boost": 0, "max_reduction": 0,
+                       "form_temp_pool": 20},
         "speed": {"walk": 40, "climb": 20},
         "attacks": [{"name": "Strike A", "attack_bonus": 6, "damage": "2d6 + 4",
                      "damage_type": "slashing", "weapon_mastery": None, "properties": []}],
@@ -334,7 +336,8 @@ def _sp_transform_sheet(kind):
         "armor_class": 14,
         "armor_class_detail": {"source": "creature-form-sp", "base": 14, "dex_bonus": 0,
                                "bonuses": [], "floor": None},
-        "hit_points": {"current": 20, "temp": 0, "max_boost": 0, "max_reduction": 0},
+        "hit_points": {"current": 20, "temp": 0, "max_boost": 0, "max_reduction": 0,
+                       "form_temp_pool": 20},
         "speed": {"walk": 40},
         "attacks": [{"name": "Strike A", "attack_bonus": 6, "damage": "2d6 + 4",
                      "damage_type": "slashing", "weapon_mastery": None, "properties": []}],
@@ -407,3 +410,97 @@ def test_physical_gained_save_uses_own_pb(access):
     # taking only the form's stat-block value (8), i.e. not applying the character's own PB, is wrong
     sheet["modifier"]["saving_throws"]["wis"]["modifier"] = 8
     assert "save-modifier-mismatch" in _codes(sheet, access)
+
+
+# ── T108: self-transform temporary form-HP pool + form-only skills ────────────
+
+
+def test_form_temp_pool_full_is_form_hp(access):
+    """FULL transform: the temporary form-HP pool equals the form's own hit points (book rule —
+    the target gains temporary HP equal to the Hit Points of the assumed form)."""
+    eff = ActiveEffects()
+    eff.transform = {"creature_id": "creature-form", "kind": TRANSFORM_FULL}
+    assert derive_form_temp_pool({}, eff, access) == 20   # creature-form hp_average
+
+
+def test_form_temp_pool_physical_is_class_level(access):
+    """PHYSICAL transform: the temporary form-HP pool equals the level of the class whose feature
+    grants the transform (book rule — temporary HP equal to the granting class's level)."""
+    eff = ActiveEffects()
+    state = {"state": "shaped", "source": "Feat A", "source_type": "feature",
+             "detail": {"into": "creature-form", "transform": "physical"}}
+    _accumulate_transform(eff, access, state)
+    assert eff.transform["hp_class_id"] == "class-a"      # captured from the source class feature
+    core = {"identity": {"classes": [{"class": "Class A", "level": 5}]}}
+    assert derive_form_temp_pool(core, eff, access) == 5  # the granting class's level, not total
+
+
+def test_form_temp_pool_none_without_transform(access):
+    assert derive_form_temp_pool({}, ActiveEffects(), access) is None
+
+
+def test_form_only_skill_emitted(access):
+    """A skill the FORM is proficient in that the base character does not list at all is GAINED while
+    transformed and emitted with the form's stat-block bonus (T108)."""
+    eff = ActiveEffects()
+    eff.transform = {"creature_id": "creature-form-sp", "kind": TRANSFORM_FULL}
+    core = {"abilities": {"a1": {"final": 14}, "a2": {"final": 16},
+                          "a3": {"final": 12}, "wis": {"final": 10}},
+            "skills": {}}                                 # base lists NO skills
+    skills = derive_skills(core, {"a1": 4, "a2": -2, "a3": 2, "wis": 4}, 2, eff, access)
+    assert skills["Sk1"]["modifier"] == 9                 # form sk1 bonus, keyed by display name
+
+
+# validator: form-HP pool re-derived independently ----------------------------
+
+
+def test_form_hp_pool_full_correct_passes(access):
+    codes = _codes(_transform_sheet(TRANSFORM_FULL), access)
+    assert "form-hp-pool-missing" not in codes
+    assert "form-hp-pool-mismatch" not in codes
+
+
+def test_form_hp_pool_full_missing_flagged(access):
+    sheet = _transform_sheet(TRANSFORM_FULL)
+    del sheet["modifier"]["hit_points"]["form_temp_pool"]
+    assert "form-hp-pool-missing" in _codes(sheet, access)
+
+
+def test_form_hp_pool_full_wrong_flagged(access):
+    sheet = _transform_sheet(TRANSFORM_FULL)
+    sheet["modifier"]["hit_points"]["form_temp_pool"] = 99
+    assert "form-hp-pool-mismatch" in _codes(sheet, access)
+
+
+def test_form_hp_pool_physical_class_level(access):
+    """PHYSICAL: the validator re-derives the pool as the granting class's level from CORE, never
+    from the deriver."""
+    sheet = _transform_sheet(TRANSFORM_PHYSICAL)
+    st = sheet["modifier"]["character_states"][0]
+    st["source"] = "Feat A"           # a class-a class feature
+    st["source_type"] = "feature"
+    sheet["core"]["identity"]["classes"] = [{"class": "Class A", "level": 6}]
+    sheet["modifier"]["hit_points"]["form_temp_pool"] = 6
+    codes = _codes(sheet, access)
+    assert "form-hp-pool-mismatch" not in codes and "form-hp-pool-missing" not in codes
+    sheet["modifier"]["hit_points"]["form_temp_pool"] = 5   # not the class level
+    assert "form-hp-pool-mismatch" in _codes(sheet, access)
+
+
+# validator: form-only skill re-derived independently -------------------------
+
+
+def test_form_only_skill_missing_flagged(access):
+    """The form (creature-form-sp) is proficient in sk1; the base lists no skills — omitting the
+    gained form skill from the sheet is flagged incomplete."""
+    sheet = _sp_transform_sheet(TRANSFORM_FULL)
+    sheet["core"]["skills"] = {}
+    sheet["modifier"]["skills"] = {}
+    assert "form-skill-missing" in _codes(sheet, access)
+
+
+def test_form_only_skill_present_passes(access):
+    sheet = _sp_transform_sheet(TRANSFORM_FULL)
+    sheet["core"]["skills"] = {}
+    sheet["modifier"]["skills"] = {"Sk1": {"modifier": 9}}
+    assert "form-skill-missing" not in _codes(sheet, access)

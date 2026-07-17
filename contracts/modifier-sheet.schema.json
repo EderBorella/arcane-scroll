@@ -97,6 +97,11 @@
           "minimum": 0,
           "default": 0,
           "description": "Temporary increase to max HP (e.g. Aid spell). Derivable from active states."
+        },
+        "form_temp_pool": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The temporary hit-point pool granted by an active self-transform (present only while transformed). Derived: a full transform grants temporary HP equal to the assumed form's own hit points; a physical transform grants temporary HP equal to the level of the class whose feature grants the transform. The character keeps their own hit points; this is a separate temporary buffer."
         }
       }
     },

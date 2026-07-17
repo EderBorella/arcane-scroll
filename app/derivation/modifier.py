@@ -5,8 +5,10 @@ from access.primitives import grants_for
 from access.validator import abilities as abilities_q
 from access.validator import creature as creature_q
 from access.validator import defenses as defenses_q
+from access.validator import features as features_q
 from access.validator import inventory as inventory_q
 from access.validator import size as size_q
+from access.validator import skills as skills_q
 
 # Self-transform (T60): the character temporarily BECOMES a creature (full effective-stat
 # replacement). Two kinds, selected by ``detail.transform``. ``PHYSICAL`` (physical-form) replaces
@@ -336,6 +338,17 @@ def _accumulate_transform(effects: ActiveEffects, access, state: dict):
     if creature_q.creature_formulas(access, into):
         return  # templated form → no standalone stat block; skip
     effects.transform = {"creature_id": into, "kind": kind}
+
+    # A PHYSICAL transform's temporary-HP pool is the level of the class whose feature grants it
+    # (T108). Capture that granting class here (from the state's source feature) so the pool can be
+    # read from CORE later; leave it unset when the source is not a class feature.
+    if kind == TRANSFORM_PHYSICAL:
+        owner_kind = _owner_kind_for_source_type(state.get("source_type", ""))
+        if owner_kind == "class_feature":
+            feature_id = access.resolve("class_feature", state.get("source"))
+            class_id = features_q.class_feature_class(access, feature_id) if feature_id else None
+            if class_id:
+                effects.transform["hp_class_id"] = class_id
 
 
 def _accumulate_extra_damage(effects: ActiveEffects, access, owner_kind, owner_id, state: dict):
@@ -850,6 +863,18 @@ def derive_skills(core: dict, abilities: dict, pb, effects: ActiveEffects,
         if tf:  # PHYSICAL transform: higher of the character's own skill and the form's stat block
             mod = max(mod, form_skills.get(form_sid, mod))
         result[sid] = {"modifier": mod}
+
+    # Form-only skills (T108): a skill the form is proficient in that the base character does not
+    # list at all is GAINED while transformed. Emit it with the form's stat-block bonus, keyed by
+    # the skill's display name (matching the sheet's skill-key convention).
+    if tf and form_skills:
+        core_ids = {access.resolve("skill", k) or k for k in core_skills}
+        for form_sid, bonus in form_skills.items():
+            if form_sid in core_ids:
+                continue
+            key = skills_q.skill_name(access, form_sid) or form_sid
+            if key not in result:
+                result[key] = {"modifier": bonus}
     return result
 
 
@@ -868,6 +893,38 @@ def derive_initiative(core: dict, abilities: dict, pb, effects: ActiveEffects,
     CORE short code, so resolve the Dex mod via the same key normalisation as AC/attacks."""
     dex_mod = _mod_for_ability_id(access, abilities, "dexterity")
     return dex_mod
+
+
+def _core_class_level(core: dict, access, class_id: str) -> int | None:
+    """The character's level in a specific class, read from CORE.identity.classes."""
+    ident = core.get("identity", {}) or {}
+    classes = ident.get("classes", []) if isinstance(ident, dict) else []
+    if isinstance(classes, list):
+        for c in classes:
+            if not isinstance(c, dict) or not _int(c.get("level")):
+                continue
+            if access.resolve("class", c.get("class")) == class_id:
+                return c["level"]
+    return None
+
+
+def derive_form_temp_pool(core: dict, effects: ActiveEffects, access) -> int | None:
+    """The temporary hit-point pool granted by an active self-transform, or None if no transform is
+    active (or the pool cannot be derived). Book rule (T108): a FULL transform grants temporary HP
+    equal to the assumed form's own hit points; a PHYSICAL transform grants temporary HP equal to the
+    level of the class whose feature grants the transform. In both cases the character keeps their
+    OWN hit points — this pool is a separate temporary buffer."""
+    tf = effects.transform
+    if not tf:
+        return None
+    if tf["kind"] == TRANSFORM_FULL:
+        row = creature_q.creature_row(access, tf["creature_id"])
+        return row["hp_average"] if row is not None and _int(row["hp_average"]) else None
+    # PHYSICAL: the granting class's level (captured on the transform in _accumulate_transform)
+    class_id = tf.get("hp_class_id")
+    if not class_id:
+        return None
+    return _core_class_level(core, access, class_id)
 
 
 def derive_hp_effects(core: dict, effects: ActiveEffects, ability_mods: dict, access) -> dict:

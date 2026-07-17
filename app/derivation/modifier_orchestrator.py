@@ -8,7 +8,7 @@ from app.derivation.modifier import (
     ActiveEffects, resolve_active_effects,
     derive_abilities, derive_ac, derive_speed, derive_defenses, derive_size,
     derive_saving_throws, derive_skills, derive_passive_scores,
-    derive_initiative, derive_hp_effects, derive_resource_state,
+    derive_initiative, derive_hp_effects, derive_form_temp_pool, derive_resource_state,
     derive_attacks, derive_senses, derive_features, derive_feats,
 )
 
@@ -230,6 +230,7 @@ def derive_modifier(core: dict, inventory: dict | None, grimoire: dict | None,
     passives = derive_passive_scores(core, skills, effects, access)
     init = derive_initiative(core, ability_mods, pb, effects, access)
     hp_eff = derive_hp_effects(core, effects, ability_mods, access)
+    form_temp_pool = derive_form_temp_pool(core, effects, access)
     res_state = derive_resource_state(core, effects, access)
     attacks = derive_attacks(core, inventory, ability_mods, item_states, effects, access)
     senses = derive_senses(core, effects, access)
@@ -290,6 +291,10 @@ def derive_modifier(core: dict, inventory: dict | None, grimoire: dict | None,
                   for f in feats],
         "prepared_spells": [],
     }
+
+    # An additive field, present only while a self-transform grants a temporary form-HP pool (T108).
+    if form_temp_pool is not None:
+        full["hit_points"]["form_temp_pool"] = form_temp_pool
 
     if mode == "fill" and existing_modifier is not None:
         full = _deep_merge(full, existing_modifier)
