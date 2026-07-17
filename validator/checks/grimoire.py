@@ -530,7 +530,7 @@ def _expected_slotless_tier(grant: dict) -> int | None:
     return None
 
 
-def _check_slotless_grant_completeness(sources: dict, spells: list, classes: list, access,
+def _check_slotless_grant_completeness(spells: list, classes: list, access,
                                        v: list[Violation]) -> None:
     """Require the class-owned once-per-rest granted spells (top-tier slotless grants) a build has
     unlocked.
@@ -624,6 +624,6 @@ def check(sheet: dict, access) -> list[Violation]:
     _check_recovery_validity(spells, access, v)
     _check_ritual_tag(spells, access, v)
     _check_secondary_cast(spells, v)
-    _check_slotless_grant_completeness(sources, spells, classes, access, v)
+    _check_slotless_grant_completeness(spells, classes, access, v)
 
     return v

@@ -65,6 +65,14 @@ def owned_resource_names(access: ValidatorAccess, owner_kind: str, owner_id: str
     return names
 
 
+def grant_resource_owner_kinds(access: ValidatorAccess) -> set[str]:
+    """The distinct owner kinds present in the ``grant_resource`` use-pool spine. Pure DB read — the
+    consumer decides which of these kinds it can resolve from a sheet, so a kind it cannot resolve is
+    surfaced rather than silently dropped."""
+    return {r["owner_kind"] for r in
+            access.db.q("SELECT DISTINCT owner_kind FROM grant_resource")}
+
+
 def ability_abbrev(access: ValidatorAccess, ability_id: str) -> str | None:
     """The lower-cased short abbreviation of an ability (the key CORE uses for it), or None."""
     abbr = access.db.scalar("SELECT abbrev FROM ability WHERE id=?", ability_id)
