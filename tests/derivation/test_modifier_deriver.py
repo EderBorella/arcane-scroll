@@ -427,14 +427,20 @@ def test_stats_less_magic_weapon_materializes_attack(access):
     assert "two-handed" in a["properties"]       # base weapon's properties resolve too
 
 
-def test_ambiguous_base_magic_weapon_no_attack(access):
-    """A stats-less magic weapon with more than one candidate base weapon is ambiguous — no attack
-    is materialised (the deriver must not guess a base)."""
+def test_multi_base_magic_weapon_resolves_canonical_base(access):
+    """A stats-less magic weapon whose template names several base weapons resolves a DETERMINISTIC
+    canonical base (the lowest id among the bases with a real weapon-stats row) rather than skipping
+    the attack (T121). 'Ambi Blade Alpha' has bases weapon-a (martial 1d12 two-handed) and weapon-b
+    (simple 1d6); the canonical base is weapon-a."""
     core = _core()
     inv = {"equipped": {"main_hand": {"id": "w-ambi", "name": "Ambi Blade Alpha"}}}
     effects = resolve_active_effects(core, inv, [], [], access)
     attacks = derive_attacks(core, inv, {"strength": 2, "dexterity": 3}, [], effects, access)
-    assert attacks == []
+    assert len(attacks) == 1
+    a = attacks[0]
+    assert a["attack_bonus"] == 4            # canonical base weapon-a: martial 1d12, Str(2) + PB(2)
+    assert a["damage"] == "1d12+2"           # base 1d12 + Str; mi-ambi-blade owns no rider
+    assert "two-handed" in a["properties"]   # the canonical base's properties resolve too
 
 
 # ── multi-row item extra-damage disambiguation (T57) ─────────────────────────
