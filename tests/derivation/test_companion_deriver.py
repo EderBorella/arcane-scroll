@@ -54,6 +54,13 @@ class TestConcreteDerivation:
         saves = {s["ability"]: s["modifier"] for s in cm["saving_throws"]}
         assert saves == {"a1": -1, "a2": 3, "a3": 1}
 
+    def test_proficient_save_adds_proficiency_bonus(self, access):
+        # creature-sp is proficient in a2 (pb=3): the a2 save is ability mod (+3) PLUS pb (3);
+        # a1/a3 stay plain ability modifiers.
+        cm = comp.derive_companion_modifier(access, 0, "creature-sp")
+        saves = {s["ability"]: s["modifier"] for s in cm["saving_throws"]}
+        assert saves == {"a1": -1, "a2": 6, "a3": 1}
+
     def test_attacks_only_include_actions_with_atk_bonus(self, access):
         cm = comp.derive_companion_modifier(access, 0, "creature-c")
         # 'Recharge Move' has no atk_bonus → excluded; 'Trait C' is a trait → excluded.

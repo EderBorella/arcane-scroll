@@ -23,9 +23,9 @@ class MonsterMaterializationError(ValueError):
     stand-alone stat block."""
 
 
-def derive_monster(access, creature_id: str, index: int = 0) -> dict:
+def derive_monster(access, creature_id: str) -> dict:
     """Materialise ONE concrete creature as a standalone monster entry
-    ``{"creature_id": ..., "stat_block": <companion-modifier statblock>}``.
+    ``{"creature_id": ..., "stat_block": <shared base stat block>}``.
 
     Raises :class:`MonsterMaterializationError` when the creature id does not
     resolve or the creature is templated (owner-scaled)."""
@@ -38,17 +38,18 @@ def derive_monster(access, creature_id: str, index: int = 0) -> dict:
             f"creature {creature_id!r} is owner-scaled (templated) and cannot be "
             f"materialised as a standalone monster: its stats only exist relative "
             f"to an owner's cast level")
-    stat_block = comp.derive_concrete(access, index, creature_id, row)
+    # The owner-less monster references the SHARED base stat block (no companion_index):
+    # derive_concrete emits the bare base when no owner-linkage index is supplied.
+    stat_block = comp.derive_concrete(access, creature_id, row)
     return {"creature_id": creature_id, "stat_block": stat_block}
 
 
 def derive_monster_sheet(access, creature_ids) -> dict:
     """Materialise a ``monster-sheet:1`` document from an ordered list of concrete
-    creature ids. Each entry's stat block carries ``companion_index`` == its index
-    in ``monsters[]`` (there is no owner to link back to). Any templated or unknown
-    creature id raises :class:`MonsterMaterializationError` (fail-fast rejection —
-    a standalone sheet must never carry an un-scaled templated block)."""
-    monsters = []
-    for idx, creature_id in enumerate(creature_ids or []):
-        monsters.append(derive_monster(access, creature_id, idx))
+    creature ids. Each entry's stat block is the shared owner-agnostic base — no
+    ``companion_index``; a monster's position is simply its index in ``monsters[]``
+    (there is no owner to link back to). Any templated or unknown creature id raises
+    :class:`MonsterMaterializationError` (fail-fast rejection — a standalone sheet
+    must never carry an un-scaled templated block)."""
+    monsters = [derive_monster(access, creature_id) for creature_id in (creature_ids or [])]
     return {"schema_version": 1, "monsters": monsters}

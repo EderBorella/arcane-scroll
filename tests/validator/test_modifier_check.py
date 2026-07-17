@@ -645,6 +645,83 @@ def test_item_rider_not_flagged_on_different_weapon(access):
     assert "Blade Alpha" in misses[0].message
 
 
+# ── stats-less magic weapon attack validation (T56) ──────────────────────────
+
+
+def _relic_sheet(attack_bonus, damage):
+    """A sheet wielding 'Relic Blade Alpha' (mi-relic-blade) in main_hand: a magic weapon with no
+    base stats row, backed by base weapon-a (martial 1d12), owning one ungated +1d6 rider, no
+    attunement. The validator resolves the base facts to re-derive the attack (F05-T56)."""
+    sheet = _sheet()
+    sheet["core"]["proficiencies"] = {"armor": [], "weapons": ["martial weapons"], "tools": []}
+    sheet["inventory"] = {"equipped": {"main_hand": {"id": "w-relic", "name": "Relic Blade Alpha"}}}
+    sheet["modifier"]["abilities"]["strength"] = {"modifier": 2, "reduction": 0}
+    sheet["modifier"]["abilities"]["dexterity"] = {"modifier": 3, "reduction": 0}
+    sheet["modifier"]["attacks"] = [
+        {"name": "Relic Blade Alpha", "attack_bonus": attack_bonus, "damage": damage}]
+    return sheet
+
+
+def test_stats_less_magic_weapon_attack_validated(access):
+    """The validator re-derives the base-weapon facts for a stats-less magic weapon and passes a
+    correct attack (Str 2 + PB 2) carrying the item's +1d6 rider."""
+    codes = _codes(_relic_sheet(4, "1d12+2+1d6"), access)
+    assert "attack-bonus-mismatch" not in codes
+    assert "item-attack-damage-rider-missing" not in codes
+
+
+def test_stats_less_magic_weapon_wrong_bonus_fires(access):
+    """A wrong attack bonus on a stats-less magic weapon is now caught (previously skipped as the
+    weapon had no direct stats row)."""
+    assert "attack-bonus-mismatch" in _codes(_relic_sheet(99, "1d12+2+1d6"), access)
+
+
+def test_stats_less_magic_weapon_missing_rider_fires(access):
+    """The item's own +1d6 rider missing from its materialised attack is flagged."""
+    assert "item-attack-damage-rider-missing" in _codes(_relic_sheet(4, "1d12+2"), access)
+
+
+# ── multi-row item extra-damage disambiguation (T57) ─────────────────────────
+
+
+def _multi_blade_sheet(name, damage):
+    """A sheet wielding a magic weapon that owns multiple extra_damage rows, in main_hand (no
+    attunement). The validator re-derives the disambiguation and asserts the single ungated rider."""
+    sheet = _sheet()
+    sheet["core"]["proficiencies"] = {"armor": [], "weapons": ["martial weapons"], "tools": []}
+    sheet["inventory"] = {"equipped": {"main_hand": {"id": "w-multi", "name": name}}}
+    sheet["modifier"]["abilities"]["strength"] = {"modifier": 2, "reduction": 0}
+    sheet["modifier"]["abilities"]["dexterity"] = {"modifier": 3, "reduction": 0}
+    sheet["modifier"]["attacks"] = [{"name": name, "attack_bonus": 4, "damage": damage}]
+    return sheet
+
+
+def test_multi_row_item_ungated_rider_asserted(access):
+    """The validator asserts the single ungated rider (+1d6) of a multi-row item; the gated +3d6
+    variant is not required (F05-T57)."""
+    codes = _codes(_multi_blade_sheet("Multi Blade Alpha", "1d8+2+1d6"), access)
+    assert "item-attack-damage-rider-missing" not in codes
+
+
+def test_multi_row_item_missing_ungated_rider_fires(access):
+    """The single ungated rider missing from a multi-row item's own attack is flagged."""
+    assert "item-attack-damage-rider-missing" in _codes(
+        _multi_blade_sheet("Multi Blade Alpha", "1d8+2"), access)
+
+
+def test_multi_row_item_gated_variant_not_required(access):
+    """The gated +3d6 variant must NOT be demanded on the always-on attack — only the ungated rider
+    is asserted, so an attack carrying just +1d6 is clean."""
+    codes = _codes(_multi_blade_sheet("Multi Blade Alpha", "1d8+2+1d6"), access)
+    assert "item-attack-damage-rider-missing" not in codes
+
+
+def test_two_ungated_rows_assert_nothing(access):
+    """Two ungated rows are ambiguous — the validator asserts no item rider at all (never sums)."""
+    codes = _codes(_multi_blade_sheet("Twin Blade Alpha", "1d8+2"), access)
+    assert "item-attack-damage-rider-missing" not in codes
+
+
 # ── effective-CON max-HP recompute (T50) ─────────────────────────────────────
 
 
@@ -716,6 +793,29 @@ def test_hp_non_state_grant_inert(access):
     CON delta (9) does, so a sheet with max_boost 9 is clean despite feat-gen owning a grant_hp."""
     access = _access_with_con(access)
     assert "hp-max-boost-mismatch" not in _codes(_hp_sheet(con_final=12, level=3, max_boost=9), access)
+
+
+# ── state-gated max-HP reduction (drain/curse) (T58) ─────────────────────────
+
+
+def test_state_gated_max_hp_reduction_expected(access):
+    """The HP check re-derives a state-gated max-HP drain: the 'drained' state's owner has a −6
+    grant_hp, so max_reduction 6 is clean and 0 is flagged (F05-T58)."""
+    access = _access_with_con(access)
+    state = {"state": "drained", "source": "HP Drain Feature A", "source_type": "feature"}
+    # con 12, level 3, no CON-changing item -> CON delta 0; the drain drives max_reduction 6.
+    assert "hp-max-reduction-mismatch" not in _codes(
+        _hp_sheet(con_final=12, level=3, vigor=False, states=[state], max_reduction=6), access)
+    assert "hp-max-reduction-mismatch" in _codes(
+        _hp_sheet(con_final=12, level=3, vigor=False, states=[state], max_reduction=0), access)
+
+
+def test_max_hp_reduction_gate_no_leak_in_check(access):
+    """A reduction gated to a different state id must not be expected for the 'drained' state."""
+    access = _access_with_con(access)
+    state = {"state": "drained", "source": "HP Drain Feature B", "source_type": "feature"}
+    assert "hp-max-reduction-mismatch" not in _codes(
+        _hp_sheet(con_final=12, level=3, vigor=False, states=[state], max_reduction=0), access)
 
 
 # ── smoke ────────────────────────────────────────────────────────────────────

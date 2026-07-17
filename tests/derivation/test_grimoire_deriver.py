@@ -66,12 +66,14 @@ class TestDeriveSources:
         assert s["cantrips_known"] >= 0
         assert s["prepared_limit"] is not None   # class-a is full caster
 
-    def test_warlock_has_null_prepared_limit(self, access):
+    def test_pact_caster_prepared_limit_is_spells_known(self, access):
+        """A pact caster's prepared_limit carries the DB spells-known count (F05-T86): the
+        progression's prepared_spells column, not an uncapped None. class-p knows 3 at level 2."""
         core = _core_sheet()
         core["identity"]["classes"] = [{"class": "Class P", "level": 2}]
         sources = derive_sources(core, access)
         assert "class:class-p" in sources
-        assert sources["class:class-p"]["prepared_limit"] is None
+        assert sources["class:class-p"]["prepared_limit"] == 3
 
     def test_non_caster_no_source(self, access):
         core = _core_sheet()

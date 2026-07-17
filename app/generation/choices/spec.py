@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from access.generator import backgrounds as bg_q
 from access.generator import classes as class_q
 from access.generator import species as species_q
+from app.generation.choices import options
 
 
 @dataclass
@@ -61,6 +62,22 @@ def parse_request(access, payload: dict) -> RequestSpec:
     background = payload.get("background")
     if background is not None and background not in _ids(bg_q.list_backgrounds(access)):
         raise ValueError(f"unknown background: {background!r}")
+
+    # Multiclass legality: a build with more than one class must meet each class's ability
+    # prerequisite (the multiclass minimum in its primary ability). The scores it is checked against
+    # are the ones the build will actually carry — the first class's suggested base array plus the
+    # background's default ability boost — so an illegal combination is gated here rather than reaching
+    # the grammar.
+    if len(classes) > 1:
+        scores = options.base_ability_scores(access, classes[0][0])
+        if background:
+            for aid, amount in options.default_background_boost(access, background).items():
+                scores[aid] = scores.get(aid, 0) + amount
+        shortfall = options.multiclass_prereq_shortfall(access, [cid for cid, _ in classes], scores)
+        if shortfall:
+            raise ValueError(
+                "multiclass ability prerequisite not met for class(es): "
+                + ", ".join(repr(cid) for cid in shortfall))
 
     return RequestSpec(
         species=species, classes=classes, subclasses=subclasses, background=background,

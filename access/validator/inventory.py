@@ -1,5 +1,5 @@
 """Inventory-domain DB facts: catalog item identity, weapon properties, template validation,
-and spell-scroll integrity. Pure DB queries — no business rules."""
+and single-use casting item integrity. Pure DB queries — no business rules."""
 from access.validator import ValidatorAccess
 
 
@@ -21,19 +21,48 @@ def item_is_two_handed(access: ValidatorAccess, catalog_item_id: str) -> bool:
         catalog_item_id) is not None
 
 
+def base_weapon_id_for_item(access: ValidatorAccess, item_id: str) -> str | None:
+    """The base weapon-stats id for a magic weapon that carries no stats row of its own.
+
+    A magic weapon may be catalogued as a weapon yet have no ``weapon`` row (no dice/tier/
+    properties); its underlying base weapon is recorded in ``magic_item_template.base_item_id``.
+    Returns that base id only when it is UNAMBIGUOUS — exactly one distinct non-NULL base that
+    resolves to a real ``weapon`` row — else None (a multi-base or base-less template stays
+    unresolved). Pure DB read; the attack rule stays with the consuming deriver/check."""
+    rows = access.db.q(
+        "SELECT DISTINCT base_item_id FROM magic_item_template "
+        "WHERE template_id=? AND base_kind='weapon' AND base_item_id IS NOT NULL", item_id)
+    bases = [r["base_item_id"] for r in rows]
+    if len(bases) != 1:
+        return None
+    base_id = bases[0]
+    if access.db.one("SELECT 1 FROM weapon WHERE id=?", base_id) is None:
+        return None
+    return base_id
+
+
 def weapon_attack_facts(access: ValidatorAccess, weapon_id: str) -> dict | None:
     """Facts a consumer needs to compute a weapon's attack bonus, or None if the id is not a weapon.
 
     Returns ``{tier_id, range_class_id, finesse}`` where ``finesse`` is True when the weapon carries
     the finesse property. Pure DB reads — the ability-mod choice and proficiency-bonus rule live in
-    the consuming check."""
+    the consuming check. A stats-less magic weapon (no ``weapon`` row) falls back to its unambiguous
+    base weapon's facts, so the consuming check can re-derive its attack bonus (F05-T56)."""
     row = access.db.one(
         "SELECT tier_id, range_class_id FROM weapon WHERE id=?", weapon_id)
+    facts_id = weapon_id
     if row is None:
-        return None
+        base_id = base_weapon_id_for_item(access, weapon_id)
+        if base_id is None:
+            return None
+        row = access.db.one(
+            "SELECT tier_id, range_class_id FROM weapon WHERE id=?", base_id)
+        if row is None:
+            return None
+        facts_id = base_id
     finesse = access.db.one(
         "SELECT 1 FROM weapon_property_map WHERE weapon_id=? AND property_id='finesse'",
-        weapon_id) is not None
+        facts_id) is not None
     return {"tier_id": row["tier_id"], "range_class_id": row["range_class_id"],
             "finesse": finesse}
 

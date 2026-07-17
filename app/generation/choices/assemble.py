@@ -11,7 +11,7 @@ the model's picks refine the fields it is allowed to choose.
 from app.generation.choices import options
 
 
-def assemble_choices(access, spec, resolved, picks, *, feat_slots=0):
+def assemble_choices(access, spec, resolved, picks, *, feat_slots=0, boon_slots=0):
     """The pass-1 choices object from the spec + the model's pass-1 picks. Equipment is added later
     (``apply_equipment``) so the two-pass seam stays intact; until then ``equipment`` is absent."""
     picks = picks or {}
@@ -29,18 +29,38 @@ def assemble_choices(access, spec, resolved, picks, *, feat_slots=0):
         "character_id": spec.character_id,
         "character_name": picks.get("name") or spec.character_name,
         "species": spec.species,
+        "lineage": _lineage(access, spec, picks),
+        "species_variant": _species_variant(access, spec, picks),
         "classes": [{"class": cid, "level": lv, "subclass": sub} for cid, lv, sub in resolved],
         "background": spec.background,
         "ability_scores": base_scores,
         "background_increase": background_increase,
         "skills": list(picks.get("skills") or []),
-        "feats": _feats(access, picks, feat_slots, effective_scores),
+        "feats": _feats(access, picks, feat_slots, boon_slots, effective_scores),
         "spells": _spells(picks),
+        "weapon_masteries": _weapon_masteries(access, resolved, picks),
         "languages": [],
     }
     if spec.alignment is not None:
         choices["alignment"] = spec.alignment
     return choices
+
+
+def _lineage(access, spec, picks):
+    """The chosen lineage id, when the species offers lineages and the model picked a valid one; else
+    None. Validated against the species's lineage set so a stray pick can't reach the deriver."""
+    valid = set(options.lineage_options(access, spec.species))
+    pick = picks.get("lineage")
+    return pick if pick in valid else None
+
+
+def _species_variant(access, spec, picks):
+    """The chosen variant option NAME, when the species offers a variant axis and the model picked a
+    valid option; else None. Validated against the species's option-name set (the sheet's
+    ``species_variant`` field is name-keyed, matched by (species, axis, option_name))."""
+    valid = set(options.variant_option_names(access, spec.species))
+    pick = picks.get("species_variant")
+    return pick if pick in valid else None
 
 
 def _background_increase(access, spec, picks):
@@ -66,22 +86,62 @@ def _background_increase(access, spec, picks):
     return options.default_background_boost(access, spec.background)
 
 
-def _feats(access, picks, feat_slots, effective_scores):
-    """Class/level-slot feats as ``[{feat: id, ability_increase?}, ...]``. A slot is spent on a general
-    feat OR a raw ability-score increase (which is itself a general feat), so each pick is a general
-    feat; when that feat confers an ability-score increase it is folded in as ``ability_increase`` (a
-    DB-grounded allocation the CORE deriver adds to the ability's final). The ORIGIN feat is
-    deliberately absent — CORE adds it from the background automatically, so listing it here would
-    double-count it."""
-    if feat_slots <= 0:
-        return []
+def _feats(access, picks, feat_slots, boon_slots, effective_scores):
+    """Slot feats as ``[{feat: id, ability_increase?}, ...]`` — the general ability-increase/feat
+    slots followed by the top-tier boon slots (each drawing from its own category). A slot is spent
+    on a feat OR a raw ability-score increase (which is itself a feat), so each pick is a feat; when
+    it confers an ability-score increase that increase is folded in as ``ability_increase`` (a
+    DB-grounded allocation the CORE deriver adds to the ability's final).
+
+    For a general slot spent on a raw (from-any) increase, the model's per-slot target pick from
+    ``ability_increases`` decides which ability(ies) rise — a single-target +2 or a +1/+1 split —
+    consumed positionally across the choosable feats; a slot without a supplied (or with an illegal)
+    target falls back to the deterministic allocation. The ORIGIN feat is deliberately absent — CORE
+    adds it from the background automatically, so listing it here would double-count it."""
     out = []
-    for fid in options.dedupe_slot_feats(access, picks.get("feats") or []):
-        entry = {"feat": fid}
-        increase = options.feat_increase_allocation(access, fid, effective_scores)
-        if increase is not None:
-            entry["ability_increase"] = increase
-        out.append(entry)
+    if feat_slots > 0:
+        increase_picks = list(picks.get("ability_increases") or [])
+        ic_idx = 0
+        for fid in options.dedupe_slot_feats(access, picks.get("feats") or []):
+            entry = {"feat": fid}
+            if options.increase_is_choosable(access, fid):
+                choice = increase_picks[ic_idx] if ic_idx < len(increase_picks) else None
+                ic_idx += 1
+                increase = options.increase_from_choice(access, fid, choice, effective_scores)
+            else:
+                increase = options.feat_increase_allocation(access, fid, effective_scores)
+            if increase is not None:
+                entry["ability_increase"] = increase
+            out.append(entry)
+    if boon_slots > 0:
+        # A top-tier boon draws from its own category; its increase (when any) uses the deterministic
+        # allocation — the model chooses the boon, not its ability target.
+        for fid in options.dedupe_slot_feats(access, picks.get("boons") or []):
+            entry = {"feat": fid, "source": "boon"}
+            increase = options.feat_increase_allocation(access, fid, effective_scores)
+            if increase is not None:
+                entry["ability_increase"] = increase
+            out.append(entry)
+    return out
+
+
+def _weapon_masteries(access, resolved, picks):
+    """The chosen masterable-weapon ids, validated against the build's masterable pool and capped at
+    the count the build's weapon-mastery feature grants. Empty when the build gains no such feature
+    or the model picked none — a stray or over-count pick is dropped rather than passed to the
+    deriver, so the CORE ``weapon_masteries`` is legal by construction."""
+    n, pool = options.weapon_mastery_choice(access, resolved)
+    if n <= 0:
+        return []
+    allowed = set(pool)
+    seen: set = set()
+    out: list = []
+    for wid in (picks.get("weapon_masteries") or []):
+        if wid in allowed and wid not in seen:
+            seen.add(wid)
+            out.append(wid)
+        if len(out) >= n:
+            break
     return out
 
 
@@ -97,18 +157,48 @@ def _spells(picks):
 
 def apply_equipment(access, spec, resolved, eq_picks, choices):
     """Fold the pass-2 equipment pick into ``choices``: resolve the chosen bundles' concrete item
-    entries into ``equipment.backpack`` (what the INVENTORY assembly consumes) and record the chosen
-    bundle ids under ``starting_equipment`` for reference. gp / tool-category / focus / proficiency
-    entries are NOT turned into treasure, tools, or foci here — that is deriver work (Phase-5)."""
+    entries, assign each to its natural body slot (a weapon to the main hand, worn armour / a shield
+    to their slots) with the remainder in ``equipment.backpack``, sum the bundles' starting gold into
+    ``treasure``, and record the chosen bundle ids under ``starting_equipment`` for reference.
+
+    The first item claiming a slot keeps it; a later item wanting an occupied slot (a second weapon)
+    falls to the backpack. Items sharing a catalog id across bundles are merged into a single stacked
+    record (their quantities summed) so the inventory never carries a duplicate item id.
+    Tool-category / focus / proficiency-choice entries carry no concrete item and are not represented
+    as inventory yet (a later card)."""
     eq_picks = eq_picks or {}
     bundles: dict = {}
-    backpack: list = []
+    gp = 0
+    # Merge the bundles' items by catalog id first (summing quantities), preserving first-seen order, so
+    # the same item granted by two bundles becomes one stacked record rather than a duplicate id.
+    merged: dict = {}
+    order: list = []
     for owner_kind, field in (("class", "equipment_class"), ("background", "equipment_background")):
         option_id = eq_picks.get(field)
-        if option_id:
-            bundles[owner_kind] = option_id
-            backpack.extend(options.resolve_bundle_items(access, option_id))
+        if not option_id:
+            continue
+        bundles[owner_kind] = option_id
+        gp += options.resolve_bundle_gp(access, option_id)
+        for item in options.resolve_bundle_items(access, option_id):
+            iid = item["id"]
+            if iid in merged:
+                merged[iid]["quantity"] = merged[iid].get("quantity", 1) + item.get("quantity", 1)
+            else:
+                merged[iid] = dict(item)
+                order.append(iid)
+    # Then assign each stacked item to its natural slot; the first to claim a slot keeps it and the
+    # rest fall to the backpack.
+    equipped: dict = {}
+    backpack: list = []
+    for iid in order:
+        item = merged[iid]
+        slot = options.natural_slot(access, iid)
+        if slot and slot not in equipped:
+            equipped[slot] = item
+        else:
+            backpack.append(item)
     if bundles:
         choices["starting_equipment"] = bundles
-    choices["equipment"] = {"equipped": {}, "backpack": backpack}
+    choices["equipment"] = {"equipped": equipped, "backpack": backpack}
+    choices["treasure"] = {"pp": 0, "gp": gp, "ep": 0, "sp": 0, "cp": 0}
     return choices

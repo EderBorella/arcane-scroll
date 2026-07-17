@@ -22,6 +22,7 @@ from access.generator import classes as class_q
 from access.generator import equipment as equip_q
 from access.generator import feats as feat_q
 from access.generator import spells as spell_q
+from access.generator import species as species_q
 
 # The ability score at which the modifier is zero — the neutral baseline the standard-array
 # allocation falls back to for any ability a class's suggested assignment does not cover. In a
@@ -45,6 +46,61 @@ def resolve_subclass(access, class_id, level, override=None, rng=random):
     if override in options:
         return override
     return rng.choice(options)
+
+
+# --------------------------------------------------------------------------- species sub-choices
+def lineage_options(access, species_id):
+    """The lineage ids a species offers as a sub-choice, ordered. Empty when the species has none —
+    the grammar then offers no lineage field. A build picks exactly one when the list is non-empty."""
+    return [r["id"] for r in species_q.species_lineages(access, species_id)]
+
+
+def variant_option_names(access, species_id):
+    """The variant option NAMES a species offers as a sub-choice, in (axis, id) order with duplicates
+    removed. A species's variant axis is a name-keyed pick (matched by (species, axis, option_name)),
+    so the sheet's single ``species_variant`` string carries the chosen option name directly. Empty
+    when the species has no variant axis. (The reference model gives a species at most one variant
+    axis; were several ever added, the single-string sheet field would need a contract change.)"""
+    seen: set = set()
+    out: list = []
+    for r in species_q.species_variant_options(access, species_id):
+        name = r["option_name"]
+        if name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
+
+
+# --------------------------------------------------------------------------- multiclass legality
+# The multiclassing rule requires a score of at least this in the primary ability of the new class and
+# every current class before an additional class may be taken. A rules constant (like the modifier-zero
+# baseline above), not a per-class DB fact — the abilities it applies to ARE read from the reference
+# data (a class's primary abilities and how they combine).
+_MULTICLASS_MIN_SCORE = 13
+
+
+def multiclass_prereq_shortfall(access, class_ids, scores):
+    """The class ids in a build whose multiclass ability prerequisite the given effective ``scores`` do
+    not meet — empty for a single-class build (the prerequisite gates a build only once it ADDS a
+    class) or when every class qualifies.
+
+    The rule: a score of at least the multiclass minimum in the primary ability of the new class AND
+    every current class. A class whose primary abilities combine with an OR relation qualifies on any
+    one of them; otherwise every primary ability must meet the minimum. A class with no primary ability
+    on record is skipped rather than wrongly rejected. ``class_ids`` is the build's classes in request
+    order; ``scores`` is ability-id keyed (base + background boost)."""
+    if len(class_ids) < 2:
+        return []
+    out = []
+    for cid in class_ids:
+        abilities = [r["ability_id"] for r in class_q.class_primary_abilities(access, cid)]
+        if not abilities:
+            continue
+        met = [scores.get(aid, 0) >= _MULTICLASS_MIN_SCORE for aid in abilities]
+        qualifies = any(met) if class_q.class_primary_mode(access, cid) == "or" else all(met)
+        if not qualifies:
+            out.append(cid)
+    return out
 
 
 # --------------------------------------------------------------------------- abilities
@@ -94,6 +150,28 @@ def ability_feat_slot_count(access, resolved):
     return sum(class_q.ability_feat_slots(access, cid, lv) for cid, lv, _sub in resolved)
 
 
+def boon_slot_count(access, resolved):
+    """Total top-tier boon slots the build has opened, summed across its classes — each counted at its
+    OWN class level (a per-class progression). Distinct from :func:`ability_feat_slot_count`; a build
+    that reaches the gating level offers this on top of its general ability-increase slots.
+    ``resolved`` is ``[(class_id, level, subclass_id), ...]``."""
+    return sum(class_q.top_tier_boon_slots(access, cid, lv) for cid, lv, _sub in resolved)
+
+
+def weapon_mastery_choice(access, resolved):
+    """``(n, weapon_ids)`` the build may fill with weapon-mastery picks: ``n`` is the largest
+    weapon-mastery count granted across the build's classes at each class's own level (the counts do
+    not stack — a multiclass keeps the higher allowance), capped at the pool size; ``weapon_ids`` is
+    the masterable-weapon pool. ``(0, [])`` when no class grants a weapon-mastery feature.
+    ``resolved`` is ``[(class_id, level, subclass_id), ...]``."""
+    counts = [class_q.weapon_mastery_count(access, cid, lv) for cid, lv, _sub in resolved]
+    n = max(counts) if counts else 0
+    if n <= 0:
+        return 0, []
+    pool = [r["id"] for r in catalog.masterable_weapons(access)]
+    return min(n, len(pool)), pool
+
+
 def feat_increase_allocation(access, feat_id, effective_scores):
     """The ability-score increase a chosen feat confers, as ``{"ability": ability_id, "amount": int}``,
     or None when the feat confers none. A feat with a fixed target set raises the highest-scoring of
@@ -115,6 +193,57 @@ def feat_increase_allocation(access, feat_id, effective_scores):
     if grant["max_per_ability"] is not None:
         amount = min(amount, grant["max_per_ability"])
     return {"ability": target, "amount": amount}
+
+
+def increase_is_choosable(access, feat_id):
+    """True when a feat's ability-score increase lets the model pick the target — a from-any increase
+    (or one with no fixed target list). A fixed-target increase's ability is data-fixed and is not a
+    model choice; a feat conferring no increase is not choosable either."""
+    grant = feat_q.ability_increase_grant(access, feat_id)
+    return bool(grant and grant["points"] and (grant["from_any"] or not grant["abilities"]))
+
+
+def any_choosable_increase(access, feat_ids):
+    """True if any feat in the pool offers a model-choosable ability-increase target — the grammar
+    uses this to decide whether to expose the per-slot target field at all."""
+    return any(increase_is_choosable(access, fid) for fid in feat_ids)
+
+
+def increase_from_choice(access, feat_id, choice, effective_scores):
+    """The ability-score increase a chosen ability-increase slot confers, honouring the model's
+    target ``choice`` when the feat's increase is choosable and the pick is well-formed and legal,
+    else falling back to the deterministic :func:`feat_increase_allocation`.
+
+    ``choice`` is the model's per-slot pick: ``{"shape": "two", "ability": id}`` for a single-target
+    +2 (returned as ``{"ability", "amount"}``), or ``{"shape": "split", "abilities": [id, id]}`` for
+    a +1/+1 split across two distinct abilities (returned as a list of ``{"ability", "amount"}``).
+    Targets are validated against the grant's allowed set (any ability for a from-any grant) and the
+    split is only honoured when the grant's point budget and per-ability cap allow +1 to two
+    abilities. An absent or illegal pick falls back to the heuristic, so the result is always legal
+    by construction. Returns None when the feat confers no increase."""
+    grant = feat_q.ability_increase_grant(access, feat_id)
+    if grant is None or not grant["points"]:
+        return None
+    if not increase_is_choosable(access, feat_id):
+        # A fixed-target increase's ability is data-fixed — the model has no say.
+        return feat_increase_allocation(access, feat_id, effective_scores)
+    candidates = grant["abilities"] or [r["id"] for r in catalog.list_abilities(access)]
+    allowed = set(candidates)
+    cap = grant["max_per_ability"]
+    if isinstance(choice, dict):
+        shape = choice.get("shape")
+        if shape == "two":
+            aid = choice.get("ability")
+            if aid in allowed:
+                amount = grant["points"] if cap is None else min(grant["points"], cap)
+                return {"ability": aid, "amount": amount}
+        elif shape == "split":
+            abilities = choice.get("abilities")
+            if (isinstance(abilities, list) and len(abilities) == 2
+                    and len(set(abilities)) == 2 and set(abilities) <= allowed
+                    and grant["points"] >= 2 and (cap is None or cap >= 1)):
+                return [{"ability": aid, "amount": 1} for aid in abilities]
+    return feat_increase_allocation(access, feat_id, effective_scores)
 
 
 def any_repeatable(access, feat_ids):
@@ -236,3 +365,30 @@ def resolve_bundle_items(access, option_id):
             continue
         out.append({"id": e["catalog_item_id"], "name": name, "quantity": e["quantity"] or 1})
     return out
+
+
+def resolve_bundle_gp(access, option_id):
+    """The starting gold a chosen bundle grants — the sum of its ``gp`` line entries' amounts (0 when
+    the bundle carries none). The reference model expresses starting wealth as a gp figure inside the
+    equipment bundle, so this is the bundle's contribution to the character's starting treasure."""
+    return sum(e["gp_amount"] or 0
+               for e in equip_q.starting_equipment_entries(access, option_id)
+               if e["kind"] == "gp")
+
+
+def natural_slot(access, item_id):
+    """The body slot a concrete item is worn/wielded in when first equipped, or None when it has no
+    natural slot (gear, tools, consumables — these go to the backpack). A weapon is wielded in the
+    main hand; worn armour occupies the armour slot; a shield occupies the shield slot. Grounded in
+    the item's catalog kind + armour category — no game literals."""
+    facts = equip_q.catalog_item_facts(access, item_id)
+    if facts is None:
+        return None
+    kind = facts["kind"]
+    if kind == "weapon":
+        return "main_hand"
+    if kind == "armor":
+        armor = equip_q.armor_facts(access, item_id)
+        category = armor["category_id"] if armor else None
+        return "shield" if category == "shield" else "armor"
+    return None

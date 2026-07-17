@@ -22,7 +22,7 @@
   },
   "$defs": {
     "monster": {
-      "description": "One materialised standalone monster: the creature it was materialised from, and its resolved stat block. The stat block reuses the companion-modifier statblock shape verbatim; its companion_index is the monster's index within monsters[] (there is no owner to link back to).",
+      "description": "One materialised standalone monster: the creature it was materialised from, and its resolved stat block. The stat block reuses the SHARED owner-agnostic stat-block base (statBlockBase) — there is no owner to link back to, so it carries no companion_index; the monster's position is its index within monsters[].",
       "type": "object",
       "required": [
         "creature_id",
@@ -35,7 +35,10 @@
           "description": "Catalog id of the concrete creature this monster was materialised from."
         },
         "stat_block": {
-          "$ref": "urn:arcane:contract:companion-modifier:1#/$defs/companionModifier"
+          "allOf": [
+            { "$ref": "urn:arcane:contract:companion-modifier:1#/$defs/statBlockBase" }
+          ],
+          "unevaluatedProperties": false
         }
       }
     }

@@ -105,19 +105,26 @@ def _skills(access, creature_id: str) -> list:
             if _int(r["bonus"])]
 
 
-def _saving_throws(access, creature_id: str) -> list:
+def _saving_throws(access, creature_id: str, pb) -> list:
     """Re-derive each save from the creature's own facts: ability modifier plus the
-    creature's proficiency bonus for a proficient save. Creatures store ``pb``
-    directly; the catalog carries NO creature save-proficiency table, so with no
-    proficiency data every save is exactly its ability modifier. (This is a
-    deliberate creature-shaped re-derivation, NOT the character-shaped MODIFIER
-    saves helper.)"""
+    creature's proficiency bonus for a PROFICIENT save. Save proficiencies are read
+    from ``creature_save`` (presence = proficient); the bonus added is the creature's
+    own ``pb`` (``creature.pb``), never an invented one. A save with no proficiency
+    row is exactly its ability modifier. (This is a deliberate creature-shaped
+    re-derivation, NOT the character-shaped MODIFIER saves helper.)"""
     scores = {r["ability_id"]: r["score"]
               for r in creature_q.creature_abilities(access, creature_id)
               if _int(r["score"])}
+    proficient = {r["ability_id"] for r in creature_q.creature_saves(access, creature_id)}
     ordered = [a for a in _ABILITY_ORDER if a in scores]
     ordered += [a for a in scores if a not in _ABILITY_ORDER]
-    return [{"ability": aid, "modifier": _ability_mod(scores[aid])} for aid in ordered]
+    result = []
+    for aid in ordered:
+        modifier = _ability_mod(scores[aid])
+        if aid in proficient and _int(pb):
+            modifier += pb
+        result.append({"ability": aid, "modifier": modifier})
+    return result
 
 
 def _defenses(access, creature_id: str) -> dict | None:
@@ -171,9 +178,12 @@ def _base_hp(row) -> int:
     return hp if _int(hp) else 0
 
 
-def derive_concrete(access, companion_index: int, creature_id: str, row) -> dict:
-    """Derive a full companionModifier for one fixed-stat creature. Asserts the
-    contract-required ``hit_points`` and ``speed`` are present."""
+def derive_concrete(access, creature_id: str, row, companion_index: int | None = None) -> dict:
+    """Derive a full stat block for one fixed-stat creature. Produces the shared
+    owner-agnostic base (``statBlockBase`` shape); when ``companion_index`` is given
+    it is added as the owner-linkage field (a ``companionModifier``), and when it is
+    omitted the block is the bare owner-less base the standalone monster sheet uses.
+    Asserts the contract-required ``hit_points`` and ``speed`` are present."""
     hp_max = _base_hp(row)
     speed = _speed(access, creature_id)
     if not speed:
@@ -181,19 +191,21 @@ def derive_concrete(access, companion_index: int, creature_id: str, row) -> dict
         # contract's minProperties:1 so a data gap can't produce an invalid block.
         speed = {"walk": 0}
 
-    modifier = {
-        "companion_index": companion_index,
+    modifier: dict = {}
+    if companion_index is not None:
+        modifier["companion_index"] = companion_index
+    modifier.update({
         "ability_scores": _ability_scores(access, creature_id),
         "hit_points": {"max": hp_max, "current": hp_max, "temp": 0},
         "hit_dice": _hit_dice(row["hp_dice"]),
         "speed": speed,
         "senses": _senses(access, creature_id),
         "skills": _skills(access, creature_id),
-        "saving_throws": _saving_throws(access, creature_id),
+        "saving_throws": _saving_throws(access, creature_id, row["pb"]),
         "passive_perception": creature_q.creature_passive_perception(access, creature_id),
         "attacks": _attacks(access, creature_id),
         "character_states": [],
-    }
+    })
     if _int(row["ac_value"]):
         modifier["armor_class"] = row["ac_value"]
     defenses = _defenses(access, creature_id)
@@ -448,7 +460,7 @@ def _templated_attacks(access, creature_id: str, by_target: dict,
     return result
 
 
-def derive_templated(access, companion_index: int, creature_id: str, row, ctx: dict) -> dict:
+def derive_templated(access, creature_id: str, row, ctx: dict, companion_index: int | None = None) -> dict:
     """Derive a full companionModifier for one TEMPLATED creature by evaluating its
     ``creature_formula`` rows against the resolved owner context. Non-scaled facts
     (ability scores, speed, senses, skills, saves, defences) are read straight from
@@ -476,16 +488,18 @@ def derive_templated(access, companion_index: int, creature_id: str, row, ctx: d
     speed = _speed(access, creature_id) or {"walk": 0}
     attacks = _templated_attacks(access, creature_id, by_target, multi_trait_ids, ctx, form)
 
-    modifier = {
-        "companion_index": companion_index,
+    modifier = {}
+    if companion_index is not None:
+        modifier["companion_index"] = companion_index
+    modifier.update({
         "hit_points": {"max": hp, "current": hp, "temp": 0},
         "speed": speed,
         "character_states": [],
-    }
+    })
     abilities = _ability_scores(access, creature_id)
     if abilities:
         modifier["ability_scores"] = abilities
-        modifier["saving_throws"] = _saving_throws(access, creature_id)
+        modifier["saving_throws"] = _saving_throws(access, creature_id, row["pb"])
     senses = _senses(access, creature_id)
     if senses:
         modifier["senses"] = senses
@@ -523,8 +537,8 @@ def derive_companion_modifier(access, companion_index: int, creature_id: str,
         return None
     if is_templated(access, creature_id):
         ctx = _owner_context(core, grimoire, access, creature_id, comp_entry or {})
-        return derive_templated(access, companion_index, creature_id, row, ctx)
-    return derive_concrete(access, companion_index, creature_id, row)
+        return derive_templated(access, creature_id, row, ctx, companion_index)
+    return derive_concrete(access, creature_id, row, companion_index)
 
 
 def derive_companion_modifiers(core: dict, access, grimoire: dict | None = None) -> list[dict]:

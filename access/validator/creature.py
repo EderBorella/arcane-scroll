@@ -48,6 +48,18 @@ def creature_skills(access: ValidatorAccess, creature_id: str) -> list:
         "ORDER BY skill_id", creature_id)
 
 
+def creature_saves(access: ValidatorAccess, creature_id: str) -> list:
+    """Raw saving-throw proficiency markers for a creature (creature_save).
+
+    Each row marks the creature as proficient in that ability's save; the row is a
+    pure marker (no value column). The proficient save's bonus — the ability
+    modifier plus the creature's own proficiency bonus (``creature.pb``) — is
+    re-derived by the consumer, mirroring ``creature_skill``/``creature_ability``."""
+    return access.db.q(
+        "SELECT ability_id FROM creature_save WHERE creature_id=? "
+        "ORDER BY ability_id", creature_id)
+
+
 def creature_passive_perception(access: ValidatorAccess, creature_id: str) -> int | None:
     """The stated passive Perception of a creature, or None if none is stored."""
     return access.db.scalar(

@@ -11,6 +11,18 @@ from validator.report import Violation
 DOMAIN = "saving_throws"
 
 
+def _feat_name(entry):
+    """A feats entry may be a bare name (string) or an object carrying a `name` field (the
+    top-level-fields sheet shape). Return the name to hand to the resolver, or None if the entry
+    carries no usable name -- passing the raw object to the resolver never resolves, silently
+    dropping any proficiency the feat grants."""
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, dict):
+        return entry.get("name")
+    return None
+
+
 def check(sheet: dict, access) -> list[Violation]:
     v: list[Violation] = []
     saves = sheet.get("saving_throws")
@@ -36,7 +48,7 @@ def check(sheet: dict, access) -> list[Violation]:
     feats = sheet.get("feats")
     if isinstance(feats, list):
         for f in feats:
-            feat_id = access.resolve("feat", f)
+            feat_id = access.resolve("feat", _feat_name(f))
             if feat_id is not None:
                 expected_saves |= set(q.granted_save_abilities(access, "feat", feat_id))
 

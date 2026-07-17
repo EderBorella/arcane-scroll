@@ -29,24 +29,17 @@
     }
   },
   "$defs": {
-    "companionModifier": {
-      "description": "Effective current stats for one companion. Links to CORE.companions[] by index. Creature base stats come from DB; this records the resolved values after all active modifiers.",
+    "statBlockBase": {
+      "description": "Owner-agnostic creature stat block — the shared shape reused by BOTH the companion modifier and the standalone monster sheet. Records the resolved current values after all active modifiers; base creature stats come from the DB. Carries no owner linkage: the companion modifier adds the owner-linkage index (companion_index); the owner-less monster sheet references this bare base.",
       "type": "object",
       "required": [
-        "companion_index",
         "hit_points",
         "speed"
       ],
-      "additionalProperties": false,
       "properties": {
-        "companion_index": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Index into CORE.companions[] array."
-        },
         "armor_class": {
           "type": ["integer", "null"],
-          "description": "Effective AC including any spell bonuses (Mage Armor, Shield of Faith)."
+          "description": "Effective AC including any spell-granted AC bonuses."
         },
         "hit_points": {
           "type": "object",
@@ -233,6 +226,23 @@
           "description": "Companion active states. Same structure as MODIFIER character_states. Tracks companion-specific conditions: concentrating (if casting), poisoned, invisible, hidden, dodging, etc."
         }
       }
+    },
+    "companionModifier": {
+      "description": "Effective current stats for one companion: the shared owner-agnostic base plus the owner-linkage index (companion_index) into CORE.companions[]. Single source of truth for the stat-block shape is statBlockBase; this def only adds the owner linkage.",
+      "allOf": [
+        { "$ref": "#/$defs/statBlockBase" }
+      ],
+      "properties": {
+        "companion_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Index into CORE.companions[] array."
+        }
+      },
+      "required": [
+        "companion_index"
+      ],
+      "unevaluatedProperties": false
     },
     "companionState": {
       "description": "One active state affecting the companion. Same shape as MODIFIER characterState.",

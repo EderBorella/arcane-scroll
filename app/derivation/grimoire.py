@@ -12,7 +12,7 @@ from collections import defaultdict
 import hashlib
 import json
 
-from access.primitives import grants_for, resource_at
+from access.primitives import fixed_spell_ids, grants_for, resource_at
 from access.validator import abilities as abilities_q
 
 
@@ -123,11 +123,14 @@ def derive_sources(core: dict, access) -> dict:
         # Include source even without ability — pact-magic casters may not
         # have a mapped ability in the test DB but still grant slots/spells.
         key = f"class:{cid}"
+        # A pact-caster's spells-known count lives in the same progression column (prepared_spells);
+        # carry it through as the prepared_limit so placement caps chosen picks at the DB count
+        # rather than leaving the pact source uncapped.
         sources[key] = {
             "kind": "class",
             "ability": ability or "",
             "cantrips_known": ck or 0,
-            "prepared_limit": None if prog == "pact" else prep,
+            "prepared_limit": prep,
             "ability_mode": None,
         }
 
@@ -345,7 +348,7 @@ def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access,
                     continue
 
                 # Get the spell name(s) from fixed grants
-                spell_ids = _grant_spell_fixed_ids(access, g["id"])
+                spell_ids = fixed_spell_ids(access.db, g["id"])
                 for sid in spell_ids:
                     srow = _spell_row(access, sid)
                     if not srow:
@@ -367,7 +370,7 @@ def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access,
                 source_key = _source_key_for_feat(fid, sources)
                 if not source_key:
                     continue
-                for sid in _grant_spell_fixed_ids(access, g["id"]):
+                for sid in fixed_spell_ids(access.db, g["id"]):
                     srow = _spell_row(access, sid)
                     if not srow:
                         continue
@@ -390,7 +393,7 @@ def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access,
                 source_key = _source_key_for_kind(owner_kind, oid, sources)
                 if not source_key:
                     continue
-                for sid in _grant_spell_fixed_ids(access, g["id"]):
+                for sid in fixed_spell_ids(access.db, g["id"]):
                     srow = _spell_row(access, sid)
                     if not srow:
                         continue
@@ -419,23 +422,34 @@ def derive_spells(core: dict, prev_grimoire: dict | None, sources: dict, access,
     # CLASS source whose spell list carries it and still has budget remaining.  Absent chosen picks
     # (the gold / migrate path) this loop does not run, so the deterministic output is unchanged.
     if chosen_spells:
-        _place_chosen_spells(chosen_spells, sources, ident, access, add_spell, seen)
+        _place_chosen_spells(chosen_spells, sources, core, access, add_spell, seen, spells)
 
     return spells
 
 
-def _place_chosen_spells(chosen_spells: dict, sources: dict, ident: dict, access,
-                         add_spell, seen: set) -> None:
+def _place_chosen_spells(chosen_spells: dict, sources: dict, core: dict, access,
+                         add_spell, seen: set, spells: list) -> None:
     """Assign the generator's chosen spell ids onto the CLASS sources, honouring the DB budgets.
 
     Each chosen cantrip is bucketed ``cantrip`` (at-will) and each chosen leveled spell ``prepared``
-    (cast from a slot); it lands on the first class source whose effective spell list carries the
-    spell and whose remaining count for that bucket is not yet spent.  Spell ids/names resolve from
-    the DB — content-neutral.
+    (cast from a slot); it lands on the first class source whose legal spell list carries the spell
+    and whose remaining count for that bucket is not yet spent.  Spell ids/names resolve from the
+    DB — content-neutral.
+
+    A source's legal list mirrors the validator's admission: the effective list class PLUS any
+    list-WIDENING grants (class / subclass at the class's level, and any sheet-wide class_detail /
+    class_option widening), so a pick legal only through a widening grant is placed rather than
+    dropped (F05-T84).
+
+    The per-source, per-bucket budget is reduced by same-bucket grants already placed on that class
+    source (a subclass free bonus cantrip, or any deterministic same-bucket grant), so granted +
+    chosen never exceeds the DB budget (F05-T93 / F05-T85).
     """
     from access.validator import spellcasting as q
 
+    ident = core.get("identity", {}) or {}
     classes = ident.get("classes", []) or []
+    features = core.get("features", []) or []
 
     def _list_class_for(cid: str) -> str:
         """The spell-list class a class source draws from — a third-caster subclass casts from its
@@ -450,19 +464,60 @@ def _place_chosen_spells(chosen_spells: dict, sources: dict, ident: dict, access
                 break
         return cid
 
+    # Sheet-wide list-widening from class_detail / class_option choices (mirrors the validator,
+    # which admits these regardless of which class source is under test).
+    sheet_wide_widen: set[str] = set()
+    for c in classes:
+        detail_name = c.get("class_detail") if isinstance(c, dict) else None
+        if detail_name:
+            did = access.resolve("detail_option", detail_name)
+            if did:
+                sheet_wide_widen |= set(q.list_widening_classes(access, "class_detail", did))
+    for fe in features:
+        fname = fe.get("name") if isinstance(fe, dict) else fe
+        oid_opt = access.resolve("class_option", fname)
+        if oid_opt:
+            sheet_wide_widen |= set(q.list_widening_classes(access, "class_option", oid_opt))
+
+    def _legal_lists_for(cid: str, base_list: str) -> set[str]:
+        legal = {base_list}
+        own_level = None
+        sub_id = None
+        for c in classes:
+            if _class_id(c, access) == cid:
+                own_level = c.get("level")
+                sub_id = _subclass_id(c, access)
+                break
+        legal |= set(q.list_widening_classes(access, "class", cid, own_level))
+        if sub_id:
+            legal |= set(q.list_widening_classes(access, "subclass", sub_id, own_level))
+        legal |= sheet_wide_widen
+        return legal
+
     list_class: dict[str, str] = {}
+    legal_lists: dict[str, set[str]] = {}
     for key, src in sources.items():
         if isinstance(src, dict) and src.get("kind") == "class":
-            list_class[key] = _list_class_for(key.split(":", 1)[1])
+            cid = key.split(":", 1)[1]
+            base = _list_class_for(cid)
+            list_class[key] = base
+            legal_lists[key] = _legal_lists_for(cid, base)
 
     def _place(spell_ids, bucket: str, budget_field: str, recovery: str) -> None:
         # Remaining budget per class source (None = untabulated → unlimited, matching the validator,
-        # which flags only counts that EXCEED an integer budget).
+        # which flags only counts that EXCEED an integer budget).  Same-bucket grants already placed
+        # on a source are reserved (subtracted) so granted + chosen cannot overflow the DB budget.
         remaining: dict[str, int | None] = {}
         for key, src in sources.items():
-            if isinstance(src, dict) and src.get("kind") == "class":
-                b = src.get(budget_field)
-                remaining[key] = b if _is_int(b) else None
+            if not (isinstance(src, dict) and src.get("kind") == "class"):
+                continue
+            b = src.get(budget_field)
+            if not _is_int(b):
+                remaining[key] = None
+                continue
+            granted = sum(1 for e in spells
+                          if e.get("source") == key and e.get("bucket") == bucket)
+            remaining[key] = max(0, b - granted)
         for sid in spell_ids or []:
             srow = _spell_row(access, sid)
             if not srow:
@@ -470,7 +525,7 @@ def _place_chosen_spells(chosen_spells: dict, sources: dict, ident: dict, access
             for key in list_class:
                 if (srow["name"], key) in seen:
                     break  # already on this source (e.g. an always-grant) — nothing to place
-                if not q.spell_on_class_list(access, sid, list_class[key]):
+                if not any(q.spell_on_class_list(access, sid, lc) for lc in legal_lists[key]):
                     continue
                 if remaining[key] is not None and remaining[key] <= 0:
                     continue
@@ -481,17 +536,6 @@ def _place_chosen_spells(chosen_spells: dict, sources: dict, ident: dict, access
 
     _place(chosen_spells.get("cantrips"), "cantrip", "cantrips_known", "at_will")
     _place(chosen_spells.get("spells"), "prepared", "prepared_limit", "spell_slot")
-
-
-def _grant_spell_fixed_ids(access, grant_id: str) -> list[str]:
-    """Return spell_ids for fixed-grant spells for a given grant_spell id."""
-    # ORDER BY spell_id for a deterministic, rebuild-stable order (the table's
-    # composite PK is (grant_id, spell_id); order only, no value change).
-    rows = access.db.q(
-        "SELECT spell_id FROM grant_spell_fixed WHERE grant_id = ? ORDER BY spell_id",
-        grant_id
-    )
-    return [r[0] for r in rows]
 
 
 def _spell_row(access, spell_id: str):

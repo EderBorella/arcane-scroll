@@ -76,6 +76,28 @@ def _equipped_choices():
     return choices
 
 
+def _true_noncaster_choices():
+    """A build with NO spell source of any kind — a non-caster class below its subclass unlock plus a
+    species that grants no innate spell (``species-l``). Carries no GRIMOIRE at all."""
+    choices = _noncaster_choices()
+    choices["character_id"] = "char-nc2"
+    choices["species"] = "species-l"
+    choices["classes"] = [{"class": "class-m", "level": 2, "subclass": None}]
+    choices["skills"] = []
+    return choices
+
+
+def _enriched_choices():
+    """The non-caster build holding a weapon and a suit of armour with full catalog facts to resolve —
+    exercises the INVENTORY catalog-enrichment pass (F05-T80)."""
+    choices = _noncaster_choices()
+    choices["equipment"] = {
+        "equipped": {"main_hand": {"name": "Weapon A"}},
+        "backpack": ["Armor B"],
+    }
+    return choices
+
+
 @pytest.fixture
 def document(gen_access):
     return derive_document(_noncaster_choices(), gen_access)
@@ -126,11 +148,73 @@ def test_caster_document_includes_grimoire(gen_access):
     assert document["grimoire"]["schema_version"] == 1
 
 
-def test_species_innate_spell_only_produces_no_grimoire(gen_access):
-    # An innate species cantrip is not a CLASS spellcasting progression → no GRIMOIRE sheet, even
-    # though the build technically has a spell source.
+def test_species_innate_spell_produces_grimoire_with_species_source(gen_access, access):
+    # T81: an innate species spell grant is carried through as its own GRIMOIRE source category
+    # (kind 'species') rather than dropped, so the innate spell has a home in the document.
     document = derive_document(_innate_only_choices(), gen_access)
+    assert "grimoire" in document
+    sources = document["grimoire"]["sources"]
+    assert any(isinstance(s, dict) and s.get("kind") == "species" for s in sources.values())
+    # the innate-source GRIMOIRE is independently accepted by the GRIMOIRE validator
+    report = validate_grimoire(document["core"], document["grimoire"], access)
+    assert report["legal"] is True, report["violations"]
+
+
+def test_no_spell_source_produces_no_grimoire(gen_access):
+    # A build with neither class spellcasting nor an innate species/lineage grant carries no GRIMOIRE.
+    document = derive_document(_true_noncaster_choices(), gen_access)
     assert "grimoire" not in document
+
+
+# --------------------------------------------------------------------------- starting treasure (T79)
+
+def test_pipeline_emits_starting_treasure_from_choices(gen_access):
+    choices = _noncaster_choices()
+    choices["treasure"] = {"pp": 0, "gp": 25, "ep": 0, "sp": 0, "cp": 0}
+    document = derive_document(choices, gen_access)
+    assert document["modifier"]["treasure"]["gp"] == 25
+
+
+def test_pipeline_treasure_defaults_zero_without_choice(document):
+    assert document["modifier"]["treasure"] == {"pp": 0, "gp": 0, "ep": 0, "sp": 0, "cp": 0}
+
+
+# --------------------------------------------------------------------------- catalog enrichment (T80)
+
+def test_inventory_records_enriched_with_catalog_facts(gen_access):
+    document = derive_document(_enriched_choices(), gen_access)
+    inv = document["inventory"]
+    weapon = inv["equipped"]["main_hand"]
+    assert weapon["category"] == "weapon"
+    assert weapon["damage_dice"] == "1d12"
+    assert weapon["damage_type"] == "slashing"
+    assert weapon["mastery"] == "mastery-a"
+    assert weapon["properties"] == ["two-handed"]
+    assert weapon["weight"] == 7.0
+    armor = inv["backpack"][0]
+    assert armor["category"] == "armor"
+    assert armor["armor_category"] == "light"
+    assert armor["base_ac"] == 11
+
+
+def test_enrichment_does_not_override_explicit_spec_fields(gen_access):
+    choices = _noncaster_choices()
+    choices["equipment"] = {"equipped": {},
+                            "backpack": [{"name": "Weapon A", "category": "custom", "quantity": 2}]}
+    record = derive_document(choices, gen_access)["inventory"]["backpack"][0]
+    assert record["category"] == "custom"   # an explicit spec field is kept over the catalog fact
+    assert record["quantity"] == 2
+    assert record["damage_dice"] == "1d12"  # the catalog still fills facts the spec omitted
+
+
+def test_enriched_document_all_schemas_pass(gen_access, access):
+    document = derive_document(_enriched_choices(), gen_access)
+    assert validate_core(document["core"], access)["legal"] is True
+    inv = validate_inventory(document["core"], document["inventory"], document.get("modifier"), access)
+    assert inv["legal"] is True, inv["violations"]
+    mod = validate_modifier(document["core"], document["inventory"], document.get("grimoire"),
+                            document["modifier"], access)
+    assert mod["legal"] is True, mod["violations"]
 
 
 def test_caster_all_schemas_pass(gen_access, access):

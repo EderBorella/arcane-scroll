@@ -200,11 +200,15 @@ def _check_saves(sheet: dict, access, v: list[Violation], transform: dict | None
     if not isinstance(core_saves, dict) or not isinstance(mod_saves, dict):
         return
 
-    # Under a FULL transform saves are the form's ability modifiers with NO character
-    # proficiency/PB and no item bonus (gear melds into the form). A PHYSICAL transform keeps
-    # the character's own proficiencies/PB on the (partly replaced) ability modifiers.
+    # Under a FULL transform saves are the FORM's stat-block saves — the form's ability modifier
+    # plus the form's own proficiency bonus where the form is proficient (T63), NO character
+    # proficiency/PB and no item bonus (gear melds into the form). A PHYSICAL transform keeps the
+    # character's own proficiencies/PB on the (partly replaced) ability modifiers, then takes the
+    # HIGHER OF the character's own save and the form's — gaining the form's proficiency (T65).
     full_transform = bool(transform and transform["kind"] == TRANSFORM_FULL)
     item_all_bonus, item_per_ability = (0, {}) if full_transform else _item_save_bonuses(sheet, access)
+    form_saves = _form_save_mods(access, transform["creature_id"]) if transform else {}
+    form_save_prof = _form_save_proficiencies(access, transform["creature_id"]) if transform else set()
 
     for aid, save_obj in mod_saves.items():
         if not isinstance(save_obj, dict):
@@ -213,11 +217,16 @@ def _check_saves(sheet: dict, access, v: list[Violation], transform: dict | None
         if not _int(actual):
             continue
 
+        # `aid` is the MODIFIER save key (a short code); per-ability item bonuses and form saves are
+        # keyed by the grant/creature's full DB ability id, so normalise before matching.
+        full_aid = abilities_q.ability_id_for_short_key(access, aid) or aid
+
         if full_transform:
             ab_mod = (mod_abilities.get(aid, {}) or {}).get("modifier", 0)
-            if actual != ab_mod:
+            expected = form_saves.get(full_aid, ab_mod)
+            if actual != expected:
                 v.append(Violation(DOMAIN, "save-modifier-mismatch", "illegal",
-                                   f"{aid}: modifier {actual} != expected {ab_mod}",
+                                   f"{aid}: modifier {actual} != expected {expected}",
                                    f"saving_throws.{aid}.modifier"))
             continue
 
@@ -226,16 +235,18 @@ def _check_saves(sheet: dict, access, v: list[Violation], transform: dict | None
             proficient = core_save.get("proficient", False)
         else:
             proficient = bool(core_save)
+        # PHYSICAL transform: gain the form's save proficiencies (applied with the character's OWN PB).
+        if transform and full_aid in form_save_prof:
+            proficient = True
         ab_data = mod_abilities.get(aid, {}) or {}
         ab_mod = ab_data.get("modifier", 0)
 
         expected = ab_mod
         if proficient and _int(pb):
             expected += pb
-        # `aid` is the MODIFIER save key (a short code); per-ability item bonuses are keyed by the
-        # grant's target_id (a full DB id), so normalise before matching.
-        full_aid = abilities_q.ability_id_for_short_key(access, aid) or aid
         expected += item_all_bonus + item_per_ability.get(full_aid, 0)
+        if transform:  # PHYSICAL transform: higher of the character's own save and the form's block
+            expected = max(expected, form_saves.get(full_aid, expected))
 
         if actual != expected:
             v.append(Violation(DOMAIN, "save-modifier-mismatch", "illegal",
@@ -246,7 +257,7 @@ def _check_saves(sheet: dict, access, v: list[Violation], transform: dict | None
 # ── skills ───────────────────────────────────────────────────────────────────
 
 
-def _check_skills(sheet: dict, v: list[Violation], transform: dict | None = None) -> None:
+def _check_skills(sheet: dict, access, v: list[Violation], transform: dict | None = None) -> None:
     core = sheet.get("core", {})
     mod = sheet.get("modifier", {})
     core_skills = core.get("skills", {}) or {}
@@ -256,9 +267,12 @@ def _check_skills(sheet: dict, v: list[Violation], transform: dict | None = None
     if not isinstance(mod_skills, dict):
         return
 
-    # Under a FULL transform skills are the form's ability modifiers with NO character
-    # proficiency/PB; a PHYSICAL transform keeps the character's own proficiencies/PB.
+    # Under a FULL transform skills are the FORM's stat-block skills — the form's skill bonus where
+    # the form has that skill, else the form's ability modifier, with NO character proficiency/PB. A
+    # PHYSICAL transform keeps the character's own proficiencies/PB, then takes the HIGHER OF the
+    # character's own skill and the form's — gaining the form's skill proficiency (T65).
     full_transform = bool(transform and transform["kind"] == TRANSFORM_FULL)
+    form_skills = _form_skill_mods(access, transform["creature_id"]) if transform else {}
 
     for sid, skill_obj in mod_skills.items():
         if not isinstance(skill_obj, dict):
@@ -273,12 +287,22 @@ def _check_skills(sheet: dict, v: list[Violation], transform: dict | None = None
         sk_ability = core_skill.get("ability", "")
         ab_data = mod_abilities.get(sk_ability, {}) or {}
         ab_mod = ab_data.get("modifier", 0)
-        expected = ab_mod
-        if not full_transform and _int(pb):
-            if core_skill.get("expertise"):
-                expected += pb * 2
-            elif core_skill.get("proficient"):
-                expected += pb
+        # `sid` is the sheet's skill key (a display name); the form's skills are keyed by the DB
+        # skill id, so resolve before looking up a form skill bonus / proficiency.
+        form_sid = access.resolve("skill", sid) or sid if transform else None
+        if full_transform:
+            expected = form_skills.get(form_sid, ab_mod)
+        else:
+            expected = ab_mod
+            if _int(pb):
+                # PHYSICAL transform: gain the form's skill proficiency (own PB) in addition to own.
+                prof = core_skill.get("proficient") or (bool(transform) and form_sid in form_skills)
+                if core_skill.get("expertise"):
+                    expected += pb * 2
+                elif prof:
+                    expected += pb
+            if transform:  # PHYSICAL transform: higher of the character's own skill and the form's
+                expected = max(expected, form_skills.get(form_sid, expected))
 
         if actual != expected:
             v.append(Violation(DOMAIN, "skill-modifier-mismatch", "illegal",
@@ -477,12 +501,14 @@ def _check_attack_damage(sheet: dict, access, v: list[Violation]) -> None:
         if mid is None:
             continue
         rows = inventory_q.extra_damage_grants(access, "magic_item", mid)
-        # fold only an UNGATED single-row item rider — multi-row items are carded separately, and a
-        # condition_kind-gated item rider is state-scoped (the state path owns it). Mirror the state
-        # path's discipline so a future gated item rider isn't silently blessed; none exist today.
-        if len(rows) != 1 or rows[0]["condition_kind"] is not None:
+        # Re-derive the disambiguation independently (F05-T57): among the item's extra-damage rows,
+        # the single UNGATED row is the always-on rider; condition_kind-gated rows are state-scoped
+        # (the state path owns them). Assert only that one ungated rider — more than one is ambiguous
+        # (folds nothing) and a lone gated row belongs to the state path, so neither is asserted here.
+        ungated = [r for r in rows if r["condition_kind"] is None]
+        if len(ungated) != 1:
             continue
-        dc, df = rows[0]["die_count"], rows[0]["die_faces"]
+        dc, df = ungated[0]["die_count"], ungated[0]["die_faces"]
         if not (_int(dc) and _int(df) and dc != 0):
             continue
         if not _item_rider_active(sheet, access, name, mid):
@@ -696,17 +722,20 @@ def _con_hp_delta(sheet: dict, access, total_level: int) -> int:
     return (eff_con_mod - core_con_mod) * total_level
 
 
-def _state_hp_boost(sheet: dict, access) -> int:
-    """Total flat/per-level HP from grant_hp rows owned by ACTIVE character_states' owners.
+def _state_hp(sheet: dict, access) -> tuple[int, int]:
+    """Total (boost, reduction) from grant_hp rows owned by ACTIVE character_states' owners.
 
-    Mirrors the deriver's state-only HP accumulation: only a state's owner contributes (an always-on
-    owner's grant_hp never does). Combined with the CON-delta to reconstruct max_boost — omitting it
-    would false-positive whenever a state legitimately boosts HP."""
+    Mirrors the deriver's state-only HP accumulation and its gate + sign rule: only a state's owner
+    contributes (an always-on owner's grant_hp never does), a grant applies when ungated or its
+    condition_kind matches the state's id, and a NEGATIVE amount is a drain/curse into max_reduction
+    while a positive one raises max_boost (F05-T58). Combined with the CON-delta to reconstruct
+    max_boost / max_reduction — omitting either would false-positive on a legitimate state effect."""
     mod = sheet.get("modifier", {}) or {}
     states = mod.get("character_states", []) or []
     if not isinstance(states, list):
-        return 0
-    total = 0
+        return 0, 0
+    boost = 0
+    reduction = 0
     for st in states:
         if not isinstance(st, dict):
             continue
@@ -716,9 +745,17 @@ def _state_hp_boost(sheet: dict, access) -> int:
         owner_id = access.resolve(owner_kind, st.get("source"))
         if owner_id is None:
             continue
-        for row in vitals_q.hp_grants(access, owner_kind, owner_id):
-            total += (row["flat"] or 0) + (row["per_level"] or 0)
-    return total
+        state_id = st.get("state")
+        for row in vitals_q.state_hp_grants(access, owner_kind, owner_id):
+            gate = row["condition_kind"]
+            if gate is not None and gate != state_id:
+                continue
+            amount = (row["flat"] or 0) + (row["per_level"] or 0)
+            if amount >= 0:
+                boost += amount
+            else:
+                reduction += -amount
+    return boost, reduction
 
 
 def _check_hp(sheet: dict, access, v: list[Violation], transform: dict | None = None) -> None:
@@ -744,10 +781,10 @@ def _check_hp(sheet: dict, access, v: list[Violation], transform: dict | None = 
 
     total_level = _total_level(core)
     hp_delta = 0 if transform else _con_hp_delta(sheet, access, total_level)
-    state_hp = _state_hp_boost(sheet, access)
+    state_boost, state_reduction = _state_hp(sheet, access)
 
-    expected_boost = state_hp + max(0, hp_delta)
-    expected_reduction = max(0, -hp_delta)
+    expected_boost = state_boost + max(0, hp_delta)
+    expected_reduction = state_reduction + max(0, -hp_delta)
 
     if actual_boost != expected_boost:
         v.append(Violation(DOMAIN, "hp-max-boost-mismatch", "illegal",
@@ -1081,6 +1118,40 @@ def _form_defenses(access, creature_id: str) -> dict:
     }
 
 
+def _form_save_mods(access, creature_id: str) -> dict:
+    """The form's stat-block saving-throw modifier per full ability id, INDEPENDENTLY re-derived
+    from the catalog: the form's ability modifier plus the FORM's own proficiency bonus
+    (``creature.pb``) for a save the form is proficient in (``creature_save``, T63). Used for the
+    self-transform higher-of (physical) and the form-authoritative saves (full). Reads DB facts
+    only — never the deriver."""
+    scores = {r["ability_id"]: r["score"]
+              for r in creature_q.creature_abilities(access, creature_id) if _int(r["score"])}
+    proficient = {r["ability_id"] for r in creature_q.creature_saves(access, creature_id)}
+    row = creature_q.creature_row(access, creature_id)
+    form_pb = row["pb"] if row is not None else None
+    out = {}
+    for aid, score in scores.items():
+        modifier = (score - 10) // 2
+        if aid in proficient and _int(form_pb):
+            modifier += form_pb
+        out[aid] = modifier
+    return out
+
+
+def _form_save_proficiencies(access, creature_id: str) -> set:
+    """The full ability ids the form is proficient in for saves (``creature_save``). Under a
+    PHYSICAL transform the character GAINS these proficiencies and applies their OWN PB to them."""
+    return {r["ability_id"] for r in creature_q.creature_saves(access, creature_id)}
+
+
+def _form_skill_mods(access, creature_id: str) -> dict:
+    """The form's stat-block skill modifier per skill id (``creature_skill.bonus``), re-derived
+    from the catalog for the self-transform higher-of (physical) / form-authoritative (full) skills.
+    The keys are also the form's skill proficiencies, which a PHYSICAL transform GAINS (own PB)."""
+    return {r["skill_id"]: r["bonus"]
+            for r in creature_q.creature_skills(access, creature_id) if _int(r["bonus"])}
+
+
 def _form_attacks(access, creature_id: str) -> dict:
     """The form's expected attacks keyed by name → (attack_bonus, damage, damage_type),
     re-derived from the creature's action rows (the same catalog source the deriver reads). An
@@ -1238,7 +1309,7 @@ def check(sheet: dict, access) -> list[Violation]:
     _check_ac(sheet, v)
     _check_ac_bonus_dedup(sheet, v)
     _check_saves(sheet, access, v, transform)
-    _check_skills(sheet, v, transform)
+    _check_skills(sheet, access, v, transform)
     _check_hp(sheet, access, v, transform)
     if transform is None:
         _check_attacks(sheet, access, v)

@@ -101,6 +101,40 @@ def _form_defenses(access, creature_id: str) -> dict:
     }
 
 
+def _form_save_mods(access, creature_id: str) -> dict:
+    """The form's stat-block saving-throw modifier per full ability id: the form's ability
+    modifier plus the FORM's own proficiency bonus (``creature.pb``) for a save the form is
+    proficient in (``creature_save``, T63). Empty for a form with no ability rows. Used for the
+    self-transform higher-of comparison (physical) and the form-authoritative saves (full)."""
+    scores = {r["ability_id"]: r["score"]
+              for r in creature_q.creature_abilities(access, creature_id) if _int(r["score"])}
+    proficient = {r["ability_id"] for r in creature_q.creature_saves(access, creature_id)}
+    row = creature_q.creature_row(access, creature_id)
+    form_pb = row["pb"] if row is not None else None
+    out = {}
+    for aid, score in scores.items():
+        modifier = _ability_mod(score)
+        if aid in proficient and _int(form_pb):
+            modifier += form_pb
+        out[aid] = modifier
+    return out
+
+
+def _form_save_proficiencies(access, creature_id: str) -> set:
+    """The full ability ids the form is proficient in for saves (``creature_save``). Under a
+    PHYSICAL transform the character GAINS these proficiencies and applies their OWN PB to them."""
+    return {r["ability_id"] for r in creature_q.creature_saves(access, creature_id)}
+
+
+def _form_skill_mods(access, creature_id: str) -> dict:
+    """The form's stat-block skill modifier per skill id (``creature_skill.bonus`` — already the
+    form's ability mod plus its proficiency). Used for the self-transform higher-of (physical) and
+    the form-authoritative skills (full). The keys are also the form's skill proficiencies, which a
+    PHYSICAL transform GAINS (applying the character's OWN PB)."""
+    return {r["skill_id"]: r["bonus"]
+            for r in creature_q.creature_skills(access, creature_id) if _int(r["bonus"])}
+
+
 def _norm_weapon_token(token: str) -> str:
     """Canonicalise a weapon token for name/proficiency matching: lower-case, hyphens → spaces, and
     a single trailing plural 's' removed. Lets a CORE proficiency entry (which may be singular or
@@ -207,7 +241,7 @@ def resolve_active_effects(core: dict, inventory: dict | None,
         _accumulate_save_advantages(effects, access, owner_kind, owner_id)
         _accumulate_speeds(effects, access, owner_kind, owner_id)
         _accumulate_ability_sets(effects, access, owner_kind, owner_id)
-        _accumulate_hp(effects, access, owner_kind, owner_id)
+        _accumulate_hp(effects, access, owner_kind, owner_id, state)
         _accumulate_senses(effects, access, owner_kind, owner_id)
         _accumulate_size(effects, access, owner_kind, owner_id, state)
         _accumulate_extra_damage(effects, access, owner_kind, owner_id, state)
@@ -376,9 +410,22 @@ def _accumulate_owner_ability_sets(effects: ActiveEffects, core: dict, access):
                 _collect("subclass", access.resolve("subclass", sub), at)
 
 
-def _accumulate_hp(effects: ActiveEffects, access, owner_kind, owner_id):
+def _accumulate_hp(effects: ActiveEffects, access, owner_kind, owner_id, state: dict):
+    """Accumulate a state's owner's HP grants. A grant_hp row applies when it is ungated
+    (condition_kind None) or its condition_kind matches this state's id — mirroring the extra-damage
+    rider gate so a drain owned alongside other effects does not leak across states. A positive
+    amount raises the max (max_boost); a NEGATIVE amount is a drain/curse that lowers the max
+    (max_reduction) — the state-gated maximum-HP reduction mechanism (F05-T58)."""
+    state_id = state.get("state") if isinstance(state, dict) else None
     for row in grants_for(access.db, "grant_hp", owner_kind, owner_id):
-        effects.hp_boost += (row["flat"] or 0) + (row["per_level"] or 0)
+        gate = row["condition_kind"]
+        if gate is not None and gate != state_id:
+            continue
+        amount = (row["flat"] or 0) + (row["per_level"] or 0)
+        if amount >= 0:
+            effects.hp_boost += amount
+        else:
+            effects.hp_reduction += -amount
 
 
 def _accumulate_senses(effects: ActiveEffects, access, owner_kind, owner_id):
@@ -576,11 +623,55 @@ def derive_ac(core: dict, inventory: dict | None, effects: ActiveEffects, abilit
     return base, detail
 
 
+def _resolve_speeds(grant_rows: list, base_walk: int, class_bonuses: list) -> dict:
+    """Deriver-owned speed resolution — independent of the validator's resolver (F05-T78).
+
+    Mirrors the CORE deriver's own resolver (F05-T67): walk starts from the base; a ``sets_total``
+    grant OVERRIDES a mode (largest wins across several); an ``additive`` grant SUMS onto the mode;
+    a class-resource speed bonus adds to walk; an ``equals_walk`` mode mirrors the resolved walk
+    speed. Zero-valued modes are dropped so a baseless build never emits a spurious ``walk 0``.
+
+    The deriver and the validator's movement check re-implement this rule separately: they AGREE
+    because both read the same grant rows from the DB correctly, NOT because they share code — that
+    independence is the whole point. The ``equals_walk`` set is iterated in ``sorted()`` order so the
+    emitted key order is byte-reproducible across ``PYTHONHASHSEED`` (F05-T52). Rows are read by
+    dict-style key access, so both raw grant rows and synthesised dict rows are accepted."""
+    phases: dict = {"walk": base_walk or 0}
+    sets_total_max: dict = {}
+    additive_sum: dict = {}
+    equals_walk_modes: set = set()
+
+    for row in grant_rows:
+        mode = row["movement_mode_id"]
+        if row["sets_total"]:
+            ft = row["feet"]
+            if ft is not None:
+                sets_total_max[mode] = max(sets_total_max.get(mode, 0), ft)
+        elif row["additive"]:
+            additive_sum[mode] = additive_sum.get(mode, 0) + (row["feet"] or 0)
+        elif row["equals_walk"]:
+            equals_walk_modes.add(mode)
+
+    for mode, ft in sets_total_max.items():
+        phases[mode] = ft
+    for mode, ft in additive_sum.items():
+        phases[mode] = phases.get(mode, 0) + ft
+    if class_bonuses:
+        phases["walk"] = phases.get("walk", 0) + max(class_bonuses)
+    # sorted() only for a deterministic key order — an equals_walk mode mirrors the resolved walk.
+    for mode in sorted(equals_walk_modes):
+        if mode != "walk":
+            phases[mode] = phases.get("walk", 0)
+
+    return {k: v for k, v in phases.items() if v > 0}
+
+
 def derive_speed(core: dict, effects: ActiveEffects, access) -> tuple[dict, dict]:
     """Returns (speed_dict, speed_detail).
-    Reuses the _resolve_speeds algorithm from validator/checks/movement.py."""
-    from validator.checks.movement import _resolve_speeds
 
+    Speed is resolved by the deriver-owned ``_resolve_speeds`` (F05-T78) — the validator's movement
+    check re-derives the same rule independently, so it provides genuine cross-checking rather than
+    rubber-stamping output produced with the same code."""
     # Under a self-transform the form's speeds replace the character's entirely.
     tf = effects.transform
     if tf:
@@ -679,26 +770,33 @@ def derive_size(core: dict, effects: ActiveEffects, access) -> str:
 
 def derive_saving_throws(core: dict, abilities: dict, pb, effects: ActiveEffects,
                          access) -> dict:
-    """Returns saving_throws: {aid: {modifier}}. Under a FULL transform saves are the form's
-    ability modifiers with NO character proficiency/PB (the form's block is authoritative); a
-    PHYSICAL transform keeps the character's own proficiencies/PB on the (partly replaced)
-    ability modifiers."""
+    """Returns saving_throws: {aid: {modifier}}. Under a FULL transform saves are the FORM's
+    stat-block saves — the form's ability modifier plus the form's own proficiency bonus where the
+    form is proficient (T63), no character proficiency/PB (the form's game statistics replace the
+    character's entirely). A PHYSICAL transform follows the shape-shift rule (T65): the character
+    keeps their own save proficiencies AND GAINS the form's, applying their OWN proficiency bonus to
+    all of them, then uses the higher of that value and the form's stat-block save."""
     tf = effects.transform
     saves = core.get("saving_throws", {}) or {}
+    form_saves = _form_save_mods(access, tf["creature_id"]) if tf else {}
+    form_save_prof = _form_save_proficiencies(access, tf["creature_id"]) if tf else set()
     result = {}
     for aid, ab_mod in abilities.items():
-        if tf and tf["kind"] == TRANSFORM_FULL:
-            result[aid] = {"modifier": ab_mod}
-            continue
-        # `aid` is the CORE key (a short code); grant target ids are full DB ids, so normalise
-        # before comparing a per-ability save bonus's target to this save.
+        # `aid` is the CORE key (a short code); grant target ids / form saves are full DB ids, so
+        # normalise before comparing a per-ability save bonus's target or a form save to this save.
         full_aid = abilities_q.ability_id_for_short_key(access, aid) or aid
+        if tf and tf["kind"] == TRANSFORM_FULL:
+            result[aid] = {"modifier": form_saves.get(full_aid, ab_mod)}
+            continue
         mod = ab_mod
         save_data = saves.get(aid)
         if isinstance(save_data, dict):
             proficient = save_data.get("proficient", False)
         else:
             proficient = bool(save_data)
+        # PHYSICAL transform: gain the form's save proficiencies (applied with the character's OWN PB).
+        if tf and full_aid in form_save_prof:
+            proficient = True
         if proficient and _int(pb):
             mod += pb
         for b in effects.bonuses:
@@ -710,17 +808,23 @@ def derive_saving_throws(core: dict, abilities: dict, pb, effects: ActiveEffects
                 if not tid or tid == full_aid:
                     if b["value"]:
                         mod += b["value"]
+        if tf:  # PHYSICAL transform: higher of the character's own save and the form's stat block
+            mod = max(mod, form_saves.get(full_aid, mod))
         result[aid] = {"modifier": mod}
     return result
 
 
 def derive_skills(core: dict, abilities: dict, pb, effects: ActiveEffects,
                   access) -> dict:
-    """Returns skills: {sid: {modifier}}. Under a FULL transform skills are the form's ability
-    modifiers with NO character proficiency/PB; a PHYSICAL transform keeps the character's own
-    proficiencies/PB (on the partly replaced ability modifiers)."""
+    """Returns skills: {sid: {modifier}}. Under a FULL transform skills are the FORM's stat-block
+    skills — the form's skill bonus where the form has that skill, else the form's ability modifier,
+    with NO character proficiency/PB (the form's game statistics replace the character's entirely). A
+    PHYSICAL transform follows the shape-shift rule (T65): the character keeps their own skill
+    proficiencies/expertise AND GAINS the form's, applying their OWN proficiency bonus to gained
+    ones, then uses the higher of that value and the form's stat-block skill bonus."""
     tf = effects.transform
     full = bool(tf and tf["kind"] == TRANSFORM_FULL)
+    form_skills = _form_skill_mods(access, tf["creature_id"]) if tf else {}
     core_skills = core.get("skills", {}) or {}
     result = {}
     for sid, skill_obj in core_skills.items():
@@ -728,14 +832,23 @@ def derive_skills(core: dict, abilities: dict, pb, effects: ActiveEffects,
             continue
         sk_ability = skill_obj.get("ability", "")
         ab_mod = abilities.get(sk_ability, 0)
+        # `sid` is the sheet's skill key (a display name); the form's skills are keyed by the DB
+        # skill id, so resolve before looking up a form skill bonus / proficiency.
+        form_sid = access.resolve("skill", sid) or sid if tf else None
+        if full:
+            result[sid] = {"modifier": form_skills.get(form_sid, ab_mod)}
+            continue
         mod = ab_mod
-        if not full and _int(pb):
-            prof = skill_obj.get("proficient", False)
+        if _int(pb):
             exp = skill_obj.get("expertise", False)
+            # PHYSICAL transform: gain the form's skill proficiency (own PB) in addition to own.
+            prof = skill_obj.get("proficient", False) or (bool(tf) and form_sid in form_skills)
             if exp:
                 mod += pb * 2
             elif prof:
                 mod += pb
+        if tf:  # PHYSICAL transform: higher of the character's own skill and the form's stat block
+            mod = max(mod, form_skills.get(form_sid, mod))
         result[sid] = {"modifier": mod}
     return result
 
@@ -867,13 +980,27 @@ def derive_attacks(core: dict, inventory: dict | None, abilities: dict,
         if weapon_id is None:
             continue
 
+        # `stats_id` is the id whose base weapon-stats row (dice/tier/properties) drives the attack.
+        # For a mundane weapon it is the weapon itself; for a magic weapon catalogued without its own
+        # stats row it resolves to the underlying base weapon (F05-T56), so the attack still
+        # materialises. Proficiency and the item-owned rider keep matching on the magic item's own
+        # id/name below.
+        stats_id = weapon_id
         wrow = access.db.one(
             "SELECT tier_id, range_class_id, dmg_dice_count, dmg_die_faces, "
-            "dmg_flat, damage_type_id, mastery_id FROM weapon WHERE id=?", weapon_id)
+            "dmg_flat, damage_type_id, mastery_id FROM weapon WHERE id=?", stats_id)
         if wrow is None:
-            continue
+            base_id = inventory_q.base_weapon_id_for_item(access, weapon_id)
+            if base_id is None:
+                continue
+            stats_id = base_id
+            wrow = access.db.one(
+                "SELECT tier_id, range_class_id, dmg_dice_count, dmg_die_faces, "
+                "dmg_flat, damage_type_id, mastery_id FROM weapon WHERE id=?", stats_id)
+            if wrow is None:
+                continue
 
-        props = _weapon_properties(access, weapon_id)
+        props = _weapon_properties(access, stats_id)
         tier = wrow["tier_id"] or ""
         is_ranged = wrow["range_class_id"] == "ranged"
         is_finesse = "finesse" in props
@@ -929,11 +1056,14 @@ def derive_attacks(core: dict, inventory: dict | None, abilities: dict,
         mid = access.resolve("magic_item", name)
         if mid is not None:
             xd_rows = inventory_q.extra_damage_grants(access, "magic_item", mid)
-            # Fold only an ungated single-row item rider — a condition_kind-gated item rider is
-            # state-scoped and belongs to the state path (mirrors that path's discipline); none
-            # exist today, so this is behaviour-preserving.
-            if len(xd_rows) == 1 and xd_rows[0]["condition_kind"] is None:
-                dc, df = xd_rows[0]["die_count"], xd_rows[0]["die_faces"]
+            # Select the single UNGATED item rider (F05-T57): an item may own several extra-damage
+            # rows (a base rider plus condition-gated variants); the condition_kind gate is the
+            # disambiguator. The gated rows are state-scoped (they belong to the state path, mirroring
+            # that path's discipline), so an always-on item attack folds exactly the one ungated row.
+            # More than one ungated row is still ambiguous and folds nothing (never silently summed).
+            ungated = [r for r in xd_rows if r["condition_kind"] is None]
+            if len(ungated) == 1:
+                dc, df = ungated[0]["die_count"], ungated[0]["die_faces"]
                 if _int(dc) and _int(df) and dc != 0:
                     active = (item.get("id") in attuned_refs
                               if inventory_q.requires_attunement(access, mid) else True)

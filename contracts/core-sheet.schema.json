@@ -303,13 +303,31 @@
           "name": { "type": "string" },
           "source": { "type": "string" },
           "ability_increase": {
-            "type": ["object", "null"],
-            "required": ["ability", "amount"],
-            "additionalProperties": false,
-            "properties": {
-              "ability": { "type": "string" },
-              "amount": { "type": "integer" }
-            }
+            "description": "An ability-score increase a feat/boon confers: a single {ability, amount} object (a +2 to one ability), OR a list of them (a +1/+1 split across two abilities), OR null.",
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["ability", "amount"],
+                "additionalProperties": false,
+                "properties": {
+                  "ability": { "type": "string" },
+                  "amount": { "type": "integer" }
+                }
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["ability", "amount"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "ability": { "type": "string" },
+                    "amount": { "type": "integer" }
+                  }
+                }
+              },
+              { "type": "null" }
+            ]
           }
         }
       }

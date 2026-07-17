@@ -172,21 +172,21 @@ def test_template_unknown(access):
     assert "invalid-template" in _codes(sheet, access)
 
 
-# ── C-I1d: scroll integrity ──────────────────────────────────────────────────
+# ── C-I1d: single-use casting item integrity ─────────────────────────────────
 
 
-def test_scroll_invalid_spell(access):
+def test_casting_consumable_invalid_spell(access):
     sheet = _make_sheet(
         backpack=[{"id": "s1", "name": "Scroll Alpha", "spell_id": "nonexistent-spell"}],
     )
-    assert "invalid-spell-scroll" in _codes(sheet, access)
+    assert "invalid-casting-consumable" in _codes(sheet, access)
 
 
-def test_scroll_valid(access):
+def test_casting_consumable_valid(access):
     sheet = _make_sheet(
         backpack=[{"id": "s1", "name": "Scroll Alpha", "spell_id": "sp1"}],
     )
-    assert "invalid-spell-scroll" not in _codes(sheet, access)
+    assert "invalid-casting-consumable" not in _codes(sheet, access)
 
 
 # ── C-I1e: consumable attribution ────────────────────────────────────────────
@@ -241,4 +241,4 @@ def test_null_spell_id_no_crash(access):
     sheet = _make_sheet(
         backpack=[{"id": "b1", "name": "Weapon A", "spell_id": None}],
     )
-    assert "invalid-spell-scroll" not in _codes(sheet, access)
+    assert "invalid-casting-consumable" not in _codes(sheet, access)

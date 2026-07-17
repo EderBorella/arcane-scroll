@@ -409,6 +409,57 @@ def test_item_rider_only_on_owning_weapon(access):
     assert by_name["Weapon A"] == "1d12+2"   # rider does NOT leak to the other weapon
 
 
+# ── stats-less magic weapon attack materialization (T56) ─────────────────────
+
+
+def test_stats_less_magic_weapon_materializes_attack(access):
+    """A magic weapon with no base weapon-stats row still materialises an attack from its
+    unambiguous base weapon (F05-T56); the item's own +1d6 rider then folds into it."""
+    core = _core()
+    inv = {"equipped": {"main_hand": {"id": "w-relic", "name": "Relic Blade Alpha"}}}
+    effects = resolve_active_effects(core, inv, [], [], access)
+    attacks = derive_attacks(core, inv, {"strength": 2, "dexterity": 3}, [], effects, access)
+    assert len(attacks) == 1
+    a = attacks[0]
+    assert a["name"] == "Relic Blade Alpha"      # the magic item's name, not the base weapon's
+    assert a["attack_bonus"] == 4                # base weapon-a: martial 1d12, Str(2) + PB(2)
+    assert a["damage"] == "1d12+2+1d6"           # base 1d12 + Str, then the item's ungated rider
+    assert "two-handed" in a["properties"]       # base weapon's properties resolve too
+
+
+def test_ambiguous_base_magic_weapon_no_attack(access):
+    """A stats-less magic weapon with more than one candidate base weapon is ambiguous — no attack
+    is materialised (the deriver must not guess a base)."""
+    core = _core()
+    inv = {"equipped": {"main_hand": {"id": "w-ambi", "name": "Ambi Blade Alpha"}}}
+    effects = resolve_active_effects(core, inv, [], [], access)
+    attacks = derive_attacks(core, inv, {"strength": 2, "dexterity": 3}, [], effects, access)
+    assert attacks == []
+
+
+# ── multi-row item extra-damage disambiguation (T57) ─────────────────────────
+
+
+def test_multi_row_item_folds_only_ungated_rider(access):
+    """A magic weapon owning several extra_damage rows folds ONLY the single ungated row into its
+    own attack; the condition-gated variant is state-scoped and never leaks in (F05-T57)."""
+    core = _blade_core()
+    inv = {"equipped": {"main_hand": {"id": "w-multi", "name": "Multi Blade Alpha"}}}
+    effects = resolve_active_effects(core, inv, [], [], access)
+    attacks = derive_attacks(core, inv, {"strength": 2, "dexterity": 3}, [], effects, access)
+    # base 1d8 + Str(2), then only the ungated +1d6 base rider — NOT the gated +3d6.
+    assert attacks[0]["damage"] == "1d8+2+1d6"
+
+
+def test_multiple_ungated_rows_fold_nothing(access):
+    """Two UNGATED extra_damage rows remain ambiguous — the deriver folds nothing (never sums)."""
+    core = _blade_core()
+    inv = {"equipped": {"main_hand": {"id": "w-twin", "name": "Twin Blade Alpha"}}}
+    effects = resolve_active_effects(core, inv, [], [], access)
+    attacks = derive_attacks(core, inv, {"strength": 2, "dexterity": 3}, [], effects, access)
+    assert attacks[0]["damage"] == "1d8+2"   # no rider folded, and definitely not 1d6+2d6 summed
+
+
 # ── derive_saving_throws ─────────────────────────────────────────────────────
 
 
@@ -495,6 +546,40 @@ def test_derive_hp_effects_baseline(access):
     hp = derive_hp_effects(_core(), _empty_effects(), {}, access)
     assert hp["max_boost"] == 0
     assert hp["max_reduction"] == 0
+
+
+# ── state-gated max-HP reduction (drain/curse) (T58) ─────────────────────────
+
+
+def _drain_state(source="HP Drain Feature A"):
+    return {"state": "drained", "source": source, "source_type": "feature"}
+
+
+def test_state_gated_max_hp_reduction_materializes(access):
+    """A state-gated NEGATIVE grant_hp lowers max HP: while the 'drained' state is active the drain
+    folds into hit_points.max_reduction (F05-T58)."""
+    core = _core()
+    effects = resolve_active_effects(core, None, [_drain_state()], [], access)
+    assert effects.hp_reduction == 6
+    assert effects.hp_boost == 0
+    hp = derive_hp_effects(core, effects, {}, access)
+    assert hp["max_reduction"] == 6
+    assert hp["max_boost"] == 0
+
+
+def test_max_hp_reduction_absent_without_state(access):
+    """No active drain state → no reduction (the drain half is inert until its state is active)."""
+    core = _core()
+    effects = resolve_active_effects(core, None, [], [], access)
+    assert effects.hp_reduction == 0
+    assert derive_hp_effects(core, effects, {}, access)["max_reduction"] == 0
+
+
+def test_max_hp_reduction_gate_no_leak(access):
+    """A reduction gated to a different state id must not fire for the 'drained' state."""
+    core = _core()
+    effects = resolve_active_effects(core, None, [_drain_state("HP Drain Feature B")], [], access)
+    assert effects.hp_reduction == 0
 
 
 # ── derive_resource_state ────────────────────────────────────────────────────
@@ -654,6 +739,88 @@ def test_item_equipped_and_spuriously_attuned_counts_once(access):
     effects = resolve_active_effects(core, inventory, [], item_states, access)
     speeds, _ = derive_speed(core, effects, access)
     assert speeds.get("walk") == 40   # base 30 + one +10 additive (not +20)
+
+
+# ── T78: validator-independence of the senses/speed resolution ───────────────
+
+
+def test_deriver_does_not_import_validator_senses_or_speed_resolver():
+    """The MODIFIER deriver must NOT import the validator's rule-bearing senses/speed resolvers
+    (nor their grant-gather walkers). If it did, the validator's movement/senses checks would agree
+    with the deriver by construction and give zero independent coverage of those fields (F05-T78)."""
+    import ast
+    import inspect
+    from app.derivation import modifier as modmod
+
+    tree = ast.parse(inspect.getsource(modmod))
+    banned_modules = {"validator.checks.movement", "validator.checks.senses"}
+    banned_names = {"_resolve_speeds", "_gather_owner_grants", "_gather_class_bonuses"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            assert node.module not in banned_modules, (
+                f"deriver imports from {node.module} — breaks T78 independence")
+            for alias in node.names:
+                assert alias.name not in banned_names, (
+                    f"deriver imports {alias.name!r} — breaks T78 independence")
+
+
+def test_validator_movement_and_senses_do_not_import_deriver():
+    """Independence is severed in BOTH directions (F05-T78): the validator's movement and senses
+    checks must not import from the deriver either. Each side reads the DB on its own."""
+    import ast
+    import inspect
+    from validator.checks import movement as mv
+    from validator.checks import senses as se
+
+    for module in (mv, se):
+        tree = ast.parse(inspect.getsource(module))
+        for node in ast.walk(tree):
+            modules = []
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules.append(node.module)
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                modules.extend(a.name for a in node.names)
+            for m in modules:
+                assert not m.startswith("app.derivation"), (
+                    f"{module.__name__} imports {m} from the deriver — breaks T78 independence")
+
+
+def test_deriver_and_validator_resolve_multimode_speed_identically_from_db(access):
+    """Behavioural independence: the deriver's OWN speed resolver and the validator's resolve the
+    same multi-mode owner identically — read purely from the DB, not by sharing code. This is the
+    climb+swim walk-equal case T52 flagged as the byte-order hazard. ``sub-a`` already grants
+    swim==walk; a climb==walk grant is added so one owner exercises TWO walk-equal modes."""
+    import sqlite3
+
+    from access.validator import ValidatorAccess
+    from access.validator import movement as movement_q
+    from validator.checks.movement import _resolve_speeds as validator_resolve
+    from app.derivation import modifier as modmod
+
+    con = sqlite3.connect(access.db.path)
+    con.execute("INSERT INTO grant_speed VALUES "
+                "('gsd-sub-climb','subclass','sub-a',3,'climb',NULL,1,0,0,NULL,NULL)")
+    con.commit()
+    con.close()
+    acc = ValidatorAccess(path=access.db.path)
+
+    rows = movement_q.speed_grants(acc, "subclass", "sub-a", 3)
+    base_walk = 30
+
+    deriver = modmod._resolve_speeds(rows, base_walk, [])
+    validator = validator_resolve(rows, base_walk, [])
+
+    assert deriver == validator == {"walk": 30, "climb": 30, "swim": 30}
+    # sorted() key order — byte-reproducible across hash seeds (T52).
+    assert list(deriver.keys()) == ["walk", "climb", "swim"]
+
+
+def test_deriver_speed_resolver_zero_modes_dropped():
+    """The deriver-owned resolver drops any zero-valued mode, so a baseless build never emits a
+    spurious ``walk 0`` — matching the validator's resolver and the CORE deriver (T67)."""
+    from app.derivation import modifier as modmod
+    assert modmod._resolve_speeds([], 0, []) == {}
+    assert modmod._resolve_speeds([], 30, []) == {"walk": 30}
 
 
 # ── derive_features / derive_feats ───────────────────────────────────────────

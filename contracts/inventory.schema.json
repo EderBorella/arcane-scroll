@@ -132,7 +132,7 @@
         },
         "spell_id": {
           "type": ["string", "null"],
-          "description": "For spell scrolls: the spell catalog identifier on this scroll."
+          "description": "For a single-use casting item: the spell catalog identifier it carries."
         },
         "template_item": {
           "type": ["string", "null"],

@@ -144,6 +144,32 @@ def test_unexpected_pact_slots(access):
     assert "unexpected-pact-slots" in _codes(sheet, access)
 
 
+def test_pact_over_spells_known_flagged(access):
+    """A pact caster over the DB spells-known count is flagged INDEPENDENTLY — even when the source
+    declares no prepared_limit (the historically-uncapped shape). class-p knows 3 leveled spells at
+    level 2; four prepared exceeds that."""
+    sheet = _make_sheet(
+        identity={"classes": [{"class": "Class P", "level": 2}]},
+        sources={"class:class-p": {"kind": "class", "ability": "a1"}},
+        spells=[{"name": n, "level": 1, "bucket": "prepared", "source": "class:class-p"}
+                for n in ("Sp3", "Sp7", "Sp8", "Sp9")],
+        pact_slots={"1": {"max": 2}},
+    )
+    assert "too-many-prepared" in _codes(sheet, access)
+
+
+def test_pact_at_spells_known_legal(access):
+    """Exactly the DB spells-known count is legal: three prepared for a level-2 class-p caster."""
+    sheet = _make_sheet(
+        identity={"classes": [{"class": "Class P", "level": 2}]},
+        sources={"class:class-p": {"kind": "class", "ability": "a1"}},
+        spells=[{"name": n, "level": 1, "bucket": "prepared", "source": "class:class-p"}
+                for n in ("Sp3", "Sp7", "Sp8")],
+        pact_slots={"1": {"max": 2}},
+    )
+    assert "too-many-prepared" not in _codes(sheet, access)
+
+
 def test_spell_duplicate(access):
     sheet = _make_sheet(
         sources={"class:class-a": {"kind": "class", "ability": "a1", "modifier": 2}},

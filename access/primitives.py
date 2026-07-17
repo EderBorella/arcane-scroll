@@ -10,6 +10,8 @@ rulebook rather than trusted from any existing consumer.
 All queries are parameterised. The few places that interpolate an identifier (a table name) validate
 it against a known set first — identifiers can't be bound as SQL parameters.
 """
+from weakref import WeakKeyDictionary
+
 from access.db import RulesDB
 
 # The grant spine: each header table -> its child (value) tables, keyed by grant_id.
@@ -53,19 +55,29 @@ def grants_for(db: RulesDB, table: str, owner_kind: str, owner_id: str,
 
 
 # Cache of a child table's column list, so the deterministic ORDER BY is built
-# once per table rather than re-introspected on every read.
-_CHILD_COLS: dict[str, list[str]] = {}
+# once per table rather than re-introspected on every read. Keyed by the DB handle
+# (not by table name alone): two handles onto different DBs may hold a same-named
+# child table with a DIFFERENT column set, so a table-name-only key could serve one
+# handle another handle's stale columns and build an ORDER BY over a missing column.
+# A WeakKeyDictionary drops a handle's entry once the handle is gone, so the cache
+# can't outlive its handle or leak across handle-identity reuse.
+_CHILD_COLS: "WeakKeyDictionary[RulesDB, dict[str, list[str]]]" = WeakKeyDictionary()
 
 
 def _child_columns(db: RulesDB, table: str) -> list[str]:
-    """Column names of a grant child table (from the schema), cached. Used to build a
-    fully deterministic ORDER BY — child tables have no single `id` PK like the header
-    tables, so ordering over every column is the stable, always-present key."""
-    cols = _CHILD_COLS.get(table)
+    """Column names of a grant child table (from the schema), cached per DB handle. Used to
+    build a fully deterministic ORDER BY — child tables have no single `id` PK like the header
+    tables, so ordering over every column is the stable, always-present key. The cache is keyed
+    by the handle so two handles with divergent schemas never share a column list."""
+    per_handle = _CHILD_COLS.get(db)
+    if per_handle is None:
+        per_handle = {}
+        _CHILD_COLS[db] = per_handle
+    cols = per_handle.get(table)
     if cols is None:
         # `table` is validated against GRANT_TABLES by the caller; PRAGMA cannot bind params.
         cols = [r["name"] for r in db.q(f"PRAGMA table_info({table})")]
-        _CHILD_COLS[table] = cols
+        per_handle[table] = cols
     return cols
 
 
@@ -83,6 +95,17 @@ def children_of(db: RulesDB, header_table: str, grant_id: str) -> dict[str, list
             sql += f" ORDER BY {order_by}"
         out[child] = db.q(sql, grant_id)
     return out
+
+
+def fixed_spell_ids(db: RulesDB, grant_id: str) -> list[str]:
+    """The spell ids fixed-granted by one grant_spell header row, in a deterministic,
+    rebuild-stable order. The child table's composite key is (grant_id, spell_id), so
+    ordering by spell_id keeps the returned order stable across DB rebuilds (order only,
+    no value change)."""
+    rows = db.q(
+        "SELECT spell_id FROM grant_spell_fixed WHERE grant_id=? ORDER BY spell_id",
+        grant_id)
+    return [r["spell_id"] for r in rows]
 
 
 def all_grants_for(db: RulesDB, owner_kind: str, owner_id: str,

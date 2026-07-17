@@ -181,9 +181,29 @@ def _default_hit_dice(core: dict) -> dict:
 # ── orchestrator ─────────────────────────────────────────────────────────────
 
 
+_TREASURE_DENOMINATIONS = ("pp", "gp", "ep", "sp", "cp")
+
+
+def _treasure(starting_treasure: dict | None) -> dict:
+    """A full coin purse from a (possibly partial) starting-treasure dict — every denomination present,
+    defaulting to 0. ``treasure`` is generation-time state (derived from the starting-wealth rules),
+    so the orchestrator seeds it here rather than re-deriving it from the final sheet."""
+    src = starting_treasure if isinstance(starting_treasure, dict) else {}
+    out = {}
+    for d in _TREASURE_DENOMINATIONS:
+        v = src.get(d)
+        out[d] = v if _int(v) and v >= 0 else 0
+    return out
+
+
 def derive_modifier(core: dict, inventory: dict | None, grimoire: dict | None,
-                    existing_modifier: dict | None, mode: str, access) -> tuple[dict, dict]:
-    """Produce a modifier-sheet:1 dict. Returns (sheet, meta)."""
+                    existing_modifier: dict | None, mode: str, access,
+                    starting_treasure: dict | None = None) -> tuple[dict, dict]:
+    """Produce a modifier-sheet:1 dict. Returns (sheet, meta).
+
+    ``starting_treasure`` seeds the (non-overwritable) coin purse when deriving from scratch — the
+    starting wealth the generation pipeline derives from the chosen equipment bundles (F05-T79).
+    Absent, the purse defaults to zero. In ``fill`` mode a pre-filled purse is preserved as before."""
     meta = {"mode": mode, "derived": mode != "validate"}
 
     if mode == "validate":
@@ -226,7 +246,7 @@ def derive_modifier(core: dict, inventory: dict | None, grimoire: dict | None,
         "derived_from_grimoire": _hash_grimoire(grimoire),
 
         "xp": 0,
-        "treasure": {"pp": 0, "gp": 0, "ep": 0, "sp": 0, "cp": 0},
+        "treasure": _treasure(starting_treasure),
 
         "hit_points": {
             "current": core_hp_max,

@@ -124,9 +124,10 @@ class TestValidateCoreSmoke:
         assert len(internals) == 0, f"internal errors: {internals}"
 
     def test_all_checks_registered(self):
-        assert len(CORE_CHECKS) == 12
+        assert len(CORE_CHECKS) == 13
         module_names = {c.__module__.split(".")[-1] for c in CORE_CHECKS}
         assert "spellcasting" not in module_names
+        assert "resources" in module_names
 
     def test_unknown_species_produces_violation(self, access):
         sheet = self._make_sheet()

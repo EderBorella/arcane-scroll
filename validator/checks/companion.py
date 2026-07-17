@@ -89,8 +89,25 @@ def _expected_abilities(access, creature_id: str) -> dict:
 
 
 def _expected_saves(access, creature_id: str) -> dict:
+    """Expected save modifier per ability, INDEPENDENTLY re-derived from the catalog:
+    the ability modifier, plus the creature's own proficiency bonus (``creature.pb``)
+    for a save the creature is proficient in (a ``creature_save`` marker row). Reads
+    the DB facts directly — never the deriver's output."""
     scores = _expected_abilities(access, creature_id)
-    return {aid: _ability_mod(score) for aid, score in scores.items()}
+    if not scores:
+        return {}
+    proficient = {r["ability_id"] for r in creature_q.creature_saves(access, creature_id)}
+    pb = None
+    if proficient:
+        row = creature_q.creature_row(access, creature_id)
+        pb = row["pb"] if row is not None else None
+    out = {}
+    for aid, score in scores.items():
+        modifier = _ability_mod(score)
+        if aid in proficient and _int(pb):
+            modifier += pb
+        out[aid] = modifier
+    return out
 
 
 def _expected_attacks(access, creature_id: str) -> dict:
@@ -126,19 +143,19 @@ def _expected_hit_dice(row) -> dict:
     return {f"d{int(m.group(2))}": int(m.group(1))}
 
 
-def _check_hp(cm: dict, row, v: list[Violation], idx) -> None:
+def _check_hp(cm: dict, row, v: list[Violation], idx, domain=DOMAIN, code_prefix="companion") -> None:
     hp = cm.get("hit_points")
     if not isinstance(hp, dict):
         return
     actual = hp.get("max")
     expected = row["hp_average"] if _int(row["hp_average"]) else 0
     if _int(actual) and actual != expected:
-        v.append(Violation(DOMAIN, "companion-hp-mismatch", "illegal",
+        v.append(Violation(domain, f"{code_prefix}-hp-mismatch", "illegal",
                            f"companion {idx}: hit_points.max {actual} != expected {expected}",
                            f"companion_modifiers.{idx}.hit_points.max"))
 
 
-def _check_hit_dice(cm: dict, row, v: list[Violation], idx) -> None:
+def _check_hit_dice(cm: dict, row, v: list[Violation], idx, domain=DOMAIN, code_prefix="companion") -> None:
     """Independently re-derive the hit-dice max (count/faces) from the creature's
     hp_dice and flag a mismatch or a missing die. ``remaining`` is live session
     state (non-overwritable) and is deliberately NOT validated."""
@@ -147,50 +164,50 @@ def _check_hit_dice(cm: dict, row, v: list[Violation], idx) -> None:
         return
     hd = cm.get("hit_dice")
     if not isinstance(hd, dict):
-        v.append(Violation(DOMAIN, "companion-hit-dice-missing", "incomplete",
+        v.append(Violation(domain, f"{code_prefix}-hit-dice-missing", "incomplete",
                            f"companion {idx}: hit_dice omitted but creature has hp_dice",
                            f"companion_modifiers.{idx}.hit_dice"))
         return
     for die, exp_max in expected.items():
         entry = hd.get(die)
         if not isinstance(entry, dict) or not _int(entry.get("max")):
-            v.append(Violation(DOMAIN, "companion-hit-dice-missing", "incomplete",
+            v.append(Violation(domain, f"{code_prefix}-hit-dice-missing", "incomplete",
                                f"companion {idx}: hit_dice die {die!r} (max {exp_max}) missing",
                                f"companion_modifiers.{idx}.hit_dice"))
         elif entry["max"] != exp_max:
-            v.append(Violation(DOMAIN, "companion-hit-dice-mismatch", "illegal",
+            v.append(Violation(domain, f"{code_prefix}-hit-dice-mismatch", "illegal",
                                f"companion {idx}: hit_dice {die} max {entry['max']} "
                                f"!= expected {exp_max}",
                                f"companion_modifiers.{idx}.hit_dice"))
 
 
-def _check_ac(cm: dict, row, v: list[Violation], idx) -> None:
+def _check_ac(cm: dict, row, v: list[Violation], idx, domain=DOMAIN, code_prefix="companion") -> None:
     expected = row["ac_value"]
     actual = cm.get("armor_class")
     if actual is None or not _int(actual):
         if _int(expected):
-            v.append(Violation(DOMAIN, "companion-ac-missing", "incomplete",
+            v.append(Violation(domain, f"{code_prefix}-ac-missing", "incomplete",
                                f"companion {idx}: armor_class omitted but creature has AC "
                                f"{expected}", f"companion_modifiers.{idx}.armor_class"))
         return
     if _int(expected) and actual != expected:
-        v.append(Violation(DOMAIN, "companion-ac-mismatch", "illegal",
+        v.append(Violation(domain, f"{code_prefix}-ac-mismatch", "illegal",
                            f"companion {idx}: armor_class {actual} != expected {expected}",
                            f"companion_modifiers.{idx}.armor_class"))
 
 
-def _check_speed(access, cm: dict, creature_id: str, v: list[Violation], idx) -> None:
+def _check_speed(access, cm: dict, creature_id: str, v: list[Violation], idx, domain=DOMAIN, code_prefix="companion") -> None:
     actual = cm.get("speed")
     if not isinstance(actual, dict):
         return
     expected = _expected_speed(access, creature_id)
     if actual != expected:
-        v.append(Violation(DOMAIN, "companion-speed-mismatch", "illegal",
+        v.append(Violation(domain, f"{code_prefix}-speed-mismatch", "illegal",
                            f"companion {idx}: speed {actual} != expected {expected}",
                            f"companion_modifiers.{idx}.speed"))
 
 
-def _check_senses(access, cm: dict, creature_id: str, v: list[Violation], idx) -> None:
+def _check_senses(access, cm: dict, creature_id: str, v: list[Violation], idx, domain=DOMAIN, code_prefix="companion") -> None:
     actual = cm.get("senses")
     if actual is None:
         actual = {}
@@ -198,33 +215,33 @@ def _check_senses(access, cm: dict, creature_id: str, v: list[Violation], idx) -
         return
     expected = _expected_senses(access, creature_id)
     if actual != expected:
-        v.append(Violation(DOMAIN, "companion-senses-mismatch", "illegal",
+        v.append(Violation(domain, f"{code_prefix}-senses-mismatch", "illegal",
                            f"companion {idx}: senses {actual} != expected {expected}",
                            f"companion_modifiers.{idx}.senses"))
 
 
-def _check_abilities(access, cm: dict, creature_id: str, v: list[Violation], idx) -> None:
+def _check_abilities(access, cm: dict, creature_id: str, v: list[Violation], idx, domain=DOMAIN, code_prefix="companion") -> None:
     expected = _expected_abilities(access, creature_id)
     actual = cm.get("ability_scores")
     if not isinstance(actual, dict):
         if expected:
-            v.append(Violation(DOMAIN, "companion-abilities-missing", "incomplete",
+            v.append(Violation(domain, f"{code_prefix}-abilities-missing", "incomplete",
                                f"companion {idx}: ability_scores omitted but creature has "
                                f"ability rows", f"companion_modifiers.{idx}.ability_scores"))
         return
     if actual != expected:
-        v.append(Violation(DOMAIN, "companion-abilities-mismatch", "illegal",
+        v.append(Violation(domain, f"{code_prefix}-abilities-mismatch", "illegal",
                            f"companion {idx}: ability_scores {actual} != expected {expected}",
                            f"companion_modifiers.{idx}.ability_scores"))
 
 
-def _check_saves(access, cm: dict, creature_id: str, v: list[Violation], idx) -> None:
+def _check_saves(access, cm: dict, creature_id: str, v: list[Violation], idx, domain=DOMAIN, code_prefix="companion") -> None:
     expected = _expected_saves(access, creature_id)
     if not expected:
         return
     saves = cm.get("saving_throws")
     if not isinstance(saves, list):
-        v.append(Violation(DOMAIN, "companion-save-missing", "incomplete",
+        v.append(Violation(domain, f"{code_prefix}-save-missing", "incomplete",
                            f"companion {idx}: saving_throws omitted but creature has abilities",
                            f"companion_modifiers.{idx}.saving_throws"))
         return
@@ -234,21 +251,21 @@ def _check_saves(access, cm: dict, creature_id: str, v: list[Violation], idx) ->
             actual[s["ability"]] = s["modifier"]
     for aid, exp_mod in expected.items():
         if aid not in actual:
-            v.append(Violation(DOMAIN, "companion-save-missing", "incomplete",
+            v.append(Violation(domain, f"{code_prefix}-save-missing", "incomplete",
                                f"companion {idx}: save {aid} (expected {exp_mod}) missing",
                                f"companion_modifiers.{idx}.saving_throws"))
         elif actual[aid] != exp_mod:
-            v.append(Violation(DOMAIN, "companion-save-mismatch", "illegal",
+            v.append(Violation(domain, f"{code_prefix}-save-mismatch", "illegal",
                                f"companion {idx}: save {aid} {actual[aid]} != expected {exp_mod}",
                                f"companion_modifiers.{idx}.saving_throws"))
 
 
-def _check_skills(access, cm: dict, creature_id: str, v: list[Violation], idx) -> None:
+def _check_skills(access, cm: dict, creature_id: str, v: list[Violation], idx, domain=DOMAIN, code_prefix="companion") -> None:
     expected = _expected_skills(access, creature_id)
     skills = cm.get("skills")
     if not isinstance(skills, list):
         if expected:
-            v.append(Violation(DOMAIN, "companion-skills-missing", "incomplete",
+            v.append(Violation(domain, f"{code_prefix}-skills-missing", "incomplete",
                                f"companion {idx}: skills omitted but creature has catalogued "
                                f"skills", f"companion_modifiers.{idx}.skills"))
         return
@@ -257,27 +274,27 @@ def _check_skills(access, cm: dict, creature_id: str, v: list[Violation], idx) -
         if isinstance(s, dict) and s.get("name") is not None and _int(s.get("bonus")):
             actual[s["name"]] = s["bonus"]
     if actual != expected:
-        v.append(Violation(DOMAIN, "companion-skills-mismatch", "illegal",
+        v.append(Violation(domain, f"{code_prefix}-skills-mismatch", "illegal",
                            f"companion {idx}: skills {actual} != expected {expected}",
                            f"companion_modifiers.{idx}.skills"))
 
 
-def _check_passive(access, cm: dict, creature_id: str, v: list[Violation], idx) -> None:
+def _check_passive(access, cm: dict, creature_id: str, v: list[Violation], idx, domain=DOMAIN, code_prefix="companion") -> None:
     expected = creature_q.creature_passive_perception(access, creature_id)
     actual = cm.get("passive_perception")
     if actual is None or not _int(actual):
         if _int(expected):
-            v.append(Violation(DOMAIN, "companion-passive-missing", "incomplete",
+            v.append(Violation(domain, f"{code_prefix}-passive-missing", "incomplete",
                                f"companion {idx}: passive_perception omitted but creature has "
                                f"{expected}", f"companion_modifiers.{idx}.passive_perception"))
         return
     if _int(expected) and actual != expected:
-        v.append(Violation(DOMAIN, "companion-passive-mismatch", "illegal",
+        v.append(Violation(domain, f"{code_prefix}-passive-mismatch", "illegal",
                            f"companion {idx}: passive_perception {actual} != expected {expected}",
                            f"companion_modifiers.{idx}.passive_perception"))
 
 
-def _check_attacks(access, cm: dict, creature_id: str, v: list[Violation], idx) -> None:
+def _check_attacks(access, cm: dict, creature_id: str, v: list[Violation], idx, domain=DOMAIN, code_prefix="companion") -> None:
     attacks = cm.get("attacks")
     if not isinstance(attacks, list):
         return
@@ -296,29 +313,29 @@ def _check_attacks(access, cm: dict, creature_id: str, v: list[Violation], idx) 
         # NIT (P2): attack_bonus may also be a string for a templated attack whose bonus is
         # formula-scaled; concrete creatures always store an int, so int-compare here.
         if _int(atk.get("attack_bonus")) and atk["attack_bonus"] != exp_bonus:
-            v.append(Violation(DOMAIN, "companion-attack-bonus-mismatch", "illegal",
+            v.append(Violation(domain, f"{code_prefix}-attack-bonus-mismatch", "illegal",
                                f"companion {idx}: attack {name!r} bonus {atk['attack_bonus']} "
                                f"!= expected {exp_bonus}",
                                f"companion_modifiers.{idx}.attacks"))
         if atk.get("damage") is not None and atk.get("damage") != exp_damage:
-            v.append(Violation(DOMAIN, "companion-attack-damage-mismatch", "illegal",
+            v.append(Violation(domain, f"{code_prefix}-attack-damage-mismatch", "illegal",
                                f"companion {idx}: attack {name!r} damage {atk.get('damage')!r} "
                                f"!= expected {exp_damage!r}",
                                f"companion_modifiers.{idx}.attacks"))
         if atk.get("damage_type") is not None and atk.get("damage_type") != exp_type:
-            v.append(Violation(DOMAIN, "companion-attack-damage-type-mismatch", "illegal",
+            v.append(Violation(domain, f"{code_prefix}-attack-damage-type-mismatch", "illegal",
                                f"companion {idx}: attack {name!r} damage_type "
                                f"{atk.get('damage_type')!r} != expected {exp_type!r}",
                                f"companion_modifiers.{idx}.attacks"))
     # Every catalogued attack must be present (a missing attack is incomplete).
     for name in expected:
         if name not in actual_names:
-            v.append(Violation(DOMAIN, "companion-attack-missing", "incomplete",
+            v.append(Violation(domain, f"{code_prefix}-attack-missing", "incomplete",
                                f"companion {idx}: catalogued attack {name!r} not on the sheet",
                                f"companion_modifiers.{idx}.attacks"))
 
 
-def _check_defenses(access, cm: dict, creature_id: str, v: list[Violation], idx) -> None:
+def _check_defenses(access, cm: dict, creature_id: str, v: list[Violation], idx, domain=DOMAIN, code_prefix="companion") -> None:
     """The sheet's defences must include every catalogued defence (subset check)."""
     d = creature_q.creature_defenses(access, creature_id)
     exp_res = {r["damage_type_id"] for r in d["resistance"] if r["damage_type_id"]}
@@ -344,12 +361,77 @@ def _check_defenses(access, cm: dict, creature_id: str, v: list[Violation], idx)
         ("vulnerability", exp_vuln - got_vuln),
     ):
         for m in sorted(missing):
-            v.append(Violation(DOMAIN, "companion-defense-subset-violation", "illegal",
+            v.append(Violation(domain, f"{code_prefix}-defense-subset-violation", "illegal",
                                f"companion {idx}: missing catalogued {label} {m!r}",
                                f"companion_modifiers.{idx}.defenses.{label}"))
 
 
-def _check_states(access, cm: dict, v: list[Violation], idx) -> None:
+def _check_legality(access, core: dict, creature_id: str, core_entry, v: list[Violation], idx) -> None:
+    """Independent creature-legality gate (T61): the chosen creature must be a
+    rules-legal companion — some owner must confer it via ``grant_companion``, and
+    the owner's level / cast level must satisfy at least one such grant.
+
+    The legal creature set is re-derived from the grant links directly (never from
+    the deriver): a creature with no grant link is not a grantable companion at all
+    (``companion-creature-illegal``); a grantable creature the owner cannot yet
+    field — a spell cast below the summon's base level, or a subclass companion
+    below its feature level — is ``companion-creature-level-illegal``. The level
+    gate is CONSERVATIVE: it fires only when the owner context positively shows
+    every grant is out of reach, so a companion lacking owner context (e.g. a
+    permanently-bound concrete companion with no cast level) is never
+    false-flagged."""
+    grants = creature_q.companion_grants_for_creature(access, creature_id)
+    if not grants:
+        v.append(Violation(DOMAIN, "companion-creature-illegal", "illegal",
+                           f"companion {idx}: creature {creature_id!r} is not a grantable "
+                           f"companion (no owner confers it)",
+                           f"companion_modifiers.{idx}.companion_index"))
+        return
+
+    core = core or {}
+    identity = core.get("identity") or {}
+    classes = identity.get("classes") or []
+    cast_level = core_entry.get("cast_level") if isinstance(core_entry, dict) else None
+
+    satisfiable = False
+    determinable = False
+    for g in grants:
+        at_spell = g["at_spell_level"]
+        gained = g["gained_at_level"]
+        if _int(at_spell):
+            # spell-tier gate: the slot must be at least the summon's base level.
+            if _int(cast_level):
+                determinable = True
+                if cast_level >= at_spell:
+                    satisfiable = True
+                    break
+                continue
+            # No cast level on the entry (e.g. a permanently-bound companion) — cannot disprove.
+            satisfiable = True
+            break
+        if _int(gained):
+            # class/subclass feature-level gate.
+            owner_level = _owner_class_level(classes, identity, g["owner_kind"], g["owner_id"])
+            if _int(owner_level):
+                determinable = True
+                if owner_level >= gained:
+                    satisfiable = True
+                    break
+                continue
+            satisfiable = True
+            break
+        # No level gate on this grant — always satisfiable.
+        satisfiable = True
+        break
+
+    if not satisfiable and determinable:
+        v.append(Violation(DOMAIN, "companion-creature-level-illegal", "illegal",
+                           f"companion {idx}: creature {creature_id!r} is grantable but not "
+                           f"at the owner's level (no grant link is satisfiable)",
+                           f"companion_modifiers.{idx}.companion_index"))
+
+
+def _check_states(access, cm: dict, v: list[Violation], idx, domain=DOMAIN, code_prefix="companion") -> None:
     """A companion's character_states[] must be mutually compatible (same
     state_compatibility rule as the MODIFIER state check)."""
     states = cm.get("character_states")
@@ -361,7 +443,7 @@ def _check_states(access, cm: dict, v: list[Violation], idx) -> None:
             active.add(s["state"])
     for sid in active:
         for c in blocked_states(access.db, sid) & active:
-            v.append(Violation(DOMAIN, "companion-state-incompatible", "illegal",
+            v.append(Violation(domain, f"{code_prefix}-state-incompatible", "illegal",
                                f"companion {idx}: state {sid!r} is incompatible with {c!r}",
                                f"companion_modifiers.{idx}.character_states"))
 
@@ -770,6 +852,9 @@ def check(sheet: dict, access) -> list[Violation]:
 
         # State validity is shape-level and always checked.
         _check_states(access, cm, v, idx)
+
+        # Creature-legality gate (T61): independent of the derived stats.
+        _check_legality(access, core, creature_id, core_entry, v, idx)
 
         if _is_templated(access, creature_id):
             # Templated creatures are formula-scaled: re-derive the scaled targets

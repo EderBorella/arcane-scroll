@@ -8,13 +8,14 @@ gracefully by the existing checks.
 """
 from validator.checks import (abilities, defenses, feats, features, identity,
                                movement, proficiencies, proficiencies_equip,
-                               saving_throws, senses, vitals, weapon_mastery)
+                               resources, saving_throws, senses, vitals,
+                               weapon_mastery)
 from validator.report import Violation, build_report
 
 CORE_CHECKS = [identity.check, abilities.check, saving_throws.check, vitals.check,
                proficiencies.check, proficiencies_equip.check, feats.check,
                senses.check, movement.check, defenses.check, features.check,
-               weapon_mastery.check]
+               weapon_mastery.check, resources.check]
 
 
 def adapt_core_to_v10(core_sheet: dict) -> dict:

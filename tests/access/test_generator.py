@@ -42,6 +42,32 @@ def test_species_creature_type(gen_access):
     assert species.species_creature_type(gen_access, "nope") is None
 
 
+# --- species sub-choices (lineage / variant axis) --------------------------
+
+def test_species_lineages_ordered_by_id(gen_access):
+    rows = species.species_lineages(gen_access, "species-l")
+    assert [r["id"] for r in rows] == ["lin-l1", "lin-l2"]
+    assert all(r["species_id"] == "species-l" for r in rows)
+
+
+def test_species_lineages_none_for_plain_species(gen_access):
+    # species-a offers no lineage sub-choice
+    assert species.species_lineages(gen_access, "species-a") == []
+    assert species.species_lineages(gen_access, "nope") == []
+
+
+def test_species_variant_options_ordered(gen_access):
+    rows = species.species_variant_options(gen_access, "species-v")
+    assert [r["id"] for r in rows] == ["svo-a", "svo-b"]
+    assert [(r["axis"], r["option_name"], r["damage_type_id"]) for r in rows] == [
+        ("axis-a", "Variant A", "fire"), ("axis-a", "Variant B", "cold")]
+
+
+def test_species_variant_options_none_for_plain_species(gen_access):
+    assert species.species_variant_options(gen_access, "species-a") == []
+    assert species.species_variant_options(gen_access, "nope") == []
+
+
 # --- classes ---------------------------------------------------------------
 
 def test_list_classes_ordered(gen_access):
@@ -87,6 +113,13 @@ def test_class_skill_options_unknown(gen_access):
 def test_class_primary_abilities(gen_access):
     rows = classes.class_primary_abilities(gen_access, "class-a")
     assert [(r["ability_id"], r["kind"]) for r in rows] == [("a1", "spellcasting")]
+
+
+def test_class_primary_mode(gen_access):
+    # a class with several primaries joined by an OR relation reports that relation
+    assert classes.class_primary_mode(gen_access, "class-mc-or") == "or"
+    assert classes.class_primary_mode(gen_access, "class-mc-ok") == "single"
+    assert classes.class_primary_mode(gen_access, "nope") is None
 
 
 def test_class_saving_throws_ordered(gen_access):
@@ -242,9 +275,9 @@ def test_starting_equipment_entries_ordered(gen_access):
 
 def test_starting_equipment_entries_tool_category_choice(gen_access):
     rows = equipment.starting_equipment_entries(gen_access, "sa-bg")
-    assert len(rows) == 1
-    assert rows[0]["kind"] == "tool_category_choice"
-    assert rows[0]["tool_category_id"] == "tc-a"
+    tool_choice = [r for r in rows if r["kind"] == "tool_category_choice"]
+    assert len(tool_choice) == 1
+    assert tool_choice[0]["tool_category_id"] == "tc-a"
 
 
 def test_starting_equipment_entries_unknown_is_empty(gen_access):

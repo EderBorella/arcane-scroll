@@ -11,13 +11,29 @@ racial-bonus field anywhere.
 from app.generation.choices import options
 
 
-def build_pass1_grammar(access, spec, resolved, *, feat_slots=0):
+def build_pass1_grammar(access, spec, resolved, *, feat_slots=0, boon_slots=0):
     """The pass-1 model schema. The model picks a name, the background ability-boost distribution
     (constrained to the background's allowed abilities), the first class's skill proficiencies, the
-    caster spell selection (when the build casts), and any ability-increase-slot feats (only when
-    ``feat_slots`` > 0). Fields with an empty option space are omitted rather than offered empty."""
+    caster spell selection (when the build casts), the weapon-mastery picks (when the build gains a
+    weapon-mastery feature), any ability-increase-slot feats plus their chosen increase targets (only
+    when ``feat_slots`` > 0), and any top-tier boon-slot picks (only when ``boon_slots`` > 0). Fields
+    with an empty option space are omitted rather than offered empty."""
     props = {"name": {"type": "string"}}
     req = ["name"]
+
+    # Species sub-choices: a lineage pick and/or a variant-axis pick, offered only when the chosen
+    # species carries them (and never when it doesn't). Lineage is enumerated as ids (a resolver dim
+    # the deriver renders to its display name); the variant axis is enumerated as option names (a
+    # name-keyed field the deriver carries verbatim). Each is required once offered, so a species that
+    # has them always yields its pick.
+    lineage_ids = options.lineage_options(access, spec.species)
+    if lineage_ids:
+        props["lineage"] = {"enum": lineage_ids}
+        req.append("lineage")
+    variant_names = options.variant_option_names(access, spec.species)
+    if variant_names:
+        props["species_variant"] = {"enum": variant_names}
+        req.append("species_variant")
 
     if spec.background:
         boost = _boost_schema(options.background_boost_options(access, spec.background))
@@ -44,18 +60,26 @@ def build_pass1_grammar(access, spec, resolved, *, feat_slots=0):
         }
         req.append("spells")
 
+    n_wm, wm_pool = options.weapon_mastery_choice(access, resolved)
+    if n_wm > 0:
+        # A build with a weapon-mastery feature picks ``n_wm`` distinct masterable weapons.
+        props["weapon_masteries"] = {"type": "array", "items": {"enum": wm_pool},
+                                     "minItems": n_wm, "maxItems": n_wm, "uniqueItems": True}
+        req.append("weapon_masteries")
+
+    total_level = sum(lv for _cid, lv, _sub in resolved)
+    boost = options.default_background_boost(access, spec.background) if spec.background else {}
+    base = options.base_ability_scores(access, first_class)
+
     if feat_slots > 0:
         # Each ability-increase/feat slot is spent on a general feat OR a raw ability-score increase.
         # The raw increase is itself one of the general feats, so a single general-feat pool models
         # the whole "ability increase OR feat" choice — no separate branch is needed.
-        base = options.base_ability_scores(access, first_class)
         # Feat eligibility is gated against the DEFAULT background boost, not the model's not-yet-made
         # pick: the grammar is built before the model chooses its boost distribution, so ability-prereq
         # gating uses the deterministic default (+2/+1 to the background's first two options). A model
         # pick that shifts the boost elsewhere is a rare, minor mismatch; the assembler's feat-increase
         # allocation then reads the actual picked boost, and the validator has the final say on legality.
-        boost = options.default_background_boost(access, spec.background) if spec.background else {}
-        total_level = sum(lv for _cid, lv, _sub in resolved)
         feat_pool = options.eligible_feats(access, base, boost, total_level)
         if feat_pool:
             feats_schema = {"type": "array", "items": {"enum": feat_pool},
@@ -70,6 +94,43 @@ def build_pass1_grammar(access, spec, resolved, *, feat_slots=0):
                 feats_schema.update(minItems=n, maxItems=n, uniqueItems=True)
             props["feats"] = feats_schema
             req.append("feats")
+
+            # Per-slot ability-increase target: when a slot is spent on a raw (from-any) increase, the
+            # model chooses which ability(ies) it raises — a single-target +2 ("two") or a +1/+1
+            # split ("split") across two distinct abilities. Targets are constrained to actual ability
+            # ids, so the pick is legal by construction. Optional: a slot may take a feat instead, and
+            # any slot without a supplied target falls back to the deterministic allocation.
+            if options.any_choosable_increase(access, feat_pool):
+                ability_ids = [r["id"] for r in options.catalog.list_abilities(access)]
+                props["ability_increases"] = {
+                    "type": "array", "maxItems": feat_slots,
+                    "items": {"oneOf": [
+                        {"type": "object", "additionalProperties": False,
+                         "required": ["shape", "ability"],
+                         "properties": {"shape": {"const": "two"},
+                                        "ability": {"enum": ability_ids}}},
+                        {"type": "object", "additionalProperties": False,
+                         "required": ["shape", "abilities"],
+                         "properties": {"shape": {"const": "split"},
+                                        "abilities": {"type": "array", "items": {"enum": ability_ids},
+                                                      "minItems": 2, "maxItems": 2,
+                                                      "uniqueItems": True}}},
+                    ]},
+                }
+
+    if boon_slots > 0:
+        # The top-tier boon slot draws from its OWN feat category (distinct from the general pool),
+        # so a max-level build no longer under-offers by one slot. Same repeatability/clamp handling
+        # as the general slots.
+        boon_pool = options.eligible_feats(access, base, boost, total_level, category="epic-boon")
+        if boon_pool:
+            boon_schema = {"type": "array", "items": {"enum": boon_pool},
+                           "minItems": boon_slots, "maxItems": boon_slots}
+            if not options.any_repeatable(access, boon_pool):
+                n = min(boon_slots, len(boon_pool))
+                boon_schema.update(minItems=n, maxItems=n, uniqueItems=True)
+            props["boons"] = boon_schema
+            req.append("boons")
 
     return {"type": "object", "properties": props, "required": req}
 

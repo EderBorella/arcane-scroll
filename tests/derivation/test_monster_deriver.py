@@ -41,7 +41,9 @@ class TestConcreteMaterialization:
         entry = derive_monster(access, "creature-c")
         assert entry["creature_id"] == "creature-c"
         sb = entry["stat_block"]
-        assert sb["companion_index"] == 0
+        # T64: the owner-less monster sheet references the bare shared base def — no
+        # owner-linkage index leaks onto it.
+        assert "companion_index" not in sb
         assert sb["ability_scores"] == {"a1": 8, "a2": 16, "a3": 12}
         assert sb["armor_class"] == 12
         assert sb["hit_points"] == {"max": 7, "current": 7, "temp": 0}
@@ -52,10 +54,12 @@ class TestConcreteMaterialization:
             {"name": "Bite", "attack_bonus": 5, "damage": "1d6 + 3", "damage_type": "fire"}]
         assert sb["character_states"] == []
 
-    def test_index_tracks_position_in_sheet(self, access):
+    def test_stat_blocks_omit_owner_linkage_index(self, access):
+        # T64: position is tracked by the monsters[] array itself, not by a
+        # companion_index on each owner-less stat block.
         sheet = derive_monster_sheet(access, ["creature-c", "creature-c"])
-        indexes = [m["stat_block"]["companion_index"] for m in sheet["monsters"]]
-        assert indexes == [0, 1]
+        assert [m["creature_id"] for m in sheet["monsters"]] == ["creature-c", "creature-c"]
+        assert all("companion_index" not in m["stat_block"] for m in sheet["monsters"])
 
     def test_sheet_shape(self, access):
         sheet = derive_monster_sheet(access, ["creature-c"])

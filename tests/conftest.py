@@ -307,7 +307,15 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE subclass (id TEXT PRIMARY KEY, class_id TEXT, name TEXT, is_caster INT, description TEXT)")
     cur.execute("CREATE TABLE species (id TEXT PRIMARY KEY, name TEXT, creature_type_id TEXT, base_walk_speed INT, description TEXT)")
     cur.execute("CREATE TABLE background (id TEXT PRIMARY KEY, name TEXT, feat_id TEXT, feat_choice INT, tool_id TEXT, tool_category_id TEXT, description TEXT)")
-    cur.execute("CREATE TABLE lineage (id TEXT PRIMARY KEY, name TEXT, description TEXT)")
+    # lineage carries its parent species and the (optional) spellcasting-ability shape, mirroring the
+    # reference schema so the sub-choice readers (species -> its lineages) and the grant walkers
+    # (lineage as a grant owner) exercise the real columns.
+    cur.execute("CREATE TABLE lineage (id TEXT PRIMARY KEY, species_id TEXT, name TEXT, "
+                "spellcasting_ability_mode TEXT, spellcasting_ability_id TEXT, description TEXT)")
+    # species_variant_option: an axis-based species sub-choice (e.g. an ancestry axis whose option
+    # picks a damage type). Matched by (species_id, axis, option_name) — no resolver dim.
+    cur.execute("CREATE TABLE species_variant_option (id TEXT PRIMARY KEY, species_id TEXT, "
+                "axis TEXT, option_name TEXT, damage_type_id TEXT)")
     cur.execute("CREATE TABLE size (id TEXT PRIMARY KEY, name TEXT, ordinal INT, space_ft REAL)")
     cur.execute("CREATE TABLE creature_type (id TEXT PRIMARY KEY, name TEXT)")
     cur.execute("CREATE TABLE xp_level (level INT PRIMARY KEY, xp_min INT)")
@@ -337,6 +345,16 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO creature_type VALUES ('type-a','Type A')")
     cur.execute("INSERT INTO creature_type VALUES ('type-b','Type B')")
     cur.execute("INSERT INTO species VALUES ('species-a','Species A','type-a',30,'')")
+    # species-l offers a LINEAGE sub-choice; species-v offers a VARIANT-axis sub-choice. species-a has
+    # neither, so it doubles as the negative ("offers no sub-choice") case for the enumeration/grammar.
+    cur.execute("INSERT INTO species VALUES ('species-l','Species L','type-a',30,'')")
+    cur.execute("INSERT INTO species VALUES ('species-v','Species V','type-a',30,'')")
+    # two lineages of species-l (ordered by id when enumerated)
+    cur.execute("INSERT INTO lineage VALUES ('lin-l1','species-l','Lineage One','none',NULL,'')")
+    cur.execute("INSERT INTO lineage VALUES ('lin-l2','species-l','Lineage Two','none',NULL,'')")
+    # a variant axis of species-v: two options, each resolving to a damage type
+    cur.execute("INSERT INTO species_variant_option VALUES ('svo-a','species-v','axis-a','Variant A','fire')")
+    cur.execute("INSERT INTO species_variant_option VALUES ('svo-b','species-v','axis-a','Variant B','cold')")
     cur.execute("INSERT INTO background VALUES ('bg-a','Background A','feat-origin',0,NULL,NULL,'')")
     # bg-b: a background with no origin feat grant (feat_id NULL) -- the negative case for the
     # background.feat_id-sourced origin budget
@@ -360,6 +378,13 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE grant_ability_increase_value (grant_id TEXT, ability_id TEXT)")
     cur.execute("INSERT INTO grant_ability_increase VALUES "
                 "('gai-asi','feat','ability-score-improvement',NULL,2,2,20,1,NULL)")
+    # class-a's level-20 capstone: raises abilities a1 and a3 to a maximum of 25 (a fixed-target,
+    # cap-raising grant owned by the class, gained at level 20). Exercises the ability-cap check's
+    # per-ability ceiling re-derivation from the grant spine (a raised cap, not the flat standard 20).
+    cur.execute("INSERT INTO grant_ability_increase VALUES "
+                "('gai-cap','class','class-a',20,8,4,25,0,NULL)")
+    cur.execute("INSERT INTO grant_ability_increase_value VALUES ('gai-cap','a1')")
+    cur.execute("INSERT INTO grant_ability_increase_value VALUES ('gai-cap','a3')")
 
     # proficiencies domain: skills catalog + class/background skill pools + skill/expertise grants
     cur.execute("CREATE TABLE skill (id TEXT PRIMARY KEY, name TEXT, ability_id TEXT)")
@@ -482,6 +507,12 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO grant_ability_increase VALUES "
                 "('gai-inc','feat','feat-inc',NULL,1,1,20,0,NULL)")
     cur.execute("INSERT INTO grant_ability_increase_value VALUES ('gai-inc','a2')")
+    # feat-boon: an Epic-Boon feat raising an ability of the player's choice to a maximum of 30
+    # (from_any). The ability-cap check credits the raised ceiling to whichever ability the sheet's
+    # feat entry records this feat as increasing.
+    cur.execute("INSERT INTO feat VALUES ('feat-boon','Feat Boon','epic-boon',0)")
+    cur.execute("INSERT INTO grant_ability_increase VALUES "
+                "('gai-boon','feat','feat-boon',NULL,1,1,30,1,NULL)")
     # feat-save (e.g. Resilient) grants saving-throw proficiency in ability a3 via the proficiency
     # grant spine (target_kind='saving_throw') -- the saving-throws domain's feat-granted-save fix
     cur.execute("INSERT INTO grant_proficiency VALUES "
@@ -537,6 +568,9 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO feat VALUES ('feat-over','Feat Over','general',0)")
     cur.execute("INSERT INTO grant_speed VALUES "
                 "('gsd-feat-over','feat','feat-over',NULL,'climb',20,0,1,0,NULL,NULL)")
+    # lineage lin-l1 grants a fly speed (sets_total) -> a lineage-granted speed landing in CORE.
+    cur.execute("INSERT INTO grant_speed VALUES "
+                "('gsd-lin-l1','lineage','lin-l1',NULL,'fly',30,0,1,0,NULL,NULL)")
 
     cur.execute("CREATE TABLE class_resource (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, name TEXT)")
     cur.execute("CREATE TABLE class_resource_level (resource_id TEXT, level INTEGER, count INTEGER, "
@@ -544,6 +578,13 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO class_resource VALUES ('unarmored-movement','class','class-a','Unarmored Movement')")
     cur.execute("INSERT INTO class_resource_level VALUES ('unarmored-movement',2,NULL,NULL,NULL,10)")
     cur.execute("INSERT INTO class_resource_level VALUES ('unarmored-movement',6,NULL,NULL,NULL,15)")
+    # class-a-pool: a COUNT-ladder resource (a whole-number use pool) — exercises resource_budgets
+    # derivation and its independent cross-check. 'unarmored-movement' above is a BONUS ladder (no
+    # count) and must NOT become a budget entry.
+    cur.execute("INSERT INTO class_resource VALUES ('class-a-pool','class','class-a','Pool A')")
+    for _lvl, _cnt in [(1, 2), (3, 3), (5, 4)]:
+        cur.execute("INSERT INTO class_resource_level VALUES ('class-a-pool',?,?,NULL,NULL,NULL)",
+                    (_lvl, _cnt))
 
     # recharge_cadence — referenced by grant_spell.recharge_id (e.g. short-rest)
     cur.execute("CREATE TABLE recharge_cadence (id TEXT PRIMARY KEY, name TEXT)")
@@ -622,6 +663,32 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO grant_spell_choice_value VALUES ('gsp-classa-widen','class-a')")
     cur.execute("INSERT INTO grant_spell_choice_value VALUES ('gsp-classa-widen','class-b')")
 
+    # ── F05-T84/T85/T86/T93 chosen-placement fixtures ──────────────────────────
+    # The pact caster carries a spells-known progression (prepared_spells column):
+    # at level 2 it knows 2 cantrips and 3 leveled ("known") spells. The deriver must
+    # cap chosen picks at this count and the validator must flag exceeding it.
+    cur.execute("INSERT INTO class_cantrips_prepared VALUES ('class-p',2,2,3)")
+    # A dedicated full caster (class-c) with its own list + budgets, isolated from
+    # class-a so the generator's class-a spell pool stays pristine. At level 3 it knows
+    # 2 cantrips and prepares 3 spells. sp7/sp8/sp9 are extra leveled spells; spf is an
+    # off-list bonus cantrip that a subclass grants for free.
+    cur.execute("INSERT INTO class VALUES ('class-c','Class C',8,3,'full','all',2,0,'')")
+    cur.execute("INSERT INTO class_cantrips_prepared VALUES ('class-c',3,2,3)")
+    cur.execute("INSERT INTO spell VALUES ('spf','Spf',0,0)")   # bonus cantrip, off every class list
+    for _sid, _lvl in [("sp7", 1), ("sp8", 1), ("sp9", 1)]:
+        cur.execute("INSERT INTO spell VALUES (?,?,?,0)", (_sid, _sid.capitalize(), _lvl))
+    for _sid in ("sp1", "sp2", "sp3", "sp7", "sp8", "sp9"):
+        cur.execute("INSERT INTO spell_class VALUES (?,'class-c')", (_sid,))
+    # the leveled spells are on the pact caster's list too, so a pact build can pick them
+    for _sid in ("sp3", "sp7", "sp8", "sp9"):
+        cur.execute("INSERT INTO spell_class VALUES (?,'class-p')", (_sid,))
+    # two non-caster subclasses of class-c whose spell grants are attributed to the CLASS
+    # source (grant owner is the subclass, but class:class-c exists so the grant lands
+    # there): one grants a free bonus cantrip (T93), one a same-bucket prepared spell
+    # (T85). Their grant_spell rows are inserted after the grant_spell rebuild.
+    cur.execute("INSERT INTO subclass VALUES ('sub-freecantrip','class-c','Sub Free Cantrip',0,'')")
+    cur.execute("INSERT INTO subclass VALUES ('sub-prepgrant','class-c','Sub Prep Grant',0,'')")
+
     # senses domain: sense catalog + grant_sense spine (F05-T23 max-not-sum rule)
     cur.execute("CREATE TABLE sense (id TEXT PRIMARY KEY, name TEXT, description TEXT)")
     cur.execute("CREATE TABLE grant_sense (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
@@ -641,6 +708,12 @@ def _build_rules_db(path: str) -> None:
     # a feat that grants blindsight 10
     cur.execute("INSERT INTO grant_sense VALUES "
                 "('gs-feat-blind','feat','feat-rep',NULL,'blindsight',10,0,NULL,NULL)")
+    # species-l darkvision 60; its lineage lin-l1 overrides to 120 (both non-extending -> max wins).
+    # Exercises a lineage-granted sense landing in CORE via the identity.lineage owner.
+    cur.execute("INSERT INTO grant_sense VALUES "
+                "('gs-species-l','species','species-l',NULL,'darkvision',60,0,NULL,NULL)")
+    cur.execute("INSERT INTO grant_sense VALUES "
+                "('gs-lin-l1','lineage','lin-l1',NULL,'darkvision',120,0,NULL,NULL)")
 
     # defenses domain: damage types, conditions, resistance/condition/save-advantage grants
     cur.execute("CREATE TABLE damage_type (id TEXT PRIMARY KEY, name TEXT)")
@@ -673,6 +746,13 @@ def _build_rules_db(path: str) -> None:
     # feat-gen grants fire resistance
     cur.execute("INSERT INTO grant_resistance VALUES "
                 "('gre-feat-gen','feat','feat-gen',NULL,'fire',NULL,'fixed',1,NULL,NULL,0,NULL)")
+    # species-v carries a VARIANT-axis resistance: the concrete damage type is decided by the chosen
+    # species_variant option (damage_type_id NULL here; variant_axis names the axis to resolve).
+    cur.execute("INSERT INTO grant_resistance VALUES "
+                "('gre-species-v','species','species-v',NULL,NULL,'axis-a','fixed',1,NULL,NULL,0,NULL)")
+    # lineage lin-l2 grants a fixed cold resistance -> a lineage-granted resistance landing in CORE.
+    cur.execute("INSERT INTO grant_resistance VALUES "
+                "('gre-lin-l2','lineage','lin-l2',NULL,'cold',NULL,'fixed',1,NULL,NULL,0,NULL)")
     # sub-a at L3 grants charmed immunity
     cur.execute("INSERT INTO grant_condition VALUES "
                 "('gcn-sub-a','subclass','sub-a',3,NULL,'charmed','immunity',0)")
@@ -731,6 +811,8 @@ def _build_rules_db(path: str) -> None:
                 "PRIMARY KEY (creature_id, sense_id))")
     cur.execute("CREATE TABLE creature_skill (creature_id TEXT, skill_id TEXT, bonus INTEGER, "
                 "PRIMARY KEY (creature_id, skill_id))")
+    cur.execute("CREATE TABLE creature_save (creature_id TEXT, ability_id TEXT, "
+                "PRIMARY KEY (creature_id, ability_id))")
     cur.execute("CREATE TABLE creature_passive_perception (creature_id TEXT PRIMARY KEY, value INTEGER)")
     cur.execute("CREATE TABLE creature_resistance (creature_id TEXT, damage_type_id TEXT, note TEXT, "
                 "PRIMARY KEY (creature_id, damage_type_id))")
@@ -815,6 +897,18 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name,recharge_min,uses_per_day) "
                 "VALUES ('ct-c-recharge','creature-c','action','Recharge Move',5,2)")
 
+    # creature-sp: a CONCRETE (fixed-stat) creature carrying a SAVE PROFICIENCY (T63).
+    # pb=3; a2 is a proficient save (its save modifier is the ability mod PLUS pb), while
+    # a1/a3 remain plain ability modifiers. Exercises the proficient-save re-derivation in
+    # the deriver and the independent validator. Content-neutral: synthetic ids only.
+    cur.execute("INSERT INTO creature (id,name,size_id,creature_type_id,source_kind,ac_value,"
+                "hp_average,hp_dice,initiative_bonus,cr_text,xp,pb) "
+                "VALUES ('creature-sp','Creature SP','size-a','type-a','appendix',13,9,'2d8',2,'1',200,3)")
+    for aid, sc in [("a1", 8), ("a2", 16), ("a3", 12)]:
+        cur.execute("INSERT INTO creature_ability VALUES ('creature-sp',?,?)", (aid, sc))
+    cur.execute("INSERT INTO creature_speed VALUES ('creature-sp','walk',30,NULL)")
+    cur.execute("INSERT INTO creature_save VALUES ('creature-sp','a2')")
+
     # creature-form: a CONCRETE self-transform form (T60). Fixed stat block (no
     # creature_formula rows), carrying a MENTAL ability score ('wisdom') so the
     # physical-transform retained-vs-replaced split can be exercised: a1/a2/a3 (physical)
@@ -832,6 +926,23 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name,atk_bonus,reach_ft,"
                 "dmg_average,dmg_dice,damage_type_id) "
                 "VALUES ('ct-form-strike-a','creature-form','action','Strike A',6,5,11,'2d6 + 4','slashing')")
+
+    # creature-form-sp: a CONCRETE self-transform form carrying SAVE + SKILL proficiencies (T65).
+    # pb=4; a MENTAL ability ('wisdom' 18) with a WISDOM save proficiency so the higher-of picks
+    # the form's proficiency-inclusive save (form wisdom save = +4 + pb 4 = 8) over a character
+    # who retains a low wisdom; and a skill (sk1) the form is far better at (bonus 9) so the
+    # higher-of / gained-form-proficiency shows on skills too. Content-neutral: synthetic ids.
+    cur.execute("INSERT INTO creature (id,name,size_id,creature_type_id,source_kind,ac_value,"
+                "hp_average,hp_dice,initiative_bonus,cr_text,xp,pb) "
+                "VALUES ('creature-form-sp','Creature Form SP','size-a','type-a','appendix',14,20,'3d8',2,'3',700,4)")
+    for aid, sc in [("a1", 18), ("a2", 6), ("a3", 14), ("wisdom", 18)]:
+        cur.execute("INSERT INTO creature_ability VALUES ('creature-form-sp',?,?)", (aid, sc))
+    cur.execute("INSERT INTO creature_speed VALUES ('creature-form-sp','walk',40,NULL)")
+    cur.execute("INSERT INTO creature_save VALUES ('creature-form-sp','wisdom')")
+    cur.execute("INSERT INTO creature_skill VALUES ('creature-form-sp','sk1',9)")
+    cur.execute("INSERT INTO creature_trait (id,creature_id,kind,name,atk_bonus,reach_ft,"
+                "dmg_average,dmg_dice,damage_type_id) "
+                "VALUES ('ct-formsp-strike','creature-form-sp','action','Strike A',6,5,11,'2d6 + 4','slashing')")
 
     # creature-t: a TEMPLATED spirit-like creature — NULL header ac/hp/pb, every
     # scaled stat driven by creature_formula rows. Exercises spell_level scaling,
@@ -1196,6 +1307,17 @@ def _build_rules_db(path: str) -> None:
                 "VALUES ('gsp-sub-shadow','subclass','sub-shadow','cantrip','at_will','fixed','a1')")
     cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-sub-shadow','sp1')")
 
+    # ── F05-T93/T85 same-bucket grants attributed to the class source ──────────
+    # sub-freecantrip grants a free bonus cantrip (Spf, off-list) on the class source (T93);
+    # sub-prepgrant grants a same-bucket prepared spell (Sp3) on the class source (T85).
+    # Both must reserve their slot so chosen picks cannot overflow the class budget.
+    cur.execute("INSERT INTO grant_spell (id,owner_kind,owner_id,bucket,recovery) "
+                "VALUES ('gsp-free-cantrip','subclass','sub-freecantrip','cantrip','at_will')")
+    cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-free-cantrip','spf')")
+    cur.execute("INSERT INTO grant_spell (id,owner_kind,owner_id,bucket,recovery) "
+                "VALUES ('gsp-prep-grant','subclass','sub-prepgrant','prepared','spell_slot')")
+    cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-prep-grant','sp3')")
+
     # ── T34 isolated test data: new entities + grant rows (IDs NOT referenced by existing tests) ──
 
     cur.execute("INSERT INTO recharge_cadence VALUES ('short-rest','Short Rest')")
@@ -1339,6 +1461,55 @@ def _build_rules_db(path: str) -> None:
                 "(id,owner_kind,owner_id,target_kind,value,die_count,die_faces,damage_type_id) "
                 "VALUES ('gb-blade-xd','magic_item','mi-blade','extra_damage',NULL,1,6,'fire')")
 
+    # T56 fixtures: a magic weapon catalogued WITHOUT its own base weapon-stats row. Its underlying
+    # base weapon is recorded via magic_item_template.base_item_id, so the deriver/validator resolve
+    # the base stats and still materialise an attack. 'mi-relic-blade' maps to the single base
+    # 'weapon-a' (martial, 1d12, two-handed) and owns one ungated extra_damage rider (+1d6 radiant),
+    # no attunement -- so both the attack AND the item rider materialise while equipped.
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-relic-blade','Relic Blade Alpha','weapon',NULL)")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) "
+                "VALUES ('mi-relic-blade','rare',0)")
+    cur.execute("INSERT INTO magic_item_template (template_id,base_kind,base_item_id) "
+                "VALUES ('mi-relic-blade','weapon','weapon-a')")
+    cur.execute("INSERT INTO grant_bonus "
+                "(id,owner_kind,owner_id,target_kind,value,die_count,die_faces,damage_type_id) "
+                "VALUES ('gb-relic-xd','magic_item','mi-relic-blade','extra_damage',NULL,1,6,'radiant')")
+    # 'mi-ambi-blade': a stats-less magic weapon with an AMBIGUOUS base (two distinct template
+    # bases) -> the base cannot be resolved, so NO attack is materialised (the deriver never guesses).
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-ambi-blade','Ambi Blade Alpha','weapon',NULL)")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) "
+                "VALUES ('mi-ambi-blade','rare',0)")
+    cur.execute("INSERT INTO magic_item_template (template_id,base_kind,base_item_id) "
+                "VALUES ('mi-ambi-blade','weapon','weapon-a')")
+    cur.execute("INSERT INTO magic_item_template (template_id,base_kind,base_item_id) "
+                "VALUES ('mi-ambi-blade','weapon','weapon-b')")
+
+    # T57 fixtures: a magic weapon owning MULTIPLE extra_damage rows, disambiguated by condition_kind.
+    # 'mi-multi-blade' (martial melee, no attunement) owns an ungated base rider (+1d6) and a gated
+    # variant (+3d6, condition_kind 'gated-variant'). The deriver/validator fold ONLY the single
+    # ungated row into the item's own attack; the gated row is state-scoped and never folds here.
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-multi-blade','Multi Blade Alpha','weapon',NULL)")
+    cur.execute("INSERT INTO weapon VALUES ('mi-multi-blade','martial','melee',1,8,NULL,'slashing',NULL)")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) "
+                "VALUES ('mi-multi-blade','rare',0)")
+    cur.execute("INSERT INTO grant_bonus "
+                "(id,owner_kind,owner_id,target_kind,value,die_count,die_faces,damage_type_id) "
+                "VALUES ('gb-multi-xd-base','magic_item','mi-multi-blade','extra_damage',NULL,1,6,'fire')")
+    cur.execute("INSERT INTO grant_bonus "
+                "(id,owner_kind,owner_id,target_kind,value,die_count,die_faces,damage_type_id,condition_kind) "
+                "VALUES ('gb-multi-xd-var','magic_item','mi-multi-blade','extra_damage',NULL,3,6,'fire','gated-variant')")
+    # 'mi-twin-blade': TWO ungated extra_damage rows -> still ambiguous -> folds nothing (never summed).
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-twin-blade','Twin Blade Alpha','weapon',NULL)")
+    cur.execute("INSERT INTO weapon VALUES ('mi-twin-blade','martial','melee',1,8,NULL,'slashing',NULL)")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) "
+                "VALUES ('mi-twin-blade','rare',0)")
+    cur.execute("INSERT INTO grant_bonus "
+                "(id,owner_kind,owner_id,target_kind,value,die_count,die_faces,damage_type_id) "
+                "VALUES ('gb-twin-xd-1','magic_item','mi-twin-blade','extra_damage',NULL,1,6,'fire')")
+    cur.execute("INSERT INTO grant_bonus "
+                "(id,owner_kind,owner_id,target_kind,value,die_count,die_faces,damage_type_id) "
+                "VALUES ('gb-twin-xd-2','magic_item','mi-twin-blade','extra_damage',NULL,2,6,'fire')")
+
     # T50 fixtures: a CON-set item (amulet-of-health analog) + a state-gated HP boost feature +
     # an always-on (non-state) grant_hp that must stay INERT in the effective-CON max-HP recompute.
     # Vigor Alpha SETs a3 to 18 while attuned; tests alias a3's abbrev to 'con' in their own private
@@ -1349,10 +1520,22 @@ def _build_rules_db(path: str) -> None:
     # a class feature that grants +5 max HP only while its state is active (high level so no
     # owner-enumeration reaches it) -- lets a test combine a state grant_hp WITH the CON-delta.
     cur.execute("INSERT INTO class_feature VALUES ('cf-hp-state','class-a',99,'HP State Feature A')")
-    cur.execute("INSERT INTO grant_hp VALUES ('ghp-state','class_feature','cf-hp-state',NULL,5,NULL,'state-active')")
+    # ungated state HP boost (condition_kind NULL): applies whenever its owner's state is active,
+    # consistent with the gate rule (None = always-on) shared by the deriver and the HP check.
+    cur.execute("INSERT INTO grant_hp VALUES ('ghp-state','class_feature','cf-hp-state',NULL,5,NULL,NULL)")
     # an always-on grant_hp on feat-gen -- never gathered under an active state, so it must NOT
     # reach max_boost (guards the deriver's and validator's state-only HP accumulation).
     cur.execute("INSERT INTO grant_hp VALUES ('ghp-feat','feat','feat-gen',NULL,7,NULL,NULL)")
+
+    # T58 fixtures: a state-gated maximum-HP REDUCTION (drain/curse). A class feature owns a grant_hp
+    # with a NEGATIVE flat, gated by condition_kind matching the drain state's id ('drained'). While
+    # that state is active the max HP drops by 6 (folds into hit_points.max_reduction). A second
+    # feature carries a reduction gated to a DIFFERENT state id, so it stays inert for 'drained'.
+    cur.execute("INSERT INTO class_feature VALUES ('cf-hp-drain','class-a',99,'HP Drain Feature A')")
+    cur.execute("INSERT INTO grant_hp VALUES ('ghp-drain','class_feature','cf-hp-drain',NULL,-6,NULL,'drained')")
+    cur.execute("INSERT INTO class_feature VALUES ('cf-hp-drain-gated','class-a',99,'HP Drain Feature B')")
+    cur.execute("INSERT INTO grant_hp VALUES "
+                "('ghp-drain-gated','class_feature','cf-hp-drain-gated',NULL,-4,NULL,'other-state')")
 
     # generator choice-space enumeration (F05-T66): the option/list tables the choice grammar reads
     # to enumerate a single-class character's base choices. Content-neutral synthetic ids only.
@@ -1367,6 +1550,8 @@ def _build_rules_db(path: str) -> None:
     # species-a offers two sizes (a species may be one of several) -- exercises multi-size ordering
     cur.execute("INSERT INTO species_size VALUES ('species-a','size-a')")
     cur.execute("INSERT INTO species_size VALUES ('species-a','size-s')")
+    cur.execute("INSERT INTO species_size VALUES ('species-l','size-a')")
+    cur.execute("INSERT INTO species_size VALUES ('species-v','size-a')")
     # a second trait on species-a so trait ordinal ordering is observable
     cur.execute("INSERT INTO species_trait VALUES ('st-a2','species-a',2,'Species Trait B')")
     # class-a primary ability + suggested standard array + (saving throws already inserted above)
@@ -1398,6 +1583,92 @@ def _build_rules_db(path: str) -> None:
     # the omit-when-null path.
     cur.execute("ALTER TABLE spell ADD COLUMN school_id TEXT")
     cur.execute("UPDATE spell SET school_id='school-a' WHERE id IN ('sp1','sp2','sp3')")
+
+    # catalog_item.weight_lb: added after the positional catalog_item inserts (which supply the base 4
+    # columns) so the inventory catalog-enrichment reader (F05-T80) has a weight fact to resolve. The
+    # reader degrades gracefully when the column is absent; a couple of rows carry a weight so the
+    # enrichment path can be asserted. Items left without a weight exercise the omit-when-null path.
+    cur.execute("ALTER TABLE catalog_item ADD COLUMN weight_lb REAL")
+
+    # --- generation-grammar-completeness fixtures (bundle 8: T87 / T88 / T94) ---
+    # T87 top-tier boon slot: class-a gains a distinct capstone-tier slot at the top of the level
+    # range (level 19), drawing from its OWN feat category (epic-boon: feat-boon above) rather than
+    # the general pool. It is a separate feature name from 'Ability Score Improvement', so a level-19
+    # single-class build opens ONE boon slot on top of its two ability-increase slots (levels 4/8).
+    cur.execute("INSERT INTO class_feature VALUES ('cf-boon19','class-a',19,'Epic Boon')")
+    # T94 weapon mastery: class-wm is a martial (non-caster) class whose level-1 'Weapon Mastery'
+    # feature entitles the build to a number of weapon-mastery picks read from a 'Weapon Mastery'
+    # resource ladder (2 at level 1, 3 from level 5). Its masterable pool is the weapons carrying a
+    # mastery property (weapon-a/b/c above). Kept separate from class-a/class-m so the existing
+    # end-to-end builds — which carry no weapon-mastery feature — stay complete.
+    cur.execute("INSERT INTO class VALUES ('class-wm','Class WM',10,3,'none','all',2,0,'')")
+    for aid, score in [("a1", 15), ("a2", 14), ("a3", 13)]:
+        cur.execute("INSERT INTO class_standard_array VALUES ('class-wm',?,?)", (aid, score))
+    for aid in ("a1", "a2"):
+        cur.execute("INSERT INTO class_saving_throw VALUES ('class-wm',?)", (aid,))
+    cur.execute("INSERT INTO class_feature VALUES ('cf-wm1','class-wm',1,'Weapon Mastery')")
+    cur.execute("INSERT INTO class_resource VALUES "
+                "('class-wm-weapon-mastery','class','class-wm','Weapon Mastery')")
+    cur.execute("INSERT INTO class_resource_level VALUES ('class-wm-weapon-mastery',1,2,NULL,NULL,NULL)")
+    cur.execute("INSERT INTO class_resource_level VALUES ('class-wm-weapon-mastery',5,3,NULL,NULL,NULL)")
+    cur.execute("UPDATE catalog_item SET weight_lb=3.0 WHERE id='blade-a'")
+    cur.execute("UPDATE catalog_item SET weight_lb=7.0 WHERE id='weapon-a'")
+    cur.execute("UPDATE catalog_item SET weight_lb=8.0 WHERE id='armor-e'")
+
+    # --- generation-legality fixtures (bundle 9: T89 multiclass prerequisite) ---
+    # The multiclassing rule gates an ADDITIONAL class on a minimum score in the primary ability of
+    # the new class AND every current class. class-a (first class) suggests a1:15 / a2:14 / a3:13 (the
+    # rest fall to the modifier-zero baseline of 10), so from a class-a base:
+    #   * class-mc-ok's primary ability (a3) sits at 13 -> a legal multiclass;
+    #   * class-mc-bad's primary ability (a4) falls to 10 -> an illegal one;
+    #   * class-mc-or joins two primaries with an OR relation and qualifies on either (a3=13 meets the
+    #     minimum though a4=10 does not) -> a legal multiclass.
+    cur.execute("INSERT INTO class VALUES ('class-mc-ok','Class MC OK',8,3,'none','single',2,0,'')")
+    cur.execute("INSERT INTO class_primary_ability VALUES ('class-mc-ok','a3','attack')")
+    cur.execute("INSERT INTO class VALUES ('class-mc-bad','Class MC Bad',8,3,'none','single',2,0,'')")
+    cur.execute("INSERT INTO class_primary_ability VALUES ('class-mc-bad','a4','attack')")
+    cur.execute("INSERT INTO class VALUES ('class-mc-or','Class MC Or',8,3,'none','or',2,0,'')")
+    cur.execute("INSERT INTO class_primary_ability VALUES ('class-mc-or','a3','attack')")
+    cur.execute("INSERT INTO class_primary_ability VALUES ('class-mc-or','a4','attack')")
+
+    # --- equipment-assembly fixtures (bundle 9: T92 stack duplicate item ids) ---
+    # A gear item (no natural body slot -> the backpack) granted by BOTH a class bundle (sa-b) and a
+    # background bundle (sa-bg), so assembling both must merge the two grants into one stacked backpack
+    # record rather than emit a duplicate item id. sa-b grants 1, sa-bg grants 2 -> merged quantity 3.
+    cur.execute("INSERT OR IGNORE INTO catalog_item (id, name, kind, category_id) "
+                "VALUES ('gear-a','Gear A','gear',NULL)")
+    cur.execute("INSERT INTO start_equipment_entry VALUES "
+                "('se-b2','sa-b',2,'item','gear-a',1,NULL,NULL,NULL,NULL)")
+    cur.execute("INSERT INTO start_equipment_entry VALUES "
+                "('se-bg2','sa-bg',2,'item','gear-a',2,NULL,NULL,NULL,NULL)")
+
+    # --- flavour domain (F05-T90): per-species physical bounds, appearance palettes, story angles,
+    # and the flavour prompt — the backstory endpoint's DAL-served flavour data. species-a carries
+    # bounds + default palettes; species-v carries a skin override; species-l deliberately has NO
+    # bounds row (the None/default-fallback case). Values mirror the old synthetic catalog lists.
+    cur.execute("CREATE TABLE species_physical_bounds (species_id TEXT PRIMARY KEY, "
+                "age_min INT, age_max INT, height_min INT, height_max INT, weight_min INT, weight_max INT)")
+    cur.execute("INSERT INTO species_physical_bounds VALUES ('species-a',16,90,58,78,110,270)")
+    cur.execute("CREATE TABLE appearance_option (id INTEGER PRIMARY KEY, axis TEXT, species_id TEXT, "
+                "ordinal INT, value TEXT)")
+    _app_rows = []
+    _n = 1
+    for _axis, _vals in [("gender", ["Male", "Female", "Nonbinary"]),
+                         ("eyes", ["Brown", "Blue", "Green"]),
+                         ("hair", ["Black", "Brown", "Auburn"]),
+                         ("skin", ["Pale", "Tan", "Dark"])]:
+        for _ord, _val in enumerate(_vals, start=1):
+            _app_rows.append((_n, _axis, None, _ord, _val)); _n += 1
+    # species-v overrides the skin axis (the override-vs-default case)
+    for _ord, _val in enumerate(["Bronze", "Silver"], start=1):
+        _app_rows.append((_n, "skin", "species-v", _ord, _val)); _n += 1
+    cur.executemany("INSERT INTO appearance_option VALUES (?,?,?,?,?)", _app_rows)
+    cur.execute("CREATE TABLE story_archetype (id INTEGER PRIMARY KEY, ordinal INT, text TEXT)")
+    for _i, _txt in enumerate(["Frame them through a mundane trade.",
+                               "Bond them to a place, not a person."], start=1):
+        cur.execute("INSERT INTO story_archetype VALUES (?,?,?)", (_i, _i, _txt))
+    cur.execute("CREATE TABLE generator_prompt (locator TEXT PRIMARY KEY, text TEXT)")
+    cur.execute("INSERT INTO generator_prompt VALUES ('flavour_sys','TEST FLAVOUR PROMPT')")
 
     con.commit()
     con.close()

@@ -58,6 +58,107 @@ def _sheet(companion_modifiers, core=None):
                           "companion_modifiers": companion_modifiers}}
 
 
+# ── save proficiency (T63): pb folds into a proficient save ───────────────────
+
+
+def _sp_core():
+    return {"character_id": "cid", "character_name": "Test",
+            "companions": [{"name": "Companion SP", "db_creature_id": "creature-sp"}]}
+
+
+def _clean_sp_modifier(index=0):
+    """A hand-built companionModifier matching creature-sp (pb=3, a2 proficient) — the a2
+    save carries ability mod (+3) PLUS pb (3); a1/a3 are plain ability mods."""
+    return {
+        "companion_index": index,
+        "ability_scores": {"a1": 8, "a2": 16, "a3": 12},
+        "armor_class": 13,
+        "hit_points": {"max": 9, "current": 9, "temp": 0},
+        "hit_dice": {"d8": {"max": 2, "remaining": 2}},
+        "speed": {"walk": 30},
+        "saving_throws": [
+            {"ability": "a1", "modifier": -1},
+            {"ability": "a2", "modifier": 6},
+            {"ability": "a3", "modifier": 1},
+        ],
+        "character_states": [],
+    }
+
+
+class TestSaveProficiency:
+    def test_clean_proficient_save_passes(self, access):
+        cm = _clean_sp_modifier()
+        violations = check(_sheet([cm], core=_sp_core()), access)
+        assert not any(v.code.startswith("companion-save") for v in violations)
+
+    def test_derived_proficient_save_round_trips_clean(self, access):
+        companion, _ = derive_companions(_sp_core(), None, "fill", access)
+        violations = check({"core": _sp_core(), "companion": companion}, access)
+        assert not any(v.code.startswith("companion-save") for v in violations)
+
+    def test_proficient_save_without_pb_fires_mismatch(self, access):
+        # A proficient save carrying only the ability modifier (pb omitted) is a mismatch.
+        gap = _clean_sp_modifier()
+        gap["saving_throws"][1]["modifier"] = 3          # a2 without pb
+        codes = {v.code for v in check(_sheet([gap], core=_sp_core()), access)}
+        assert "companion-save-mismatch" in codes
+
+    def test_missing_proficient_save_fires_incomplete(self, access):
+        gap = _clean_sp_modifier()
+        gap["saving_throws"] = [{"ability": "a1", "modifier": -1}]   # drop a2/a3
+        codes = {v.code for v in check(_sheet([gap], core=_sp_core()), access)}
+        assert "companion-save-missing" in codes
+
+
+# ── T61: creature-legality gate (independent, re-derived from grant links) ────
+
+
+class TestCreatureLegalityGate:
+    def test_granted_creature_is_legal(self, access):
+        # creature-c is conferred by a grant_companion link → no legality violation.
+        violations = check(_sheet([_clean_concrete_modifier()]), access)
+        assert not any(v.code.startswith("companion-creature-illegal")
+                       or v.code == "companion-creature-level-illegal" for v in violations)
+
+    def test_ungranted_creature_is_illegal(self, access):
+        # creature-form exists in the catalog but NO grant_companion link confers it
+        # as a companion → it is not a rules-legal companion choice.
+        core = _core(companions=[{"name": "Form", "db_creature_id": "creature-form"}])
+        cm = _clean_concrete_modifier()
+        codes = {v.code for v in check(_sheet([cm], core=core), access)}
+        assert "companion-creature-illegal" in codes
+
+    def test_illegal_creature_finding_is_illegal_kind(self, access):
+        core = _core(companions=[{"name": "Form", "db_creature_id": "creature-form"}])
+        v = next(x for x in check(_sheet([_clean_concrete_modifier()], core=core), access)
+                 if x.code == "companion-creature-illegal")
+        assert v.kind == "illegal"
+
+    def test_spell_cast_below_summon_level_is_level_illegal(self, access):
+        # creature-t is granted at spell level 3; a cast level below that cannot field it.
+        cm = _clean_spirit_modifier()
+        codes = {v.code for v in check(_templated_sheet(cm, _spirit_core(cast_level=2)), access)}
+        assert "companion-creature-level-illegal" in codes
+
+    def test_spell_cast_at_or_above_summon_level_is_legal(self, access):
+        cm = _clean_spirit_modifier()
+        codes = {v.code for v in check(_templated_sheet(cm, _spirit_core(cast_level=5)), access)}
+        assert "companion-creature-level-illegal" not in codes
+
+    def test_subclass_companion_below_feature_level_is_level_illegal(self, access):
+        # creature-tb is a subclass companion gained at level 3; an owner below that
+        # cannot yet field it.
+        cm = _clean_beast_modifier()
+        codes = {v.code for v in check(_templated_sheet(cm, _beast_core(level=2)), access)}
+        assert "companion-creature-level-illegal" in codes
+
+    def test_concrete_companion_without_cast_level_not_level_flagged(self, access):
+        # A concrete companion (creature-c) carries no cast_level; the spell-tier gate
+        # must not false-flag it.
+        codes = {v.code for v in check(_sheet([_clean_concrete_modifier()]), access)}
+        assert "companion-creature-level-illegal" not in codes
+
+
 # ── RED: the check fires on a crafted gap sheet ──────────────────────────────
 
 

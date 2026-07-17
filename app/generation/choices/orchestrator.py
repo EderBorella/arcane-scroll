@@ -26,21 +26,28 @@ def _default_pick(prompt, schema):
     return client.generate(prompt, schema)
 
 
-def generate_choices(access, spec, *, pick=_default_pick, rng=random, feat_slots=None):
+def generate_choices(access, spec, *, pick=_default_pick, rng=random, feat_slots=None,
+                     boon_slots=None):
     """Run the two-pass grammar for ``spec`` and return the canonical ``choices``. ``access`` is a
     ``GeneratorAccess``; ``pick(prompt, schema)`` performs the model call (inject a stub to seed
     picks deterministically). ``feat_slots`` is the number of ability-increase/feat slots the build
-    offers; left at None it is derived from the per-class slot progression in the reference data
-    (``options.ability_feat_slot_count``), so a level-4+ build reaches its ability-increase/feat
-    choices. A caller may pin an explicit count (e.g. a deterministic test)."""
+    offers and ``boon_slots`` the number of distinct top-tier boon slots; left at None each is
+    derived from the per-class slot progression in the reference data
+    (``options.ability_feat_slot_count`` / ``options.boon_slot_count``), so a build reaches its
+    ability-increase/feat choices and, at the gating level, its boon slot. A caller may pin explicit
+    counts (e.g. a deterministic test)."""
     resolved = [(cid, lv, options.resolve_subclass(access, cid, lv, spec.subclasses.get(cid), rng))
                 for cid, lv in spec.classes]
     if feat_slots is None:
         feat_slots = options.ability_feat_slot_count(access, resolved)
+    if boon_slots is None:
+        boon_slots = options.boon_slot_count(access, resolved)
 
-    schema1 = grammar.build_pass1_grammar(access, spec, resolved, feat_slots=feat_slots)
+    schema1 = grammar.build_pass1_grammar(access, spec, resolved, feat_slots=feat_slots,
+                                          boon_slots=boon_slots)
     picks1 = pick(_prompt(access, spec, resolved, "sheet"), schema1) or {}
-    choices = assemble.assemble_choices(access, spec, resolved, picks1, feat_slots=feat_slots)
+    choices = assemble.assemble_choices(access, spec, resolved, picks1, feat_slots=feat_slots,
+                                        boon_slots=boon_slots)
 
     schema2 = grammar.build_equipment_grammar(access, spec, resolved)
     if schema2.get("properties"):

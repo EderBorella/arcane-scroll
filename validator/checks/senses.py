@@ -44,8 +44,14 @@ def _gather_owner_grants(access, sheet: dict) -> list:
     if spid:
         rows.extend(q.sense_grants(access, "species", spid))
 
-    # lineage (e.g. a subspecies overrides species sense range) — try resolving the species name
-    # as a lineage too, since the contract identity.species may carry a lineage identifier
+    # lineage (a subspecies may override or extend a species sense range). The canonical carrier is
+    # the dedicated identity.lineage field (mirrors the defenses/movement walkers); the species-name
+    # fallback below stays for sheets that instead put a lineage identifier in identity.species.
+    lineage_name = ident.get("lineage")
+    if isinstance(lineage_name, str) and lineage_name:
+        lid = access.resolve("lineage", lineage_name)
+        if lid:
+            rows.extend(q.sense_grants(access, "lineage", lid))
     if isinstance(species_name, str) and species_name:
         try:
             lid = access.resolve("lineage", species_name)

@@ -8,6 +8,73 @@ DOMAIN = "abilities"
 _VALID_BOOST_SHAPES = ([1, 1, 1], [1, 2])
 
 
+def _ability_caps(sheet: dict, access, base_cap: int | None) -> dict[str, int]:
+    """Each ability's individual score ceiling, re-derived from the grant spine.
+
+    The standard cap (``base_cap``) applies to every ability, then two DB-modelled exceptions raise
+    a specific ability's ceiling above it: a class's level-20 capstone (which raises two fixed
+    abilities' maximum), and an Epic-Boon feat (which raises the boosted ability's maximum). Each is
+    read from ``grant_ability_increase`` — a fixed-target grant (``from_any`` False) raises its
+    listed abilities; a choose-target grant (``from_any`` True, e.g. a boon boosting an ability of
+    the player's choice) raises the ability the sheet records this feat as increasing. Nothing here
+    reads the deriver: every ceiling comes from the DB, keyed to the build's own classes and feats."""
+    if base_cap is None:
+        return {}
+    caps: dict[str, int] = {}
+
+    def bump(aid: str | None, cap) -> None:
+        if aid and isinstance(cap, int) and cap > caps.get(aid, base_cap):
+            caps[aid] = cap
+
+    ident = sheet.get("identity", {}) or {}
+    if not isinstance(ident, dict):
+        ident = {}
+    for c in ident.get("classes", []) or []:
+        if not isinstance(c, dict):
+            continue
+        level = c.get("level")
+        if not (isinstance(level, int) and not isinstance(level, bool)):
+            continue
+        cid = access.resolve("class", c.get("class"))
+        sub_id = access.resolve("subclass", c.get("subclass"))
+        for owner_kind, owner_id in (("class", cid), ("subclass", sub_id)):
+            if not owner_id:
+                continue
+            for g in q.ability_increase_caps(access, owner_kind, owner_id, at_level=level):
+                # A class/subclass ceiling exception is a fixed-target grant naming the abilities it
+                # raises; choose-target class grants (none modelled today) would need the build's own
+                # choice, so they are left at the base cap here.
+                if not g["from_any"]:
+                    for aid in g["ability_ids"]:
+                        bump(aid, g["cap"])
+
+    for f in sheet.get("feats", []) or []:
+        name = f.get("name") if isinstance(f, dict) else f
+        fid = access.resolve("feat", name)
+        if not fid:
+            continue
+        # A feat's ability increase is either a single {ability, amount} or a list of them (a +1/+1
+        # split across two abilities); normalise to the chosen ability ids before crediting ceilings.
+        inc = f.get("ability_increase") if isinstance(f, dict) else None
+        inc_list = inc if isinstance(inc, list) else ([inc] if isinstance(inc, dict) else [])
+        chosen_aids = [aid for aid in
+                       (q.ability_id(access, one.get("ability")) for one in inc_list
+                        if isinstance(one, dict))
+                       if aid]
+        for g in q.ability_increase_caps(access, "feat", fid):
+            if g["from_any"]:
+                # A boon that boosts an ability of the player's choice raises the ceiling of the
+                # ability(ies) the sheet records this feat as increasing (constrained to the eligible
+                # pool when the grant lists one).
+                for chosen_aid in chosen_aids:
+                    if not g["ability_ids"] or chosen_aid in g["ability_ids"]:
+                        bump(chosen_aid, g["cap"])
+            else:
+                for aid in g["ability_ids"]:
+                    bump(aid, g["cap"])
+    return caps
+
+
 def check(sheet: dict, access) -> list[Violation]:
     v: list[Violation] = []
     abilities = sheet.get("abilities")
@@ -16,7 +83,8 @@ def check(sheet: dict, access) -> list[Violation]:
                            "abilities must be a dict", "abilities"))
         return v
 
-    cap = q.standard_ability_cap(access)
+    base_cap = q.standard_ability_cap(access)
+    caps = _ability_caps(sheet, access, base_cap)
     resolved: set[str] = set()
     boosts: list[tuple[int, str]] = []
 
@@ -33,15 +101,22 @@ def check(sheet: dict, access) -> list[Violation]:
 
         final = entry.get("final")
         modifier = entry.get("modifier")
-        if (isinstance(final, int) and not isinstance(final, bool)
-                and isinstance(modifier, int) and not isinstance(modifier, bool)):
+        final_ok = isinstance(final, int) and not isinstance(final, bool)
+        modifier_ok = isinstance(modifier, int) and not isinstance(modifier, bool)
+        # The modifier-mismatch rule needs both fields; a sheet shape that carries no per-ability
+        # modifier (top-level-fields sheet) simply has nothing to cross-check here.
+        if final_ok and modifier_ok:
             if modifier != (final - 10) // 2:
                 v.append(Violation(DOMAIN, "modifier-mismatch", "illegal",
                                    f"{k}: modifier {modifier} does not match final score {final}", path))
-            if cap is not None and final > cap:
-                v.append(Violation(DOMAIN, "ability-over-cap", "illegal",
-                                   f"{k}: final score {final} exceeds the standard cap {cap} "
-                                   "(item-set exceptions are checked in the items domain)", path))
+        # The over-cap rule needs only the final score, so it must fire regardless of whether a
+        # per-ability modifier is present -- otherwise an over-cap score on a sheet shape without
+        # modifiers would validate as legal.
+        per_cap = caps.get(aid, base_cap)
+        if final_ok and per_cap is not None and final > per_cap:
+            v.append(Violation(DOMAIN, "ability-over-cap", "illegal",
+                               f"{k}: final score {final} exceeds the cap {per_cap} "
+                               "(item-set exceptions are checked in the items domain)", path))
 
         bonus = entry.get("background_bonus")
         if bonus is not None:

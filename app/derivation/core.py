@@ -44,6 +44,7 @@ from access.validator import defenses as defenses_q
 from access.validator import features as features_q
 from access.validator import movement as movement_q
 from access.validator import proficiencies as prof_q
+from access.validator import resources as resources_q
 from access.validator import saving_throws as saves_q
 from access.validator import vitals as vitals_q
 from validator.checks import defenses as defenses_check
@@ -68,7 +69,8 @@ from validator.checks import senses as senses_check
 #   "background_increase":{ ability_key: amount_int, ... },  # the +2/+1 or +1/+1/+1 distribution
 #   "skills":             [ skill_id, ... ],   # first-class pool picks + any choose-grant picks
 #   "expertise":          [ skill_id, ... ],   # optional
-#   "feats": [ {"feat": feat_id, "ability_increase": {"ability": key, "amount": int} | None}, ... ],
+#   "feats": [ {"feat": feat_id, "ability_increase": {"ability": key, "amount": int}
+#                                     | [ {"ability": key, "amount": int}, ... ] | None}, ... ],
 #   "tools":              [ tool_id, ... ],    # optional chosen tools (category-choice picks)
 #   "weapon_masteries":   [ str, ... ],        # required when a Weapon Mastery feature is present
 #   "languages":          [ str, ... ],        # player choice; unvalidated in CORE
@@ -135,6 +137,16 @@ def _identity(access, choices: Choices) -> dict:
             # the corpus keys subclass by display name (unlike the id-keyed sibling fields)
             "subclass": catalog.name_of(access, "subclass", sub_id) if sub_id else None,
         }
+        # Per-class/per-subclass detail choices (a class-level detail choice, a subclass sub-option). These are
+        # player selections, not derivable from the DB alone, and are consumed downstream by the
+        # GRIMOIRE deriver for spell-list widening; emit them as display strings when the choice
+        # supplies one, so a widening-relevant build round-trips through CORE. Omitted when absent.
+        detail_id = c.get("class_detail")
+        if detail_id is not None:
+            entry["class_detail"] = _display(access, "detail_option", detail_id)
+        sub_detail_id = c.get("subclass_detail")
+        if sub_detail_id is not None:
+            entry["subclass_detail"] = _display(access, "detail_option", sub_detail_id)
         classes_out.append(entry)
 
     species_id = choices.get("species")
@@ -168,8 +180,15 @@ def _identity(access, choices: Choices) -> dict:
     }
     # Optional identity fields — emitted only when the choice supplies them, so an absent value is
     # simply omitted rather than serialised as an explicit null.
-    for key, value in (("lineage", choices.get("lineage")),
-                       ("species_variant", choices.get("species_variant")),
+    #
+    # ``lineage`` is a resolver dim: choices carry its canonical id, so it is rendered to its display
+    # name here (the grant walkers resolve identity.lineage back to the id to gather lineage grants).
+    # ``species_variant`` is a name-keyed field (matched by (species, axis, option_name); no resolver
+    # dim), so the chosen option name is carried verbatim.
+    lineage_id = choices.get("lineage")
+    if lineage_id is not None:
+        identity["lineage"] = _display(access, "lineage", lineage_id)
+    for key, value in (("species_variant", choices.get("species_variant")),
                        ("alignment", choices.get("alignment"))):
         if value is not None:
             identity[key] = value
@@ -194,10 +213,13 @@ def _abilities(access, choices: Choices, key_of: dict) -> dict:
     feat_inc_by_aid: dict[str, int] = {}
     for f in choices.get("feats") or []:
         inc = f.get("ability_increase") if isinstance(f, dict) else None
-        if isinstance(inc, dict) and inc.get("ability") is not None:
-            aid = _resolve_ability(access, inc["ability"])
-            if aid is not None:
-                feat_inc_by_aid[aid] = feat_inc_by_aid.get(aid, 0) + int(inc.get("amount", 0))
+        # A feat's ability increase is either a single {ability, amount} (a +2 to one ability) or a
+        # list of them (a +1/+1 split across two abilities); normalise to a list before folding.
+        for one in _increase_list(inc):
+            if isinstance(one, dict) and one.get("ability") is not None:
+                aid = _resolve_ability(access, one["ability"])
+                if aid is not None:
+                    feat_inc_by_aid[aid] = feat_inc_by_aid.get(aid, 0) + int(one.get("amount", 0))
 
     # The final score is clamped to the ruleset's standard cap (read from the DB, 20 by default): base
     # + background bonus + any feat/ASI increase, never above the cap.
@@ -459,13 +481,30 @@ def _feats(access, choices: Choices) -> list[dict]:
             continue
         entry = {"name": f.get("feat"), "source": f.get("source", "class")}
         inc = f.get("ability_increase")
-        if isinstance(inc, dict):
+        if isinstance(inc, list):
+            # A split increase (+1/+1) — carry each well-formed target as its own {ability, amount}.
+            built = [{"ability": one["ability"], "amount": int(one.get("amount", 0))}
+                     for one in inc
+                     if isinstance(one, dict) and _resolve_ability(access, one.get("ability")) is not None]
+            if built:
+                entry["ability_increase"] = built
+        elif isinstance(inc, dict):
             aid = _resolve_ability(access, inc.get("ability"))
             if aid is not None:
                 entry["ability_increase"] = {"ability": inc["ability"],
                                              "amount": int(inc.get("amount", 0))}
         out.append(entry)
     return out
+
+
+def _increase_list(inc) -> list:
+    """Normalise a feat's ``ability_increase`` to a list of ``{ability, amount}`` entries: a single
+    object becomes a one-item list, a list is returned as-is, anything else becomes empty."""
+    if isinstance(inc, list):
+        return inc
+    if isinstance(inc, dict):
+        return [inc]
+    return []
 
 
 def _derive_senses(grant_rows: list) -> dict:
@@ -548,10 +587,55 @@ def _permanent_speed(access, choices: Choices, partial: dict) -> dict:
     return _derive_speeds(grants, _base_walk(access, choices), bonuses)
 
 
+def _resource_budgets(access, choices: Choices) -> dict:
+    """Per-resource maximums from the class-resource ladder.
+
+    For each class (and its subclass) the build takes, every resource with a COUNT ladder — a
+    whole-number use pool (a per-rest use count), as opposed to a die or a flat bonus — contributes
+    its maximum at that class's level, keyed by the resource's display name.
+    On a name collision across a multiclass the larger maximum wins. Dice/bonus resources and
+    formula-based feature uses are not on this ladder and are intentionally not emitted here."""
+    out: dict[str, dict] = {}
+
+    def add(owner_kind: str, owner_id: str, level: int) -> None:
+        for res in resources_q.count_class_resources(access, owner_kind, owner_id):
+            count = resources_q.resource_count_at(access, res["id"], level)
+            if count is None:
+                continue
+            name = res["name"]
+            prev = out.get(name, {}).get("max")
+            out[name] = {"max": count if prev is None else max(prev, count)}
+
+    for c in _classes(choices):
+        level = int(c.get("level", 0))
+        cid = c.get("class")
+        if cid:
+            add("class", cid, level)
+        sub_id = c.get("subclass")
+        if sub_id:
+            add("subclass", sub_id, level)
+    return out
+
+
 def _permanent_defenses(access, partial: dict) -> dict:
     res_rows = defenses_check._gather_owner_grants(access, partial, defenses_q.resistance_grants)
-    resistances = sorted({r["damage_type_id"] for r in res_rows
-                          if r["mode"] == "fixed" and r["damage_type_id"]})
+    resistance_set = {r["damage_type_id"] for r in res_rows
+                      if r["mode"] == "fixed" and r["damage_type_id"]}
+    # A variant-axis resistance names its axis but not its damage type — the concrete type is decided
+    # by the chosen species_variant option. Resolve it here (deriver-owned, re-derived from the DB, so
+    # the deriver stays independent of the validator's own variant resolution).
+    ident = partial.get("identity", {}) or {}
+    variant_name = ident.get("species_variant")
+    if isinstance(variant_name, str) and variant_name:
+        spid = access.resolve("species", ident.get("species"))
+        if spid:
+            for row in res_rows:
+                if row["variant_axis"]:
+                    dmg = defenses_q.variant_damage_type(
+                        access, spid, row["variant_axis"], variant_name)
+                    if dmg:
+                        resistance_set.add(dmg)
+    resistances = sorted(resistance_set)
 
     cond_rows = defenses_check._gather_owner_grants(access, partial, defenses_q.condition_grants)
     condition_immunities = sorted({r["condition_id"] for r in cond_rows if r["effect"] == "immunity"})
@@ -616,4 +700,9 @@ def derive_core(choices: Choices, access) -> dict:
         "features": _features(access, choices),
         "feats": feats,
     }
+    # Per-resource maximums from the class-resource ladder — emitted only when the build has at least
+    # one count-ladder resource, matching the corpus (an optional, absent-when-empty block).
+    resource_budgets = _resource_budgets(access, choices)
+    if resource_budgets:
+        sheet["resource_budgets"] = resource_budgets
     return sheet
