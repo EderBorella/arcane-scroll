@@ -1578,6 +1578,22 @@ def _build_rules_db(path: str) -> None:
                 " die_faces, damage_type, properties, note, condition_kind) "
                 "VALUES ('gat-mi-fangs','magic_item','mi-fangs',NULL,'Attack Fangs','finesse',"
                 "1,6,'fire',NULL,NULL,NULL)")
+    # attunement item owning a strength grant_attack PLUS a +1 attack/damage bonus SCOPED to that
+    # granted attack via target_id (reuses the weapon-bonus mechanism; folds into THIS attack only,
+    # never onto real weapons). Attack Gauntlet: STR + PB + 1 attack, 1d8 + STR + 1 damage.
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-gauntlet','Gauntlet Alpha','wondrous','hands')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-gauntlet','rare',1)")
+    cur.execute("INSERT INTO grant_attack "
+                "(id, owner_kind, owner_id, gained_at_level, name, ability_mode, die_count, "
+                " die_faces, damage_type, properties, note, condition_kind) "
+                "VALUES ('gat-mi-gauntlet','magic_item','mi-gauntlet',NULL,'Attack Gauntlet',"
+                "'strength',1,8,'slashing',NULL,NULL,NULL)")
+    cur.execute("INSERT INTO grant_bonus (id,owner_kind,owner_id,target_kind,target_id,value,source_name) "
+                "VALUES ('gb-mi-gauntlet-atk','magic_item','mi-gauntlet','weapon_attack',"
+                "'gat-mi-gauntlet',1,'Gauntlet Alpha')")
+    cur.execute("INSERT INTO grant_bonus (id,owner_kind,owner_id,target_kind,target_id,value,source_name) "
+                "VALUES ('gb-mi-gauntlet-dmg','magic_item','mi-gauntlet','weapon_damage',"
+                "'gat-mi-gauntlet',1,'Gauntlet Alpha')")
     # two attuned items, each granting +1 to all saves (they stack to +2)
     cur.execute("INSERT INTO catalog_item VALUES ('mi-ring','Ring Alpha','wondrous','finger_1')")
     cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-ring','rare',1)")

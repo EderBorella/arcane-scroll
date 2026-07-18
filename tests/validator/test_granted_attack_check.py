@@ -63,6 +63,10 @@ def _granted_codes(sheet, access):
     return {v.code for v in check(sheet, access) if v.code.startswith("granted-attack")}
 
 
+def _codes(sheet, access):
+    return {v.code for v in check(sheet, access)}
+
+
 def test_correct_granted_attack_passes(access):
     assert _granted_codes(_sheet(), access) == set()
 
@@ -221,6 +225,69 @@ def test_item_passive_on_equip_granted_attack_passes(access):
         attacks=[{"name": "Attack Fangs", "attack_bonus": 6, "damage": "1d6+4",
                   "damage_type": "fire", "weapon_mastery": None, "properties": []}],
         abilities=_str_dex(1, 4))
+    assert _granted_codes(sheet, access) == set()
+
+
+# ── item weapon-bonus scoped to a granted attack (no cross-share) ────────────
+
+
+def _weapon_sheet(equipped, item_states, attacks, abilities):
+    """A MODIFIER sheet with several equipped items (each a dict with id/name/magic) + item_states,
+    proficient with martial weapons so a real weapon attack re-derives with PB."""
+    sheet = _sheet(abilities=abilities, attacks=attacks, character_states=[])
+    sheet["core"]["proficiencies"] = {"armor": [], "weapons": ["martial weapons"], "tools": []}
+    sheet["inventory"] = {"equipped": equipped}
+    sheet["modifier"]["item_states"] = item_states
+    return sheet
+
+
+def test_scoped_bonus_applies_to_its_granted_attack_passes(access):
+    """The item's scoped +1 folds into its granted attack: STR 2 + PB 2 + 1 = 5, damage 1d8+3."""
+    sheet = _weapon_sheet(
+        {"hands": {"id": "ig", "name": "Gauntlet Alpha", "magic": True}},
+        [{"inventory_ref": "ig", "attuned": True}],
+        attacks=[{"name": "Attack Gauntlet", "attack_bonus": 5, "damage": "1d8+3",
+                  "damage_type": "slashing", "weapon_mastery": None, "properties": []}],
+        abilities=_str_dex(2, 1))
+    assert _granted_codes(sheet, access) == set()
+
+
+def test_scoped_bonus_does_not_leak_to_real_weapon(access):
+    """The scoped +1 must not inflate a real weapon. Weapon A (martial 1d12, STR 2 + PB 2 = 4)
+    authored WITHOUT the +1 is clean; authored WITH the leaked +1 is flagged."""
+    equipped = {"hands": {"id": "ig", "name": "Gauntlet Alpha", "magic": True},
+                "main_hand": {"id": "w1", "name": "Weapon A", "magic": False}}
+    states = [{"inventory_ref": "ig", "attuned": True}]
+    good = _weapon_sheet(equipped, states,
+        attacks=[{"name": "Weapon A", "attack_bonus": 4, "damage": "1d12+2",
+                  "damage_type": "slashing", "weapon_mastery": None, "properties": []},
+                 {"name": "Attack Gauntlet", "attack_bonus": 5, "damage": "1d8+3",
+                  "damage_type": "slashing", "weapon_mastery": None, "properties": []}],
+        abilities=_str_dex(2, 1))
+    assert "attack-bonus-mismatch" not in _codes(good, access)
+    assert _granted_codes(good, access) == set()
+
+    leaked = _weapon_sheet(equipped, states,
+        attacks=[{"name": "Weapon A", "attack_bonus": 5, "damage": "1d12+2",
+                  "damage_type": "slashing", "weapon_mastery": None, "properties": []}],
+        abilities=_str_dex(2, 1))
+    assert "attack-bonus-mismatch" in _codes(leaked, access)
+
+
+def test_unscoped_weapon_bonus_applies_to_weapon_not_granted(access):
+    """An UNSCOPED weapon bonus (Charm Alpha, +1 to every weapon attack) applies to Weapon A (STR 2
+    + PB 2 + 1 = 5) but NOT to the item-granted Attack Claws (STR 2 + PB 2 = 4, 1d8+2)."""
+    sheet = _weapon_sheet(
+        {"waist": {"id": "ic", "name": "Charm Alpha", "magic": True},
+         "hands": {"id": "iw", "name": "Claws Alpha", "magic": True},
+         "main_hand": {"id": "w1", "name": "Weapon A", "magic": False}},
+        [{"inventory_ref": "ic", "attuned": True}, {"inventory_ref": "iw", "attuned": True}],
+        attacks=[{"name": "Weapon A", "attack_bonus": 5, "damage": "1d12+2",
+                  "damage_type": "slashing", "weapon_mastery": None, "properties": []},
+                 {"name": "Attack Claws", "attack_bonus": 4, "damage": "1d8+2",
+                  "damage_type": "poison", "weapon_mastery": None, "properties": []}],
+        abilities=_str_dex(2, 1))
+    assert "attack-bonus-mismatch" not in _codes(sheet, access)
     assert _granted_codes(sheet, access) == set()
 
 

@@ -467,22 +467,39 @@ def _granted_attack_ability_mod(access, core: dict, mod_abilities: dict, grant,
     return 0
 
 
+def _granted_attack_scoped_bonuses(access, owner_kind: str, owner_id: str,
+                                   grant_id: str) -> tuple[int, int]:
+    """The flat weapon bonuses SCOPED to one granted attack (grant_bonus target_id == the grant's id),
+    re-derived from DB facts independently of the deriver — (attack_add, damage_add). An unscoped
+    weapon-bonus row is excluded (it is a character-wide weapon bonus, not a per-grant one)."""
+    atk = dmg = 0
+    for row in attacks_q.scoped_weapon_bonuses(access, owner_kind, owner_id, grant_id):
+        val = row["value"] or 0
+        if row["target_kind"] == "weapon_attack":
+            atk += val
+        elif row["target_kind"] == "weapon_damage":
+            dmg += val
+    return atk, dmg
+
+
 def _assert_granted_attack(grant, ab_mod: int, pb, by_name: dict, v: list[Violation],
-                           context: str = "") -> None:
+                           context: str = "", scoped_attack: int = 0, scoped_damage: int = 0) -> None:
     """Assert one effect-granted attack appears on the MODIFIER with the expected bonus, damage and
     type. The attack bonus adds the character's PB (the growth reshapes the always-proficient unarmed
-    strike) and the damage adds the resolved ability modifier; the die term and damage type come from
-    the DB row. A missing attack is flagged incomplete; a present-but-wrong one is flagged illegal.
-    Shared by the state-owner, item-owner and permanent-owner passes."""
+    strike) and any weapon bonus scoped to this grant; the damage adds the resolved ability modifier
+    plus its scoped weapon bonus; the die term and damage type come from the DB row. A missing attack
+    is flagged incomplete; a present-but-wrong one is flagged illegal. Shared by the state-owner,
+    item-owner and permanent-owner passes."""
     dc, df = grant["die_count"], grant["die_faces"]
     if not (_int(dc) and _int(df)):
         return
-    expected_bonus = ab_mod + (pb if _int(pb) else 0)
+    expected_bonus = ab_mod + (pb if _int(pb) else 0) + scoped_attack
+    dmg_bonus = ab_mod + scoped_damage
     expected_damage = f"{dc}d{df}"
-    if ab_mod > 0:
-        expected_damage += f"+{ab_mod}"
-    elif ab_mod < 0:
-        expected_damage += str(ab_mod)
+    if dmg_bonus > 0:
+        expected_damage += f"+{dmg_bonus}"
+    elif dmg_bonus < 0:
+        expected_damage += str(dmg_bonus)
     name = grant["name"]
 
     atk = by_name.get(name)
@@ -577,14 +594,18 @@ def _check_granted_attacks(sheet: dict, access, v: list[Violation]) -> None:
         for grant in attacks_q.attack_grants(access, owner_kind, owner_id):
             ab_mod = _granted_attack_ability_mod(access, core, mod_abilities, grant,
                                                  owner_kind, owner_id)
+            s_atk, s_dmg = _granted_attack_scoped_bonuses(access, owner_kind, owner_id, grant["id"])
             _assert_granted_attack(grant, ab_mod, pb, by_name, v,
-                                   context=f" (state {st.get('state')!r})")
+                                   context=f" (state {st.get('state')!r})",
+                                   scoped_attack=s_atk, scoped_damage=s_dmg)
 
     # Permanent-owner pass: always-on granted attacks from species/feats/classes/subclasses.
     for owner_kind, owner_id, grant in _permanent_owner_granted_attacks(sheet, access):
         ab_mod = _granted_attack_ability_mod(access, core, mod_abilities, grant,
                                              owner_kind, owner_id)
-        _assert_granted_attack(grant, ab_mod, pb, by_name, v, context=f" ({owner_kind} owner)")
+        s_atk, s_dmg = _granted_attack_scoped_bonuses(access, owner_kind, owner_id, grant["id"])
+        _assert_granted_attack(grant, ab_mod, pb, by_name, v, context=f" ({owner_kind} owner)",
+                               scoped_attack=s_atk, scoped_damage=s_dmg)
 
     # Item-owner pass: equipped/attuned magic items owning grant_attack rows. Reuses the same
     # attunement-aware walker + annotated core view the movement domain uses for grant_speed, so the
@@ -594,7 +615,10 @@ def _check_granted_attacks(sheet: dict, access, v: list[Violation]) -> None:
     for grant in primitives.item_grants_for(access.db, core_view, "grant_attack", access.resolver):
         ab_mod = _granted_attack_ability_mod(access, core, mod_abilities, grant,
                                              grant["owner_kind"], grant["owner_id"])
-        _assert_granted_attack(grant, ab_mod, pb, by_name, v, context=" (magic item owner)")
+        s_atk, s_dmg = _granted_attack_scoped_bonuses(
+            access, grant["owner_kind"], grant["owner_id"], grant["id"])
+        _assert_granted_attack(grant, ab_mod, pb, by_name, v, context=" (magic item owner)",
+                               scoped_attack=s_atk, scoped_damage=s_dmg)
 
 
 def _item_rider_active(sheet: dict, access, weapon_name: str, magic_item_id: str) -> bool:

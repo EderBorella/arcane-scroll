@@ -562,6 +562,56 @@ def test_item_passive_on_equip_granted_attack_materializes(access):
     assert a["damage_type"] == "fire"
 
 
+# ── item weapon-bonus scoped to a granted attack (no cross-share) ────────────
+
+
+def test_scoped_bonus_applies_to_its_granted_attack(access):
+    """A weapon bonus scoped (target_id) to the item's granted attack folds into THAT attack:
+    STR + PB + 1 on the bonus, 1d8 + STR + 1 on the damage."""
+    core = _core()
+    inventory = {"equipped": {"hands": {"id": "item-hands", "name": "Gauntlet Alpha"}}}
+    item_states = [{"inventory_ref": "item-hands", "attuned": True}]
+    effects = resolve_active_effects(core, inventory, [], item_states, access)
+    attacks = derive_attacks(core, inventory, {"strength": 2, "dexterity": 1},
+                             item_states, effects, access)
+    a = [x for x in attacks if x["name"] == "Attack Gauntlet"][0]
+    assert a["attack_bonus"] == 2 + 2 + 1   # STR + PB + scoped +1
+    assert a["damage"] == "1d8+3"           # 1d8 + STR(2) + scoped +1
+
+
+def test_scoped_bonus_does_not_leak_to_real_weapon(access):
+    """The scoped bonus folds into the granted attack only — an equipped REAL weapon is untouched."""
+    core = _core()
+    inventory = {"equipped": {"hands": {"id": "item-hands", "name": "Gauntlet Alpha"},
+                              "main_hand": {"id": "w1", "name": "Weapon A"}}}
+    item_states = [{"inventory_ref": "item-hands", "attuned": True}]
+    effects = resolve_active_effects(core, inventory, [], item_states, access)
+    attacks = derive_attacks(core, inventory, {"strength": 2, "dexterity": 3},
+                             item_states, effects, access)
+    by = {a["name"]: a for a in attacks}
+    assert by["Weapon A"]["attack_bonus"] == 2 + 2   # STR + PB, NO scoped +1
+    assert by["Weapon A"]["damage"] == "1d12+2"      # no scoped +1 on the real weapon
+    assert by["Attack Gauntlet"]["attack_bonus"] == 2 + 2 + 1   # scoped +1 lands here only
+
+
+def test_unscoped_weapon_bonus_applies_to_weapon_not_granted(access):
+    """An UNSCOPED weapon bonus (target_id NULL) applies to real weapons but NOT to a granted attack:
+    Charm Alpha gives every weapon attack +1; the item-granted Attack Claws does not receive it."""
+    core = _core()
+    inventory = {"equipped": {"waist": {"id": "item-waist", "name": "Charm Alpha"},
+                              "hands": {"id": "item-hands", "name": "Claws Alpha"},
+                              "main_hand": {"id": "w1", "name": "Weapon A"}}}
+    item_states = [{"inventory_ref": "item-waist", "attuned": True},
+                   {"inventory_ref": "item-hands", "attuned": True}]
+    effects = resolve_active_effects(core, inventory, [], item_states, access)
+    attacks = derive_attacks(core, inventory, {"strength": 2, "dexterity": 3},
+                             item_states, effects, access)
+    by = {a["name"]: a for a in attacks}
+    assert by["Weapon A"]["attack_bonus"] == 2 + 2 + 1   # STR + PB + unscoped +1 (Charm)
+    assert by["Attack Claws"]["attack_bonus"] == 2 + 2   # granted attack does NOT get the unscoped +1
+    assert by["Attack Claws"]["damage"] == "1d8+2"       # STR only, no unscoped bonus folded
+
+
 # ── multi-caster spellcasting-ability disambiguation (T135) ──────────────────
 
 

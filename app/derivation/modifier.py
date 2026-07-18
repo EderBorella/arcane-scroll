@@ -215,12 +215,32 @@ def _granted_attack_ability_mod(access, core: dict, abilities: dict, grant: dict
     return 0
 
 
+def _granted_attack_scoped_bonuses(effects: "ActiveEffects", grant_id) -> tuple[int, int]:
+    """The flat weapon bonuses (from grant_bonus) SCOPED to a single granted attack via target_id —
+    returned as (attack_add, damage_add). A scoped weapon-bonus row (target_id == the grant's id)
+    folds into THIS granted attack only; an unscoped row (target_id NULL) is a character-wide weapon
+    bonus and is never folded here. Reuses the existing weapon-bonus mechanism (no new schema)."""
+    if not grant_id:
+        return 0, 0
+    atk = dmg = 0
+    for b in effects.bonuses:
+        if not b.get("value") or b.get("target_id") != grant_id:
+            continue
+        if b.get("target_kind") == "weapon_attack":
+            atk += b["value"]
+        elif b.get("target_kind") == "weapon_damage":
+            dmg += b["value"]
+    return atk, dmg
+
+
 def _granted_attacks(core: dict, abilities: dict, effects: "ActiveEffects", access) -> list[dict]:
     """Materialise effect-granted attacks (grant_attack rows) into modifier attack dicts, reusing the
     weapon-attack shape. A 'spellcasting' ability_mode resolves to the character's spellcasting-ability
     modifier for BOTH the attack bonus and the damage bonus; proficiency (the character's PB) always
-    applies, since the growth reshapes the always-proficient unarmed strike. The die term and damage
-    type come straight from the DB row (the canonical damage-type pick is fixed at build time)."""
+    applies, since the growth reshapes the always-proficient unarmed strike. A weapon bonus scoped to
+    this grant (a grant_bonus row whose target_id names it) folds into the attack/damage — this is how
+    an item that also grants a flat +N to the reshaped strike is modelled. The die term and damage type
+    come straight from the DB row (the canonical damage-type pick is fixed at build time)."""
     pb = core.get("proficiency_bonus", 0)
     out: list[dict] = []
     for grant in effects.attack_grants:
@@ -229,12 +249,14 @@ def _granted_attacks(core: dict, abilities: dict, effects: "ActiveEffects", acce
         if not (_int(dc) and _int(df)):
             continue
         ab_mod = _granted_attack_ability_mod(access, core, abilities, grant)
-        attack_bonus = ab_mod + (pb if _int(pb) else 0)
+        scoped_atk, scoped_dmg = _granted_attack_scoped_bonuses(effects, grant.get("id"))
+        attack_bonus = ab_mod + (pb if _int(pb) else 0) + scoped_atk
+        dmg_bonus = ab_mod + scoped_dmg
         damage = f"{dc}d{df}"
-        if ab_mod > 0:
-            damage += f"+{ab_mod}"
-        elif ab_mod < 0:
-            damage += str(ab_mod)
+        if dmg_bonus > 0:
+            damage += f"+{dmg_bonus}"
+        elif dmg_bonus < 0:
+            damage += str(dmg_bonus)
         props = grant.get("properties")
         out.append({
             "name": grant.get("name"),
@@ -1294,8 +1316,11 @@ def derive_attacks(core: dict, inventory: dict | None, abilities: dict,
         if _int(pb) and _weapon_proficient(weapon_profs, tier, weapon_id, name):
             bonus += pb
 
+        # Real weapons take only UNSCOPED weapon bonuses (target_id is NULL). A weapon bonus scoped
+        # to a specific granted attack (target_id set) folds into THAT attack only (see
+        # _granted_attacks) and must never leak onto the character's real weapons.
         for b in effects.bonuses:
-            if b["target_kind"] == "weapon_attack" and b["value"]:
+            if b["target_kind"] == "weapon_attack" and b["value"] and not b.get("target_id"):
                 bonus += b["value"]
 
         dmg_flat = wrow["dmg_flat"] or 0
@@ -1304,7 +1329,7 @@ def derive_attacks(core: dict, inventory: dict | None, abilities: dict,
 
         dmg_bonus = ab_mod + dmg_flat
         for b in effects.bonuses:
-            if b["target_kind"] == "weapon_damage" and b["value"]:
+            if b["target_kind"] == "weapon_damage" and b["value"] and not b.get("target_id"):
                 dmg_bonus += b["value"]
 
         damage = f"{dmg_count}d{dmg_faces}"
