@@ -523,6 +523,45 @@ def test_no_permanent_owner_attack_without_the_owner(access):
     assert [g for g in effects.attack_grants if g["owner_id"] == "feat-owneratk"] == []
 
 
+# ── item-owned granted attack (T134) ─────────────────────────────────────────
+
+
+def test_item_attuned_granted_attack_materializes(access):
+    """An attuned magic item owning a strength-mode grant_attack materialises at MODIFIER."""
+    core = _core()
+    inventory = {"equipped": {"hands": {"id": "item-hands", "name": "Claws Alpha"}}}
+    item_states = [{"inventory_ref": "item-hands", "attuned": True}]
+    effects = resolve_active_effects(core, inventory, [], item_states, access)
+    attacks = derive_attacks(core, inventory, {"strength": 3, "dexterity": 1},
+                             item_states, effects, access)
+    a = [x for x in attacks if x["name"] == "Attack Claws"][0]
+    assert a["attack_bonus"] == 3 + 2     # STR mod (3) + PB
+    assert a["damage"] == "1d8+3"
+    assert a["damage_type"] == "poison"
+
+
+def test_item_attunement_required_not_attuned_no_attack(access):
+    """An attunement-required item that is NOT attuned confers no granted attack."""
+    core = _core()
+    inventory = {"equipped": {"hands": {"id": "item-hands", "name": "Claws Alpha"}}}
+    effects = resolve_active_effects(core, inventory, [], [], access)
+    attacks = derive_attacks(core, inventory, {"strength": 3, "dexterity": 1}, [], effects, access)
+    assert [x for x in attacks if x["name"] == "Attack Claws"] == []
+
+
+def test_item_passive_on_equip_granted_attack_materializes(access):
+    """A passive-on-equip (no-attunement) item owning a finesse grant_attack materialises when
+    equipped, without attunement."""
+    core = _core()
+    inventory = {"equipped": {"head": {"id": "item-head", "name": "Fangs Alpha"}}}
+    effects = resolve_active_effects(core, inventory, [], [], access)
+    attacks = derive_attacks(core, inventory, {"strength": 1, "dexterity": 4}, [], effects, access)
+    a = [x for x in attacks if x["name"] == "Attack Fangs"][0]
+    assert a["attack_bonus"] == 4 + 2     # finesse max(STR 1, DEX 4) + PB
+    assert a["damage"] == "1d6+4"
+    assert a["damage_type"] == "fire"
+
+
 # ── stats-less magic weapon attack materialization (T56) ─────────────────────
 
 

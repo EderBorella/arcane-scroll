@@ -175,3 +175,50 @@ def test_permanent_owner_granted_attack_missing_flagged(access):
     """The feat's attack is required even with no active state; omitting it is flagged incomplete."""
     sheet = _with_owner_feat(_sheet(abilities=_str_dex(1, 3), attacks=[], character_states=[]))
     assert "granted-attack-missing" in _granted_codes(sheet, access)
+
+
+# ── item-owned granted attack (T134) ─────────────────────────────────────────
+
+
+def _item_sheet(item, attuned, attacks, abilities):
+    """A MODIFIER sheet with one equipped magic item and no active state; the item pass reads the
+    inventory via the annotated core view (attunement from item_states)."""
+    sheet = _sheet(abilities=abilities, attacks=attacks, character_states=[])
+    sheet["inventory"] = {"equipped": {"slot1": item}}
+    if attuned:
+        sheet["modifier"]["item_states"] = [{"inventory_ref": item["id"], "attuned": True}]
+    return sheet
+
+
+def test_item_attuned_granted_attack_passes(access):
+    """An attuned item's strength-mode attack re-derives to STR 3 + PB 2 = 5, damage 1d8+3."""
+    item = {"id": "it1", "name": "Claws Alpha", "magic": True}
+    sheet = _item_sheet(item, True,
+        attacks=[{"name": "Attack Claws", "attack_bonus": 5, "damage": "1d8+3",
+                  "damage_type": "poison", "weapon_mastery": None, "properties": []}],
+        abilities=_str_dex(3, 1))
+    assert _granted_codes(sheet, access) == set()
+
+
+def test_item_attuned_granted_attack_missing_flagged(access):
+    item = {"id": "it1", "name": "Claws Alpha", "magic": True}
+    sheet = _item_sheet(item, True, attacks=[], abilities=_str_dex(3, 1))
+    assert "granted-attack-missing" in _granted_codes(sheet, access)
+
+
+def test_item_attunement_required_not_attuned_not_required(access):
+    """An attunement-required item that is NOT attuned confers no required attack."""
+    item = {"id": "it1", "name": "Claws Alpha", "magic": True}
+    sheet = _item_sheet(item, False, attacks=[], abilities=_str_dex(3, 1))
+    assert _granted_codes(sheet, access) == set()
+
+
+def test_item_passive_on_equip_granted_attack_passes(access):
+    """A passive-on-equip item's finesse attack re-derives to max(STR 1, DEX 4) = 4 + PB 2 = 6,
+    damage 1d6+4."""
+    item = {"id": "it2", "name": "Fangs Alpha", "magic": True}
+    sheet = _item_sheet(item, False,
+        attacks=[{"name": "Attack Fangs", "attack_bonus": 6, "damage": "1d6+4",
+                  "damage_type": "fire", "weapon_mastery": None, "properties": []}],
+        abilities=_str_dex(1, 4))
+    assert _granted_codes(sheet, access) == set()

@@ -1562,6 +1562,22 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO catalog_item VALUES ('mi-goggles','Goggles Alpha','wondrous','head')")
     cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-goggles','uncommon',0)")
     cur.execute("INSERT INTO grant_sense VALUES ('gs-mi-goggles','magic_item','mi-goggles',NULL,'blindsight',10,0,NULL,NULL)")
+    # item-owned granted attacks (T134): an attunement-required item owns a strength-mode attack
+    # (materialises only when attuned); a passive-on-equip item (no attunement) owns a finesse attack.
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-claws','Claws Alpha','wondrous','hands')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-claws','rare',1)")
+    cur.execute("INSERT INTO grant_attack "
+                "(id, owner_kind, owner_id, gained_at_level, name, ability_mode, die_count, "
+                " die_faces, damage_type, properties, note, condition_kind) "
+                "VALUES ('gat-mi-claws','magic_item','mi-claws',NULL,'Attack Claws','strength',"
+                "1,8,'poison',NULL,NULL,NULL)")
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-fangs','Fangs Alpha','wondrous','head')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-fangs','uncommon',0)")
+    cur.execute("INSERT INTO grant_attack "
+                "(id, owner_kind, owner_id, gained_at_level, name, ability_mode, die_count, "
+                " die_faces, damage_type, properties, note, condition_kind) "
+                "VALUES ('gat-mi-fangs','magic_item','mi-fangs',NULL,'Attack Fangs','finesse',"
+                "1,6,'fire',NULL,NULL,NULL)")
     # two attuned items, each granting +1 to all saves (they stack to +2)
     cur.execute("INSERT INTO catalog_item VALUES ('mi-ring','Ring Alpha','wondrous','finger_1')")
     cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-ring','rare',1)")

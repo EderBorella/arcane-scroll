@@ -683,6 +683,7 @@ def _accumulate_item_effects(effects: ActiveEffects, access, inventory, item_sta
             _accumulate_ability_sets(effects, access, "magic_item", mid)
             _accumulate_senses(effects, access, "magic_item", mid)
             _accumulate_speeds(effects, access, "magic_item", mid)
+            _accumulate_attacks(effects, access, "magic_item", mid)
 
     # 2) Passive-on-equip items: a magic item that does NOT require attunement
     #    confers its sense/speed grants while equipped (no attunement needed).
@@ -706,6 +707,7 @@ def _accumulate_item_effects(effects: ActiveEffects, access, inventory, item_sta
                 continue
             _accumulate_senses(effects, access, "magic_item", mid)
             _accumulate_speeds(effects, access, "magic_item", mid)
+            _accumulate_attacks(effects, access, "magic_item", mid)
 
 
 # ── C2: Derivation helpers ───────────────────────────────────────────────────

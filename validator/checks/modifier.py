@@ -586,6 +586,16 @@ def _check_granted_attacks(sheet: dict, access, v: list[Violation]) -> None:
                                              owner_kind, owner_id)
         _assert_granted_attack(grant, ab_mod, pb, by_name, v, context=f" ({owner_kind} owner)")
 
+    # Item-owner pass: equipped/attuned magic items owning grant_attack rows. Reuses the same
+    # attunement-aware walker + annotated core view the movement domain uses for grant_speed, so the
+    # equip/attunement gate matches the deriver's item branches.
+    from access import primitives
+    core_view = _core_speed_view(sheet)
+    for grant in primitives.item_grants_for(access.db, core_view, "grant_attack", access.resolver):
+        ab_mod = _granted_attack_ability_mod(access, core, mod_abilities, grant,
+                                             grant["owner_kind"], grant["owner_id"])
+        _assert_granted_attack(grant, ab_mod, pb, by_name, v, context=" (magic item owner)")
+
 
 def _item_rider_active(sheet: dict, access, weapon_name: str, magic_item_id: str) -> bool:
     """True if the equipped magic weapon named ``weapon_name`` is active for its extra-damage rider.
