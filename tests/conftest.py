@@ -1304,17 +1304,22 @@ def _build_rules_db(path: str) -> None:
 
     cur.execute("CREATE TABLE grant_d20_modifier (id INTEGER PRIMARY KEY AUTOINCREMENT, "
                 "owner_kind TEXT, owner_id TEXT, gained_at_level INT, condition_kind TEXT, "
-                "target_kind TEXT, ability_id TEXT, modifier_id TEXT, "
+                "target_kind TEXT, ability_id TEXT, modifier_id TEXT, scope TEXT, "
                 "source_name TEXT, scope_note TEXT)")
     cur.execute("INSERT INTO grant_d20_modifier (owner_kind,owner_id,target_kind,modifier_id,source_name) "
                 "VALUES ('feat','feat-gen','initiative','advantage','feat-gen')")
-    # A permanent-owner check-advantage grant (F05-T142): a dedicated feat confers always-on advantage
-    # on an ability check (target_kind='check', modifier_id='advantage'), mapping to the 'initiative'
-    # scope. Owned by a feat no default fixture carries, so it is inert on the standard sheets and
-    # exercised only by the check-advantage tests (mirrors the feat-owneratk pattern).
+    # A permanent-owner check-advantage grant (F05-T142/T142-scope): a dedicated feat confers always-on
+    # advantage on TWO ability-check scopes (target_kind='check', modifier_id='advantage'), one row per
+    # scope — an 'initiative' scope (a Dexterity check) and an 'athletics' scope (a Strength check),
+    # mirroring a multi-scope source. Owned by a feat no default fixture carries, so it is inert on the
+    # standard sheets and exercised only by the check-advantage tests (mirrors the feat-owneratk pattern).
     cur.execute("INSERT INTO feat VALUES ('feat-checkadv','Feat Check Adv','general',0)")
-    cur.execute("INSERT INTO grant_d20_modifier (owner_kind,owner_id,target_kind,ability_id,modifier_id,source_name) "
-                "VALUES ('feat','feat-checkadv','check','a1','advantage','feat-checkadv')")
+    cur.execute("INSERT INTO grant_d20_modifier "
+                "(owner_kind,owner_id,target_kind,ability_id,modifier_id,scope,source_name) "
+                "VALUES ('feat','feat-checkadv','check','a1','advantage','initiative','feat-checkadv')")
+    cur.execute("INSERT INTO grant_d20_modifier "
+                "(owner_kind,owner_id,target_kind,ability_id,modifier_id,scope,source_name) "
+                "VALUES ('feat','feat-checkadv','check','a2','advantage','athletics','feat-checkadv')")
 
     cur.execute("CREATE TABLE armor (id TEXT PRIMARY KEY REFERENCES catalog_item(id), "
                 "category_id TEXT, base_ac INT, dex_cap INT, ac_bonus INT, strength_req INT, "
