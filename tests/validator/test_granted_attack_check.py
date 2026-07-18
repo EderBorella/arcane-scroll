@@ -291,6 +291,31 @@ def test_unscoped_weapon_bonus_applies_to_weapon_not_granted(access):
     assert _granted_codes(sheet, access) == set()
 
 
+def test_scoped_bonus_does_not_bleed_onto_another_granted_attack(access):
+    """A bonus scoped to granted attack A must not apply to a DIFFERENT granted attack B. The gauntlet
+    grants A (scoped +1 → STR 2 + PB 2 + 1 = 5, 1d8+3); the claws grant B (no scoped bonus → STR 2 +
+    PB 2 = 4, 1d8+2). Authoring B correctly passes; leaking the +1 onto B is flagged."""
+    equipped = {"hands": {"id": "ig", "name": "Gauntlet Alpha", "magic": True},
+                "off_hand": {"id": "ic", "name": "Claws Alpha", "magic": True}}
+    states = [{"inventory_ref": "ig", "attuned": True}, {"inventory_ref": "ic", "attuned": True}]
+    a_ok = {"name": "Attack Gauntlet", "attack_bonus": 5, "damage": "1d8+3",
+            "damage_type": "slashing", "weapon_mastery": None, "properties": []}
+
+    good = _weapon_sheet(equipped, states,
+        attacks=[a_ok, {"name": "Attack Claws", "attack_bonus": 4, "damage": "1d8+2",
+                        "damage_type": "poison", "weapon_mastery": None, "properties": []}],
+        abilities=_str_dex(2, 1))
+    assert _granted_codes(good, access) == set()
+
+    leaked = _weapon_sheet(equipped, states,
+        attacks=[a_ok, {"name": "Attack Claws", "attack_bonus": 5, "damage": "1d8+3",
+                        "damage_type": "poison", "weapon_mastery": None, "properties": []}],
+        abilities=_str_dex(2, 1))
+    codes = _granted_codes(leaked, access)
+    assert "granted-attack-bonus-mismatch" in codes
+    assert "granted-attack-damage-mismatch" in codes
+
+
 # ── multi-caster spellcasting-ability disambiguation (T135) ──────────────────
 
 # class-cast1 casts with a1, class-cast2 with a2; abilities give a1→3, a2→5.

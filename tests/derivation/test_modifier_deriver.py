@@ -612,6 +612,27 @@ def test_unscoped_weapon_bonus_applies_to_weapon_not_granted(access):
     assert by["Attack Claws"]["damage"] == "1d8+2"       # STR only, no unscoped bonus folded
 
 
+def test_scoped_bonus_does_not_bleed_onto_another_granted_attack(access):
+    """A bonus scoped to granted attack A does NOT apply to a DIFFERENT granted attack B. Two items
+    each grant a strength attack; only the gauntlet owns a scoped +1, so its attack folds it while the
+    other item's attack (no scoped bonus) is unchanged."""
+    core = _core()
+    inventory = {"equipped": {"hands": {"id": "ig", "name": "Gauntlet Alpha"},
+                              "off_hand": {"id": "ic", "name": "Claws Alpha"}}}
+    item_states = [{"inventory_ref": "ig", "attuned": True},
+                   {"inventory_ref": "ic", "attuned": True}]
+    effects = resolve_active_effects(core, inventory, [], item_states, access)
+    attacks = derive_attacks(core, inventory, {"strength": 2, "dexterity": 1},
+                             item_states, effects, access)
+    by = {a["name"]: a for a in attacks}
+    # A (scoped): STR + PB + 1 / 1d8 + STR + 1
+    assert by["Attack Gauntlet"]["attack_bonus"] == 2 + 2 + 1
+    assert by["Attack Gauntlet"]["damage"] == "1d8+3"
+    # B (a different granted attack, no scoped bonus): UNCHANGED — the +1 does not bleed onto it
+    assert by["Attack Claws"]["attack_bonus"] == 2 + 2
+    assert by["Attack Claws"]["damage"] == "1d8+2"
+
+
 # ── multi-caster spellcasting-ability disambiguation (T135) ──────────────────
 
 
