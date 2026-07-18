@@ -2,6 +2,8 @@
 CORE/INVENTORY/GRIMOIRE inputs. Checks cover AC, saves, skills, attacks, effective abilities,
 passives, defenses, features, feats, state compatibility, prepared spells, and stacking-rule
 enforcement. NOT in ALL_CHECKS — modifier:1-specific."""
+import re
+
 from access.constants import CON_ABBREV
 from access.validator import abilities as abilities_q
 from access.validator import attacks as attacks_q
@@ -502,6 +504,35 @@ def _item_weapon_attack_bonus(sheet: dict, access) -> int:
     return total
 
 
+def _item_weapon_damage_bonus(sheet: dict, access) -> int:
+    """Total weapon-DAMAGE bonus conferred by attuned magic items, read straight from the DB.
+
+    Sums every UNSCOPED ``grant_bonus`` row with ``target_kind='weapon_damage'`` over the attuned
+    items (mirrors `_item_weapon_attack_bonus`); these fold into every real weapon's damage, matching
+    the deriver. A row scoped to a granted attack (target_id set) is excluded by the reader — it
+    belongs to that attack, never a real weapon."""
+    total = 0
+    mod = sheet.get("modifier", {}) or {}
+    inventory = sheet.get("inventory", {}) or {}
+    if not isinstance(inventory, dict):
+        inventory = {}
+    item_states = mod.get("item_states", []) or []
+    if not isinstance(item_states, list):
+        return 0
+
+    for istate in item_states:
+        if not isinstance(istate, dict) or not istate.get("attuned"):
+            continue
+        name = _item_name_for_ref(inventory, istate.get("inventory_ref"))
+        if not name:
+            continue
+        mid = access.resolve("magic_item", name)
+        if not mid:
+            continue
+        total += sum(inventory_q.weapon_damage_item_bonuses(access, mid))
+    return total
+
+
 def _check_attacks(sheet: dict, access, v: list[Violation]) -> None:
     """Re-derive each attack's bonus independently: ability mod (finesse → max(str,dex); ranged →
     dex; else str) + PB when proficient (tier OR specific-weapon grant) + attuned-item bonuses."""
@@ -557,6 +588,79 @@ def _check_attacks(sheet: dict, access, v: list[Violation]) -> None:
             v.append(Violation(DOMAIN, "attack-bonus-mismatch", "illegal",
                                f"{name}: attack bonus {actual} != expected {expected}",
                                "attacks"))
+
+
+# The BASE damage term the deriver writes for a real weapon: the dice (`NdM`) plus an optional flat
+# modifier (`+N` / `-N`) that is NOT the start of an extra-damage rider. A rider is always `[+-]XdY`
+# (a signed die term), so the flat modifier is bounded by a negative lookahead on a following 'd'.
+# This isolates the base from any appended riders (owned by `_check_attack_damage`) without being
+# fooled by a wrong flat total (e.g. `1d8+30` extracts `1d8+30`, not `1d8+3`).
+_REAL_WEAPON_BASE_DAMAGE_RE = re.compile(r"^(\d+d\d+(?:[+-]\d+(?!d))?)")
+
+
+def _check_real_weapon_damage(sheet: dict, access, v: list[Violation]) -> None:
+    """Independently re-derive each REAL (equipped, catalogued) weapon's BASE damage term from DB
+    facts and assert the sheet's damage string carries it.
+
+    The base term is: the weapon's damage dice + the ability modifier (finesse → max(str,dex);
+    ranged → dex; else str — chosen exactly as `_check_attacks` chooses the attack ability) + the
+    weapon's flat damage + any UNSCOPED item ``weapon_damage`` grant_bonus (a character-wide bonus; a
+    row scoped to a granted attack via target_id belongs to that attack, never a real weapon, and is
+    excluded by the reader). This mirrors the attack-bonus check's independence and closes the gap
+    where a wrong/leaked unscoped ``weapon_damage`` bonus on a real weapon was caught by neither the
+    attack-bonus check nor the extra-damage-rider check.
+
+    The extra_damage riders the deriver appends AFTER the base are owned by `_check_attack_damage`;
+    this check re-derives and asserts the base term only (isolated from the sheet's rider tail).
+    Grounded in the DB, never in the deriver's output."""
+    mod = sheet.get("modifier", {}) or {}
+    attacks = mod.get("attacks", []) or []
+    if not isinstance(attacks, list) or not attacks:
+        return
+
+    mod_abilities = mod.get("abilities", {}) or {}
+    str_mod = _mod_for_ability(access, mod_abilities, "strength")
+    dex_mod = _mod_for_ability(access, mod_abilities, "dexterity")
+    item_damage_bonus = _item_weapon_damage_bonus(sheet, access)
+
+    for atk in attacks:
+        if not isinstance(atk, dict):
+            continue
+        damage = atk.get("damage")
+        name = atk.get("name")
+        if not isinstance(damage, str) or not damage or not name:
+            continue
+        weapon_id = access.resolve("catalog_item", name)
+        if weapon_id is None:
+            continue
+        facts = inventory_q.weapon_attack_facts(access, weapon_id)
+        dmg_facts = inventory_q.weapon_flat_damage_facts(access, weapon_id)
+        if facts is None or dmg_facts is None:
+            continue
+        count, faces = dmg_facts["die_count"], dmg_facts["die_faces"]
+        if not (_int(count) and _int(faces)):
+            continue  # no rule-defined damage dice → nothing to re-derive independently
+
+        if facts["finesse"]:
+            ab_mod = max(str_mod, dex_mod)
+        elif facts["range_class_id"] == "ranged":
+            ab_mod = dex_mod
+        else:
+            ab_mod = str_mod
+
+        dmg_bonus = ab_mod + (dmg_facts["dmg_flat"] or 0) + item_damage_bonus
+        expected = f"{count}d{faces}"
+        if dmg_bonus > 0:
+            expected += f"+{dmg_bonus}"
+        elif dmg_bonus < 0:
+            expected += str(dmg_bonus)
+
+        m = _REAL_WEAPON_BASE_DAMAGE_RE.match(damage)
+        actual_base = m.group(1) if m else damage
+        if actual_base != expected:
+            v.append(Violation(DOMAIN, "real-weapon-damage-mismatch", "illegal",
+                               f"{name}: damage {damage!r} (base {actual_base!r}) != expected base "
+                               f"{expected!r}", "attacks"))
 
 
 def _spellcasting_ability_id(access, core: dict, owner_kind: str, owner_id: str) -> str | None:
@@ -2063,6 +2167,7 @@ def check(sheet: dict, access) -> list[Violation]:
     _check_form_hp_pool(sheet, access, v, transform)
     if transform is None:
         _check_attacks(sheet, access, v)
+        _check_real_weapon_damage(sheet, access, v)
         _check_attack_damage(sheet, access, v)
         _check_granted_attacks(sheet, access, v)
         _check_effective_abilities(sheet, access, v)
