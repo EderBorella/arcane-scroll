@@ -47,6 +47,9 @@ def _sheet(**overrides):
                 "a1": {"modifier": 2, "reduction": 0},
                 "a2": {"modifier": 3, "reduction": 0},
                 "a3": {"modifier": 1, "reduction": 0},
+                # Dexterity contribution for the unarmoured-defence AC re-derivation (the base
+                # default is 10 + Dexterity → 13). Keyed by the canonical id the AC math resolves.
+                "dexterity": {"modifier": 3, "reduction": 0},
             },
             "saving_throws": {
                 "a1": {"modifier": 4},
@@ -123,6 +126,116 @@ def test_ac_bonus_different_source_ok(access):
     ]
     sheet["modifier"]["armor_class"] = 10 + 3 + 2 + 1
     assert "ac-bonus-duplicate-source" not in _codes(sheet, access)
+
+
+# ── unarmoured-defence AC formulas, re-derived independently (F05-T140) ────────
+
+
+def _ac_sheet(classes, dex=3, a3=1, equipped=None, item_states=None):
+    """A MODIFIER sheet exercising the unarmoured-defence AC re-derivation. Dexterity + a3 are the
+    two abilities the synthetic formulas sum; the caller sets armor_class per-test."""
+    sheet = _sheet()
+    sheet["core"]["identity"]["classes"] = classes
+    sheet["modifier"]["abilities"]["dexterity"] = {"modifier": dex, "reduction": 0}
+    sheet["modifier"]["abilities"]["a3"] = {"modifier": a3, "reduction": 0}
+    if equipped is not None:
+        sheet["inventory"] = {"equipped": equipped}
+    if item_states is not None:
+        sheet["modifier"]["item_states"] = item_states
+    return sheet
+
+
+def test_ac_formula_dex_plus_second_ability_correct(access):
+    """class-b sums Dexterity + a3: 10 + 3 + 1 = 14 (not the base default's 13)."""
+    sheet = _ac_sheet([{"class": "Class B", "level": 1, "subclass": None}])
+    sheet["modifier"]["armor_class"] = 14
+    assert "ac-mismatch" not in _codes(sheet, access)
+
+
+def test_ac_formula_wrong_base_flagged(access):
+    """Authoring the base-default AC (13) for a build that qualifies for the higher formula (14) is
+    caught — the re-derivation reads the formula from the DB, not the sheet's own base."""
+    sheet = _ac_sheet([{"class": "Class B", "level": 1, "subclass": None}])
+    sheet["modifier"]["armor_class"] = 13
+    assert "ac-mismatch" in _codes(sheet, access)
+
+
+def test_ac_formula_ignores_shield_when_not_allowed(access):
+    """A no-shield formula (class-b) does not add an equipped shield: 10 + 3 + 4 = 17, not 19."""
+    sheet = _ac_sheet([{"class": "Class B", "level": 1, "subclass": None}], a3=4,
+                      equipped={"shield": {"id": "s1", "name": "Shield"}})
+    sheet["modifier"]["armor_class"] = 17
+    assert "ac-mismatch" not in _codes(sheet, access)
+    sheet["modifier"]["armor_class"] = 19
+    assert "ac-mismatch" in _codes(sheet, access)
+
+
+def test_ac_formula_adds_shield_when_allowed(access):
+    """A shield-permitting formula (subclass sub-a at level 3) adds the shield: 10+3+1+2 = 16."""
+    sheet = _ac_sheet([{"class": "Class A", "level": 3, "subclass": "Sub A"}],
+                      equipped={"shield": {"id": "s1", "name": "Shield"}})
+    sheet["modifier"]["armor_class"] = 16
+    assert "ac-mismatch" not in _codes(sheet, access)
+    sheet["modifier"]["armor_class"] = 14  # shield wrongly excluded
+    assert "ac-mismatch" in _codes(sheet, access)
+
+
+def test_ac_formula_picks_most_beneficial(access):
+    """Several applicable formulas → the highest wins (subclass sub-a's 14 over class-a's 13)."""
+    sheet = _ac_sheet([{"class": "Class A", "level": 3, "subclass": "Sub A"}])
+    sheet["modifier"]["armor_class"] = 14
+    assert "ac-mismatch" not in _codes(sheet, access)
+    sheet["modifier"]["armor_class"] = 13
+    assert "ac-mismatch" in _codes(sheet, access)
+
+
+def test_ac_formula_level_gated(access):
+    """A subclass formula gained at level 3 does not apply at level 2 → base default 13."""
+    sheet = _ac_sheet([{"class": "Class A", "level": 2, "subclass": "Sub A"}])
+    sheet["modifier"]["armor_class"] = 13
+    assert "ac-mismatch" not in _codes(sheet, access)
+
+
+def test_ac_worn_armor_overrides_formula(access):
+    """Worn body armour overrides a higher formula: class-b would give 17, but heavy Armor A
+    (base 16, Dex cap 0) yields 16."""
+    sheet = _ac_sheet([{"class": "Class B", "level": 1, "subclass": None}], a3=4,
+                      equipped={"armor": {"id": "a1", "name": "Armor A"}})
+    sheet["modifier"]["armor_class"] = 16
+    assert "ac-mismatch" not in _codes(sheet, access)
+    sheet["modifier"]["armor_class"] = 17  # the (overridden) formula value
+    assert "ac-mismatch" in _codes(sheet, access)
+
+
+def test_ac_magic_bonus_stacks_on_formula(access):
+    """An attuned item's +1 AC (a protection-ring analogue) stacks on the chosen formula:
+    class-b 14 + 1 = 15."""
+    sheet = _ac_sheet([{"class": "Class B", "level": 1, "subclass": None}],
+                      equipped={"finger": {"id": "item-finger", "name": "Ring Beta"}},
+                      item_states=[{"inventory_ref": "item-finger", "attuned": True}])
+    sheet["modifier"]["armor_class"] = 15
+    assert "ac-mismatch" not in _codes(sheet, access)
+    sheet["modifier"]["armor_class"] = 14  # the magic bonus dropped
+    assert "ac-mismatch" in _codes(sheet, access)
+
+
+def test_ac_no_formula_class_falls_back_to_base(access):
+    """A class with no AC formula falls back to 10 + Dexterity; the second ability must not leak in."""
+    sheet = _ac_sheet([{"class": "Class Cast1", "level": 3, "subclass": None}], dex=3, a3=5)
+    sheet["modifier"]["armor_class"] = 13
+    assert "ac-mismatch" not in _codes(sheet, access)
+
+
+def test_ac_validator_independent_of_detail_rubber_stamp(access):
+    """The re-derivation NEVER trusts armor_class_detail: a sheet whose detail 'agrees' with a wrong
+    armor_class (base 10 + dex 3 = 13) is still flagged, because the DB formula (class-b, 17) is the
+    real expectation. Proves the old rubber-stamp (compute-from-detail) is gone."""
+    sheet = _ac_sheet([{"class": "Class B", "level": 1, "subclass": None}], a3=4)
+    sheet["modifier"]["armor_class"] = 13
+    sheet["modifier"]["armor_class_detail"] = {
+        "source": "unarmored", "base": 10, "dex_bonus": 3, "bonuses": [], "floor": None,
+    }
+    assert "ac-mismatch" in _codes(sheet, access)
 
 
 # ── saving throws ────────────────────────────────────────────────────────────

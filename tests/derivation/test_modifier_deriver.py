@@ -194,6 +194,77 @@ def test_derive_ac_floor(access):
     assert detail["floor"] == 16
 
 
+# ── unarmoured-defence formulas (F05-T140) ────────────────────────────────────
+
+
+def _core_classes(classes):
+    return {"identity": {"classes": classes}}
+
+
+def test_derive_ac_formula_dex_plus_second_ability(access):
+    """A class formula summing Dexterity + a second ability (a3) is applied over the plain base
+    default (class-b: 10 + Dex(3) + a3(1) = 14, beating base-unarmored's 13)."""
+    core = _core_classes([{"class": "Class B", "level": 1, "subclass": None}])
+    ac, detail = derive_ac(core, None, _empty_effects(), {"dexterity": 3, "a3": 1}, access)
+    assert ac == 14
+    assert detail["source"] == "acf-b"
+
+
+def test_derive_ac_formula_ignores_shield_when_not_allowed(access):
+    """A no-shield formula does NOT add an equipped shield's AC: class-b (10 + Dex(3) + a3(4) = 17)
+    wins over base-unarmored-with-shield (10 + 3 + 2 = 15); the shield is excluded from the 17."""
+    core = _core_classes([{"class": "Class B", "level": 1, "subclass": None}])
+    inventory = {"equipped": {"shield": {"id": "s1", "name": "Shield"}}}
+    ac, _ = derive_ac(core, inventory, _empty_effects(), {"dexterity": 3, "a3": 4}, access)
+    assert ac == 17  # not 19 -- the no-shield formula ignores the shield
+
+
+def test_derive_ac_formula_adds_shield_when_allowed(access):
+    """A shield-permitting formula adds the shield: class-a + subclass sub-a at level 3
+    (10 + Dex(3) + a3(1) + shield(2) = 16)."""
+    core = _core_classes([{"class": "Class A", "level": 3, "subclass": "Sub A"}])
+    inventory = {"equipped": {"shield": {"id": "s1", "name": "Shield"}}}
+    ac, detail = derive_ac(core, inventory, _empty_effects(), {"dexterity": 3, "a3": 1}, access)
+    assert ac == 16
+    assert detail["source"] == "acf-sub-a"
+
+
+def test_derive_ac_formula_picks_most_beneficial(access):
+    """With several applicable formulas the highest AC wins: class-a (10+Dex=13) and its subclass
+    sub-a (10+Dex+a3=14) both apply at level 3 → the subclass formula (14) is chosen."""
+    core = _core_classes([{"class": "Class A", "level": 3, "subclass": "Sub A"}])
+    ac, detail = derive_ac(core, None, _empty_effects(), {"dexterity": 3, "a3": 1}, access)
+    assert ac == 14
+    assert detail["source"] == "acf-sub-a"
+
+
+def test_derive_ac_formula_level_gated(access):
+    """A subclass formula gained at level 3 does not apply below it: at class level 2 only the base
+    default and the single-ability class-a formula apply (both 13)."""
+    core = _core_classes([{"class": "Class A", "level": 2, "subclass": "Sub A"}])
+    ac, detail = derive_ac(core, None, _empty_effects(), {"dexterity": 3, "a3": 1}, access)
+    assert ac == 13
+    assert detail["source"] == "unarmored"
+
+
+def test_derive_ac_worn_armor_overrides_formula(access):
+    """Worn body armour overrides an unarmoured-defence formula that would otherwise be higher:
+    class-b would give 17, but heavy Armor A (base 16, Dex cap 0) yields 16."""
+    core = _core_classes([{"class": "Class B", "level": 1, "subclass": None}])
+    inventory = {"equipped": {"armor": {"id": "a1", "name": "Armor A"}}}
+    ac, detail = derive_ac(core, inventory, _empty_effects(), {"dexterity": 3, "a3": 4}, access)
+    assert ac == 16
+    assert detail["source"] != "acf-b"
+
+
+def test_derive_ac_no_formula_class_falls_back_to_base(access):
+    """A class with no AC formula falls back to the base default (10 + Dexterity)."""
+    core = _core_classes([{"class": "Class Cast1", "level": 3, "subclass": None}])
+    ac, detail = derive_ac(core, None, _empty_effects(), {"dexterity": 2, "a3": 5}, access)
+    assert ac == 12  # a3 must NOT contribute -- Class Cast1 has no formula summing it
+    assert detail["source"] == "unarmored"
+
+
 # ── derive_speed ─────────────────────────────────────────────────────────────
 
 

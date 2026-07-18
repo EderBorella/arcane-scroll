@@ -33,7 +33,9 @@ def _sheet(**mod_overrides):
         "resource_state": {},
         "abilities": {"a1": {"modifier": 2, "reduction": 0},
                       "a2": {"modifier": 3, "reduction": 0},
-                      "a3": {"modifier": 1, "reduction": 0}},
+                      "a3": {"modifier": 1, "reduction": 0},
+                      # Dexterity for the unarmoured-defence AC re-derivation (10 + Dex → 13).
+                      "dexterity": {"modifier": 3, "reduction": 0}},
         "saving_throws": {"a1": {"modifier": 4}, "a2": {"modifier": 3}, "a3": {"modifier": 3}},
         "skills": {"sk1": {"modifier": 4}},
         "passive_scores": {"sk1": 14},

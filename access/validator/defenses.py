@@ -124,6 +124,51 @@ def condition_ids(access: ValidatorAccess) -> list[str]:
     return [r["id"] for r in access.db.q("SELECT id FROM condition")]
 
 
+def ac_formulas(access: ValidatorAccess, owner_kind: str, owner_id: str,
+                at_level: int | None = None) -> list[dict]:
+    """Alternative Armor-Class formulas an owner confers, each bundled with the ability ids the
+    formula sums. Returns ``[{id, owner_kind, owner_id, base, allows_shield, gained_at_level,
+    ability_ids}, ...]``.
+
+    ``owner_kind`` is 'base' (the universal ``unarmored`` default), 'class', or 'subclass';
+    ``allows_shield`` is a bool (a formula that does not permit a Shield's AC bonus while in use);
+    ``ability_ids`` are the canonical DB ability ids added to ``base``. If ``at_level`` is given, only
+    formulas gained at or below it are included (a NULL gained_at_level always applies) — the same
+    level gating the other grant queries use.
+
+    Pure DB read — the per-formula arithmetic (base + ability mods + optional shield) and the
+    most-beneficial pick across several applicable formulas live in the consumer (deriver and check
+    each re-derive it independently)."""
+    sql = ("SELECT id, base, allows_shield, gained_at_level FROM ac_formula "
+           "WHERE owner_kind=? AND owner_id=?")
+    params: list = [owner_kind, owner_id]
+    if at_level is not None:
+        sql += " AND (gained_at_level IS NULL OR gained_at_level<=?)"
+        params.append(at_level)
+    out: list[dict] = []
+    for r in access.db.q(sql, *params):
+        ability_ids = [a["ability_id"] for a in access.db.q(
+            "SELECT ability_id FROM ac_formula_ability WHERE formula_id=?", r["id"])]
+        out.append({
+            "id": r["id"],
+            "owner_kind": owner_kind,
+            "owner_id": owner_id,
+            "base": r["base"],
+            "allows_shield": bool(r["allows_shield"]),
+            "gained_at_level": r["gained_at_level"],
+            "ability_ids": ability_ids,
+        })
+    return out
+
+
+def ac_bonus_grants(access: ValidatorAccess, owner_kind: str, owner_id: str) -> list[int]:
+    """Flat Armor-Class bonus values an owner grants (``grant_bonus`` with ``target_kind='ac'``).
+    Pure DB read — the stacking (a plain sum) lives in the consumer."""
+    return [r["value"] for r in access.db.q(
+        "SELECT value FROM grant_bonus WHERE owner_kind=? AND owner_id=? AND target_kind='ac'",
+        owner_kind, owner_id) if r["value"]]
+
+
 def variant_damage_type(access: ValidatorAccess, species_id: str, axis: str,
                         option_name: str) -> str | None:
     """Resolve a species_variant choice to its damage_type_id, e.g.
