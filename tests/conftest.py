@@ -595,6 +595,18 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE class_resource (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, name TEXT)")
     cur.execute("CREATE TABLE class_resource_level (resource_id TEXT, level INTEGER, count INTEGER, "
                 "die_count INTEGER, die_faces INTEGER, bonus INTEGER)")
+    # attacks domain: grant_attack spine (effect-granted natural-weapon attack). A spell owner
+    # (sp-natwep, on class-a's list) grants a 1d6 attack whose ability_mode 'spellcasting' resolves
+    # to class-a's spellcasting ability (a1); damage type carried through generically.
+    cur.execute("CREATE TABLE grant_attack (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
+                "gained_at_level INTEGER, name TEXT, ability_mode TEXT, die_count INTEGER, "
+                "die_faces INTEGER, damage_type TEXT, properties TEXT, note TEXT, condition_kind TEXT)")
+    cur.execute("INSERT INTO grant_attack "
+                "(id, owner_kind, owner_id, gained_at_level, name, ability_mode, die_count, "
+                " die_faces, damage_type, properties, note, condition_kind) "
+                "VALUES ('gat-natwep','spell','sp-natwep',NULL,'Attack Alpha','spellcasting',"
+                "1,6,'poison',NULL,NULL,NULL)")
+
     cur.execute("INSERT INTO class_resource VALUES ('bonus-speed','class','class-a','Bonus Speed')")
     cur.execute("INSERT INTO class_resource_level VALUES ('bonus-speed',2,NULL,NULL,NULL,10)")
     cur.execute("INSERT INTO class_resource_level VALUES ('bonus-speed',6,NULL,NULL,NULL,15)")
@@ -687,6 +699,10 @@ def _build_rules_db(path: str) -> None:
         cur.execute("INSERT INTO spell VALUES (?,?,?,0)", (sid, name, level))
     for sid in ("sp1", "sp2", "sp3"):
         cur.execute("INSERT INTO spell_class VALUES (?,'class-a')", (sid,))
+    # sp-natwep: the self-buff spell owning the grant_attack row above. Kept OFF every class list so
+    # it does not pollute the spell pools; the granted attack's 'spellcasting' ability resolves via
+    # the single-caster fallback (class-a's spellcasting ability).
+    cur.execute("INSERT INTO spell VALUES ('sp-natwep','Spell Natwep',2,0)")
     # species-a always grants sp4 (legal even though it's off class-a's list)
     cur.execute("INSERT INTO grant_spell VALUES ('gsp-species-a','species','species-a',NULL)")
     cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-species-a','sp4')")

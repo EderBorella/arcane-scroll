@@ -18,6 +18,7 @@ from access.db import RulesDB
 GRANT_TABLES: dict[str, list[str]] = {
     "grant_ability_increase": ["grant_ability_increase_value"],
     "grant_ability_set": [],
+    "grant_attack": [],
     "grant_bonus": [],
     "grant_companion": [],
     "grant_condition": [],

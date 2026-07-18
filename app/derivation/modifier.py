@@ -10,6 +10,7 @@ from access.validator import features as features_q
 from access.validator import inventory as inventory_q
 from access.validator import size as size_q
 from access.validator import skills as skills_q
+from access.validator import spellcasting as spellcasting_q
 
 # Self-transform (T60): the character temporarily BECOMES a creature (full effective-stat
 # replacement). Two kinds, selected by ``detail.transform``. ``PHYSICAL`` (physical-form) replaces
@@ -167,6 +168,71 @@ def _ability_mod(score: int) -> int:
     return (score - 10) // 2
 
 
+def _character_spellcasting_ability(access, core: dict, grant: dict) -> str | None:
+    """The character's spellcasting-ability id for a granted attack whose ability_mode is
+    'spellcasting'. Walks CORE.identity.classes, keeping each caster class's spellcasting ability
+    (``class_primary_ability`` via the access layer). When the granting owner is a spell, the
+    caster class whose spell list carries that spell wins (that is the ability "you cast it with");
+    otherwise the first caster class's ability is used."""
+    ident = core.get("identity", {}) or {}
+    classes = ident.get("classes", []) if isinstance(ident, dict) else []
+    caster_abilities: list[tuple[str, str]] = []  # (class_id, ability_id)
+    if isinstance(classes, list):
+        for c in classes:
+            if not isinstance(c, dict):
+                continue
+            cid = access.resolve("class", c.get("class"))
+            if not cid:
+                continue
+            ab = spellcasting_q.class_spellcasting_ability(access, cid)
+            if ab:
+                caster_abilities.append((cid, ab))
+    if not caster_abilities:
+        return None
+    if grant.get("owner_kind") == "spell":
+        spell_id = grant.get("owner_id")
+        for cid, ab in caster_abilities:
+            if spell_id and spellcasting_q.spell_on_class_list(access, spell_id, cid):
+                return ab
+    return caster_abilities[0][1]
+
+
+def _granted_attacks(core: dict, abilities: dict, effects: "ActiveEffects", access) -> list[dict]:
+    """Materialise effect-granted attacks (grant_attack rows) into modifier attack dicts, reusing the
+    weapon-attack shape. A 'spellcasting' ability_mode resolves to the character's spellcasting-ability
+    modifier for BOTH the attack bonus and the damage bonus; proficiency (the character's PB) always
+    applies, since the growth reshapes the always-proficient unarmed strike. The die term and damage
+    type come straight from the DB row (the canonical damage-type pick is fixed at build time)."""
+    pb = core.get("proficiency_bonus", 0)
+    out: list[dict] = []
+    for grant in effects.attack_grants:
+        dc = grant.get("die_count")
+        df = grant.get("die_faces")
+        if not (_int(dc) and _int(df)):
+            continue
+        if grant.get("ability_mode") == "spellcasting":
+            ability_id = _character_spellcasting_ability(access, core, grant)
+            ab_mod = _mod_for_ability_id(access, abilities, ability_id) if ability_id else 0
+        else:
+            ab_mod = 0
+        attack_bonus = ab_mod + (pb if _int(pb) else 0)
+        damage = f"{dc}d{df}"
+        if ab_mod > 0:
+            damage += f"+{ab_mod}"
+        elif ab_mod < 0:
+            damage += str(ab_mod)
+        props = grant.get("properties")
+        out.append({
+            "name": grant.get("name"),
+            "attack_bonus": attack_bonus,
+            "damage": damage,
+            "damage_type": grant.get("damage_type"),
+            "weapon_mastery": None,
+            "properties": [p for p in props.split(",")] if isinstance(props, str) and props else [],
+        })
+    return out
+
+
 def _mod_for_ability_id(access, abilities: dict, full_id: str) -> int:
     """Ability modifier for a canonical DB ability id, read from an `abilities` dict that may be
     keyed by CORE short codes (e.g. the short form a sheet uses) or by full DB ids. A direct
@@ -191,6 +257,9 @@ class ActiveEffects:
         self.condition_immunities: set[str] = set()
         self.save_advantages: set[str] = set()
         self.speed_grants: list[dict] = []
+        # Effect-granted attacks (grant_attack rows) carried with their owner context so the
+        # attack derivation can resolve an 'spellcasting' ability_mode to a concrete modifier.
+        self.attack_grants: list[dict] = []
         self.ability_sets: list[dict] = []
         # Size effects: a net relative step (grow/shrink) and any absolute
         # 'set' targets (a shape-change transformation → a creature's size).
@@ -255,6 +324,7 @@ def resolve_active_effects(core: dict, inventory: dict | None,
         _accumulate_conditions(effects, access, owner_kind, owner_id)
         _accumulate_save_advantages(effects, access, owner_kind, owner_id)
         _accumulate_speeds(effects, access, owner_kind, owner_id)
+        _accumulate_attacks(effects, access, owner_kind, owner_id)
         _accumulate_ability_sets(effects, access, owner_kind, owner_id)
         _accumulate_hp(effects, access, owner_kind, owner_id, state)
         _accumulate_senses(effects, access, owner_kind, owner_id)
@@ -385,6 +455,17 @@ def _accumulate_extra_damage(effects: ActiveEffects, access, owner_kind, owner_i
 def _accumulate_speeds(effects: ActiveEffects, access, owner_kind, owner_id):
     for row in grants_for(access.db, "grant_speed", owner_kind, owner_id):
         effects.speed_grants.append(dict(row))
+
+
+def _accumulate_attacks(effects: ActiveEffects, access, owner_kind, owner_id):
+    """Collect an active-effect owner's grant_attack rows, tagged with the owner context so the
+    attack derivation can resolve a 'spellcasting' ability_mode against the granting owner (e.g.
+    the caster class of the granting spell)."""
+    for row in grants_for(access.db, "grant_attack", owner_kind, owner_id):
+        g = dict(row)
+        g["owner_kind"] = owner_kind
+        g["owner_id"] = owner_id
+        effects.attack_grants.append(g)
 
 
 def _per_level_coeff(modifier: str) -> int:
@@ -1214,6 +1295,10 @@ def derive_attacks(core: dict, inventory: dict | None, abilities: dict,
             "weapon_mastery": mastery,
             "properties": sorted(props),
         })
+
+    # Effect-granted attacks (e.g. a self-buff reshaping the unarmed strike into a natural weapon)
+    # append after the equipped-weapon attacks, reusing the same attack-dict shape.
+    attacks.extend(_granted_attacks(core, abilities, effects, access))
 
     return attacks
 

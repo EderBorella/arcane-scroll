@@ -4,6 +4,7 @@ passives, defenses, features, feats, state compatibility, prepared spells, and s
 enforcement. NOT in ALL_CHECKS — modifier:1-specific."""
 from access.constants import CON_ABBREV
 from access.validator import abilities as abilities_q
+from access.validator import attacks as attacks_q
 from access.validator import conditions as conditions_q
 from access.validator import creature as creature_q
 from access.validator import defenses as defenses_q
@@ -12,6 +13,7 @@ from access.validator import inventory as inventory_q
 from access.validator import movement as movement_q
 from access.validator import size as size_q
 from access.validator import skills as skills_q
+from access.validator import spellcasting as spellcasting_q
 from access.validator import vitals as vitals_q
 from access.validator.state_compatibility import blocked_states
 from validator.report import Violation
@@ -417,6 +419,100 @@ def _check_attacks(sheet: dict, access, v: list[Violation]) -> None:
             v.append(Violation(DOMAIN, "attack-bonus-mismatch", "illegal",
                                f"{name}: attack bonus {actual} != expected {expected}",
                                "attacks"))
+
+
+def _spellcasting_ability_id(access, core: dict, owner_kind: str, owner_id: str) -> str | None:
+    """The character's spellcasting-ability id for a granted attack, re-derived here independently of
+    the deriver: walk CORE.identity.classes, keep each caster class's spellcasting ability
+    (``class_primary_ability``), and — when the granting owner is a spell — prefer the caster class
+    whose spell list carries that spell (the ability "you cast it with"); else the first caster."""
+    ident = core.get("identity", {}) or {}
+    classes = ident.get("classes", []) if isinstance(ident, dict) else []
+    caster_abilities: list[tuple[str, str]] = []
+    if isinstance(classes, list):
+        for c in classes:
+            if not isinstance(c, dict):
+                continue
+            cid = access.resolve("class", c.get("class"))
+            if not cid:
+                continue
+            ab = spellcasting_q.class_spellcasting_ability(access, cid)
+            if ab:
+                caster_abilities.append((cid, ab))
+    if not caster_abilities:
+        return None
+    if owner_kind == "spell":
+        for cid, ab in caster_abilities:
+            if owner_id and spellcasting_q.spell_on_class_list(access, owner_id, cid):
+                return ab
+    return caster_abilities[0][1]
+
+
+def _check_granted_attacks(sheet: dict, access, v: list[Violation]) -> None:
+    """Independently re-derive each effect-granted attack from grant_attack (never from the deriver's
+    attacks[]) and assert it appears on the MODIFIER with the correct bonus, damage and type.
+
+    For each active state, resolve its owner and read the owner's grant_attack rows. A 'spellcasting'
+    ability_mode resolves to the character's spellcasting-ability modifier (re-derived here); the
+    attack bonus adds the character's PB (the growth reshapes the always-proficient unarmed strike)
+    and the damage adds the same ability modifier. The die term and damage type come from the DB row.
+    A missing granted attack is flagged incomplete; a present-but-wrong one is flagged illegal."""
+    core = sheet.get("core", {}) or {}
+    mod = sheet.get("modifier", {}) or {}
+    states = mod.get("character_states", []) or []
+    if not isinstance(states, list) or not states:
+        return
+    attacks = mod.get("attacks", []) or []
+    if not isinstance(attacks, list):
+        attacks = []
+    by_name = {a.get("name"): a for a in attacks if isinstance(a, dict) and a.get("name")}
+    pb = core.get("proficiency_bonus", 0)
+    mod_abilities = mod.get("abilities", {}) or {}
+
+    for st in states:
+        if not isinstance(st, dict):
+            continue
+        owner_kind = _owner_kind_for_source_type(st.get("source_type", ""))
+        if owner_kind is None:
+            continue
+        owner_id = access.resolve(owner_kind, st.get("source"))
+        if owner_id is None:
+            continue
+        for grant in attacks_q.attack_grants(access, owner_kind, owner_id):
+            dc, df = grant["die_count"], grant["die_faces"]
+            if not (_int(dc) and _int(df)):
+                continue
+            if grant["ability_mode"] == "spellcasting":
+                ability_id = _spellcasting_ability_id(access, core, owner_kind, owner_id)
+                ab_mod = _mod_for_ability(access, mod_abilities, ability_id) if ability_id else 0
+            else:
+                ab_mod = 0
+            expected_bonus = ab_mod + (pb if _int(pb) else 0)
+            expected_damage = f"{dc}d{df}"
+            if ab_mod > 0:
+                expected_damage += f"+{ab_mod}"
+            elif ab_mod < 0:
+                expected_damage += str(ab_mod)
+            name = grant["name"]
+
+            atk = by_name.get(name)
+            if atk is None:
+                v.append(Violation(DOMAIN, "granted-attack-missing", "incomplete",
+                                   f"effect-granted attack {name!r} (state {st.get('state')!r}) not "
+                                   f"in attacks", "attacks"))
+                continue
+            if atk.get("attack_bonus") != expected_bonus:
+                v.append(Violation(DOMAIN, "granted-attack-bonus-mismatch", "illegal",
+                                   f"{name}: attack bonus {atk.get('attack_bonus')} != expected "
+                                   f"{expected_bonus}", "attacks"))
+            if atk.get("damage") != expected_damage:
+                v.append(Violation(DOMAIN, "granted-attack-damage-mismatch", "illegal",
+                                   f"{name}: damage {atk.get('damage')!r} != expected "
+                                   f"{expected_damage!r}", "attacks"))
+            if grant["damage_type"] is not None and atk.get("damage_type") != grant["damage_type"]:
+                v.append(Violation(DOMAIN, "granted-attack-type-mismatch", "illegal",
+                                   f"{name}: damage_type {atk.get('damage_type')!r} != expected "
+                                   f"{grant['damage_type']!r}", "attacks"))
 
 
 def _item_rider_active(sheet: dict, access, weapon_name: str, magic_item_id: str) -> bool:
@@ -1724,6 +1820,7 @@ def check(sheet: dict, access) -> list[Violation]:
     if transform is None:
         _check_attacks(sheet, access, v)
         _check_attack_damage(sheet, access, v)
+        _check_granted_attacks(sheet, access, v)
         _check_effective_abilities(sheet, access, v)
         _check_defenses(sheet, v)
         _check_state_defenses(sheet, access, v)
