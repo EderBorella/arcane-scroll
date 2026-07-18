@@ -5,8 +5,11 @@ and MODIFIER (effective_defenses) and independently re-derived by the defenses c
 ruleset a dedicated feat ('Feat Check Adv') owns two target_kind='check', modifier_id='advantage'
 grants (one row per scope) that map to the 'initiative' and 'athletics' scopes — exercising the FULL
 per-owner scope set from the structured ``scope`` column, not a single hardcoded scope."""
+import sqlite3
+
+from access.validator import ValidatorAccess
 from app.derivation.core import _permanent_defenses
-from app.derivation.modifier import ActiveEffects, derive_defenses
+from app.derivation.modifier import ActiveEffects, derive_defenses, resolve_active_effects
 from validator.checks.defenses import check
 from validator.checks.modifier import _check_defenses
 
@@ -104,3 +107,110 @@ def test_modifier_subset_ok_when_retained(access):
     v = []
     _check_defenses(sheet, v)
     assert v == []
+
+
+# ---- item-owned advantages (deriver ↔ validator symmetry close-out) ----
+# A single magic item owns BOTH a save-advantage grant (concentration) and a check-advantage
+# grant (perception). This exercises the item path the deriver's _accumulate_item_effects now
+# materialises alongside senses/speeds, matching the validator's item re-derivation via
+# item_grants_for for grant_save_advantage AND grant_d20_modifier. Neutral synthetic ids only.
+
+ADV_ITEM_NAME = "Adv Item Alpha"
+
+
+def _with_item_advantages(access, requires_attunement=0):
+    """Wire a non-attunement (or attunement) magic item owning one save-advantage grant
+    (concentration) and one check-advantage grant (perception), then return a fresh access."""
+    con = sqlite3.connect(access.db.path)
+    con.execute("INSERT INTO catalog_item (id,name,kind,category_id) VALUES "
+                "('mi-adv','Adv Item Alpha','armor','shield')")
+    con.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES "
+                "('mi-adv','uncommon',?)", (requires_attunement,))
+    con.execute("INSERT INTO grant_save_advantage VALUES "
+                "('gsa-mi-adv','magic_item','mi-adv',NULL,'concentration',NULL,NULL,NULL)")
+    con.execute("INSERT INTO grant_d20_modifier "
+                "(owner_kind,owner_id,target_kind,ability_id,modifier_id,scope,source_name) "
+                "VALUES ('magic_item','mi-adv','check','a2','advantage','perception','mi-adv')")
+    con.commit()
+    con.close()
+    return ValidatorAccess(path=access.db.path)
+
+
+def _core_l3():
+    return {"identity": {"species": "Species A",
+                         "classes": [{"class": "Class A", "level": 3}]},
+            "feats": []}
+
+
+def _equip_adv_item(attuned=False):
+    item = {"id": "item-adv", "name": ADV_ITEM_NAME, "magic": True}
+    if attuned:
+        item["attunement"] = {"attuned": True}
+    return {"equipped": {"shield": item}}
+
+
+# deriver — passive-on-equip branch (non-attunement item, no attunement needed)
+
+def test_item_advantages_materialise_on_equip(access):
+    acc = _with_item_advantages(access, requires_attunement=0)
+    effects = resolve_active_effects(_core_l3(), _equip_adv_item(), [], [], acc)
+    assert "concentration" in effects.save_advantages
+    assert "perception" in effects.check_advantages
+    eff = derive_defenses({"permanent_defenses": {}}, effects, acc)
+    assert eff.get("save_advantages") == ["concentration"]
+    assert eff.get("check_advantages") == ["perception"]
+
+
+# deriver — attuned branch (attunement item, contributes only while attuned)
+
+def test_item_advantages_materialise_when_attuned(access):
+    acc = _with_item_advantages(access, requires_attunement=1)
+    inv = _equip_adv_item()
+    item_states = [{"inventory_ref": "item-adv", "attuned": True}]
+    effects = resolve_active_effects(_core_l3(), inv, [], item_states, acc)
+    assert "concentration" in effects.save_advantages
+    assert "perception" in effects.check_advantages
+
+
+def test_item_advantages_absent_when_attunement_item_unattuned(access):
+    # An attunement item that is equipped but NOT attuned confers neither advantage — matching
+    # the validator's item_grants_for gate.
+    acc = _with_item_advantages(access, requires_attunement=1)
+    effects = resolve_active_effects(_core_l3(), _equip_adv_item(), [], [], acc)
+    assert "concentration" not in effects.save_advantages
+    assert "perception" not in effects.check_advantages
+
+
+# validator — clean when the sheet carries exactly the item-owned advantages
+
+def test_item_advantages_validator_clean(access):
+    acc = _with_item_advantages(access, requires_attunement=0)
+    s = {"identity": {"species": "Species A", "classes": [{"class": "Class A", "level": 3}]},
+         "feats": [],
+         "equipped": {"shield": {"magic": True, "name": ADV_ITEM_NAME}},
+         "defenses": {"save_advantages": ["concentration"], "check_advantages": ["perception"]}}
+    codes = {v.code for v in check(s, acc)}
+    assert "save-advantage-missing" not in codes
+    assert "save-advantage-ungranted" not in codes
+    assert "check-advantage-missing" not in codes
+    assert "check-advantage-ungranted" not in codes
+
+
+# validator — independence: a sheet missing an equipped item's advantage is flagged
+
+def test_item_save_advantage_missing_flagged(access):
+    acc = _with_item_advantages(access, requires_attunement=0)
+    s = {"identity": {"species": "Species A", "classes": [{"class": "Class A", "level": 3}]},
+         "feats": [],
+         "equipped": {"shield": {"magic": True, "name": ADV_ITEM_NAME}},
+         "defenses": {"check_advantages": ["perception"]}}  # save advantage dropped
+    assert "save-advantage-missing" in {v.code for v in check(s, acc)}
+
+
+def test_item_check_advantage_missing_flagged(access):
+    acc = _with_item_advantages(access, requires_attunement=0)
+    s = {"identity": {"species": "Species A", "classes": [{"class": "Class A", "level": 3}]},
+         "feats": [],
+         "equipped": {"shield": {"magic": True, "name": ADV_ITEM_NAME}},
+         "defenses": {"save_advantages": ["concentration"]}}  # check advantage dropped
+    assert "check-advantage-missing" in {v.code for v in check(s, acc)}

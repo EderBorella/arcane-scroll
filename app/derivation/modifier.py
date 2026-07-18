@@ -382,7 +382,7 @@ def resolve_active_effects(core: dict, inventory: dict | None,
         _accumulate_transform(effects, access, state)
 
     if inventory and isinstance(inventory, dict):
-        _accumulate_item_effects(effects, access, inventory, item_states)
+        _accumulate_item_effects(effects, access, inventory, item_states, core)
 
     return effects
 
@@ -733,9 +733,9 @@ def _item_name_for_ref(inventory, inv_ref):
     return None
 
 
-def _accumulate_item_effects(effects: ActiveEffects, access, inventory, item_states):
+def _accumulate_item_effects(effects: ActiveEffects, access, inventory, item_states, core):
     # 1) Attuned items (from item_states): full effects — bonuses, resistances,
-    #    senses and speeds all materialise here.
+    #    senses, speeds and save/check advantages all materialise here.
     attuned_refs: set = set()
     if isinstance(item_states, list):
         for istate in item_states:
@@ -756,9 +756,12 @@ def _accumulate_item_effects(effects: ActiveEffects, access, inventory, item_sta
             _accumulate_senses(effects, access, "magic_item", mid)
             _accumulate_speeds(effects, access, "magic_item", mid)
             _accumulate_attacks(effects, access, "magic_item", mid)
+            _accumulate_save_advantages(effects, access, "magic_item", mid)
+            _accumulate_check_advantages(effects, access, "magic_item", mid, core)
 
     # 2) Passive-on-equip items: a magic item that does NOT require attunement
-    #    confers its sense/speed grants while equipped (no attunement needed).
+    #    confers its sense/speed and save/check-advantage grants while equipped
+    #    (no attunement needed).
     #    Attunement-gated items are handled solely by branch (1) above. An item
     #    already consumed as attuned in branch (1) must be skipped here too, or a
     #    non-attunement item flagged attuned would double-count its senses/speeds.
@@ -780,6 +783,8 @@ def _accumulate_item_effects(effects: ActiveEffects, access, inventory, item_sta
             _accumulate_senses(effects, access, "magic_item", mid)
             _accumulate_speeds(effects, access, "magic_item", mid)
             _accumulate_attacks(effects, access, "magic_item", mid)
+            _accumulate_save_advantages(effects, access, "magic_item", mid)
+            _accumulate_check_advantages(effects, access, "magic_item", mid, core)
 
 
 # ── C2: Derivation helpers ───────────────────────────────────────────────────
