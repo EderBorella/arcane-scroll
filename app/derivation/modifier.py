@@ -1,6 +1,8 @@
 """C-M1: MODIFIER derivation engine. Pure functions that compute MODIFIER fields from
 CORE + INVENTORY + GRIMOIRE + DB + active state effects. No orchestrator, no non-overwritable
 field protection, no stacking-rule enforcement — those are C-M2."""
+import re
+
 from access.primitives import grants_for
 from access.validator import abilities as abilities_q
 from access.validator import conditions as conditions_q
@@ -369,7 +371,7 @@ def resolve_active_effects(core: dict, inventory: dict | None,
         _accumulate_resistances(effects, access, owner_kind, owner_id)
         _accumulate_conditions(effects, access, owner_kind, owner_id)
         _accumulate_save_advantages(effects, access, owner_kind, owner_id)
-        _accumulate_check_advantages(effects, access, owner_kind, owner_id)
+        _accumulate_check_advantages(effects, access, owner_kind, owner_id, core)
         _accumulate_speeds(effects, access, owner_kind, owner_id)
         _accumulate_attacks(effects, access, owner_kind, owner_id)
         _accumulate_ability_sets(effects, access, owner_kind, owner_id)
@@ -427,10 +429,41 @@ def _accumulate_save_advantages(effects: ActiveEffects, access, owner_kind, owne
             effects.save_advantages.add(scope)
 
 
-def _accumulate_check_advantages(effects: ActiveEffects, access, owner_kind, owner_id):
+def _character_total_level(core: dict) -> int:
+    """The character's total class level, summed from CORE identity (0 when absent)."""
+    ident = core.get("identity", {}) or {}
+    classes = ident.get("classes", []) if isinstance(ident, dict) else []
+    total = 0
+    if isinstance(classes, list):
+        for c in classes:
+            if isinstance(c, dict) and _int(c.get("level")):
+                total += c["level"]
+    return total
+
+
+def _owner_level_for(core: dict, access, owner_kind: str, owner_id: str) -> int:
+    """The level at which an owner's level-gated grants apply: a class/subclass owner uses THAT class
+    entry's level (mirroring the CORE owner-grant walker); every other owner kind uses total level (a
+    feat/species grant carries a NULL gate, so this only bounds a genuinely level-gated future row)."""
+    ident = core.get("identity", {}) or {}
+    classes = ident.get("classes", []) if isinstance(ident, dict) else []
+    if owner_kind in ("class", "subclass") and isinstance(classes, list):
+        key = "class" if owner_kind == "class" else "subclass"
+        for c in classes:
+            if not isinstance(c, dict) or not _int(c.get("level")):
+                continue
+            if access.resolve(owner_kind, c.get(key)) == owner_id:
+                return c["level"]
+    return _character_total_level(core)
+
+
+def _accumulate_check_advantages(effects: ActiveEffects, access, owner_kind, owner_id, core):
     # Map each grant_d20_modifier check-advantage grant to its scope string (e.g. 'initiative') so
     # the union in derive_defenses matches CORE's representation (mirrors _accumulate_save_advantages).
-    for row in defenses_q.check_advantage_grants(access, owner_kind, owner_id):
+    # Level-gated by the owner's level (as the CORE owner-grant walker gates its grants) so a future
+    # level-gated row does not apply before the character reaches it.
+    at_level = _owner_level_for(core, access, owner_kind, owner_id)
+    for row in defenses_q.check_advantage_grants(access, owner_kind, owner_id, at_level=at_level):
         scope = defenses_q.check_scope_for(access, row)
         if scope:
             effects.check_advantages.add(scope)
@@ -1613,16 +1646,26 @@ def _core_ability_mods(core: dict, access) -> dict[str, int]:
     return mods
 
 
+def _norm_resource_name(name: str) -> str:
+    """A loose key for matching a budget label to a resource name: lower-cased, with any parenthetical
+    qualifier and non-alphanumerics dropped and a trailing plural 's' removed. Mirrors the validator's
+    ``resources._norm`` so the two layers single-home a pool on the same key (kept independent — each
+    layer owns its own copy rather than importing the other)."""
+    s = re.sub(r"\(.*?\)", "", name.lower())
+    s = re.sub(r"[^a-z0-9]", "", s)
+    return s[:-1] if s.endswith("s") else s
+
+
 def _owned_pool_uses(access, owner_kind: str, owner_id: str, budget_names: set,
                      pb: int, ability_mods: dict) -> dict | None:
     """The ``uses`` a feat/feature-owned bounded ``grant_resource`` pool confers — ``{max, recharge}``
     (recharge only when a cadence is recorded) — or None when the owner confers no such pool.
 
     Single-homing (KB): a pool that already lives in CORE ``resource_budgets`` (hence in the MODIFIER
-    ``resource_state``) is NOT duplicated onto the owning feat/feature — its name is in ``budget_names``
-    and is skipped. Re-derived from the DB, independent of the CORE budget derivation."""
+    ``resource_state``) is NOT duplicated onto the owning feat/feature — its NORMALISED name is in
+    ``budget_names`` and is skipped. Re-derived from the DB, independent of the CORE budget derivation."""
     for res in resources_q.grant_resources(access, owner_kind, owner_id):
-        if res["name"] in budget_names:
+        if _norm_resource_name(res["name"]) in budget_names:
             continue  # already single-homed in resource_state — do not duplicate the pool here
         mx = _grant_resource_max(res, pb, ability_mods)
         if mx is None:
@@ -1661,7 +1704,7 @@ def derive_feats(core: dict, access) -> list[dict]:
     recharge cadence on its ``uses``; a pool that IS a budget entry is left single-homed in
     ``resource_state`` and not duplicated here (KB)."""
     core_feats = core.get("feats", []) or []
-    budget_names = set(core.get("resource_budgets") or {})
+    budget_names = {_norm_resource_name(k) for k in (core.get("resource_budgets") or {})}
     pb = core.get("proficiency_bonus", 0) or 0
     ability_mods = _core_ability_mods(core, access)
     result = []

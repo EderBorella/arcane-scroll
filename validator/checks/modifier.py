@@ -655,8 +655,11 @@ def _check_real_weapon_damage(sheet: dict, access, v: list[Violation]) -> None:
         elif dmg_bonus < 0:
             expected += str(dmg_bonus)
 
-        m = _REAL_WEAPON_BASE_DAMAGE_RE.match(damage)
-        actual_base = m.group(1) if m else damage
+        # Normalise whitespace out before matching so a spaced damage string (e.g. '1d8 + 3') still
+        # yields the same base term as the deriver's whitespace-free form ('1d8+3').
+        damage_compact = re.sub(r"\s+", "", damage)
+        m = _REAL_WEAPON_BASE_DAMAGE_RE.match(damage_compact)
+        actual_base = m.group(1) if m else damage_compact
         if actual_base != expected:
             v.append(Violation(DOMAIN, "real-weapon-damage-mismatch", "illegal",
                                f"{name}: damage {damage!r} (base {actual_base!r}) != expected base "
@@ -1822,6 +1825,16 @@ def _check_resource_recharge(sheet: dict, access, v: list[Violation]) -> None:
     v.extend(resources_check.check_recharge(core, resource_state, access))
 
 
+def _check_feat_uses(sheet: dict, access, v: list[Violation]) -> None:
+    """Validate each MODIFIER feat's ``uses.max``/``uses.recharge`` for a feat-owned bounded pool NOT
+    single-homed in ``resource_state``, re-derived independently by the resources check (never from the
+    deriver). Feat-presence is validated separately by ``_check_feats``."""
+    from validator.checks import resources as resources_check
+    core = sheet.get("core", {}) or {}
+    mod = sheet.get("modifier", {}) or {}
+    v.extend(resources_check.check_feat_uses(core, mod.get("feats"), access))
+
+
 # ── prepared spells ──────────────────────────────────────────────────────────
 
 
@@ -2193,6 +2206,7 @@ def check(sheet: dict, access) -> list[Violation]:
     _check_features(sheet, v)
     _check_feats(sheet, v)
     _check_resource_recharge(sheet, access, v)
+    _check_feat_uses(sheet, access, v)
     _check_prepared_spells(sheet, access, v)
     _check_states(sheet, access, v)
     _check_starting_treasure(sheet, access, v)
