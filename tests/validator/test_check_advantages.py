@@ -2,8 +2,9 @@
 
 Mirrors the save-advantage spine: the check-advantage field is derived on CORE (permanent_defenses)
 and MODIFIER (effective_defenses) and independently re-derived by the defenses check. In the synthetic
-ruleset a dedicated feat ('Feat Check Adv') owns a target_kind='check', modifier_id='advantage' grant
-that maps to the 'initiative' scope."""
+ruleset a dedicated feat ('Feat Check Adv') owns two target_kind='check', modifier_id='advantage'
+grants (one row per scope) that map to the 'initiative' and 'athletics' scopes — exercising the FULL
+per-owner scope set from the structured ``scope`` column, not a single hardcoded scope."""
 from app.derivation.core import _permanent_defenses
 from app.derivation.modifier import ActiveEffects, derive_defenses
 from validator.checks.defenses import check
@@ -27,9 +28,16 @@ def _codes(sheet, access):
 
 def test_check_advantage_clean(access):
     s = _sheet(feats=[{"name": "Feat Check Adv", "source": "asi"}],
-               defenses={"check_advantages": ["initiative"]})
+               defenses={"check_advantages": ["athletics", "initiative"]})
     assert "check-advantage-missing" not in _codes(s, access)
     assert "check-advantage-ungranted" not in _codes(s, access)
+
+
+def test_check_advantage_partial_scope_flagged(access):
+    # The owner confers BOTH scopes; a sheet carrying only one is missing the other.
+    s = _sheet(feats=[{"name": "Feat Check Adv", "source": "asi"}],
+               defenses={"check_advantages": ["initiative"]})
+    assert "check-advantage-missing" in _codes(s, access)
 
 
 def test_check_advantage_missing_flagged(access):
@@ -49,7 +57,8 @@ def test_core_deriver_materialises_check_advantage(access):
     perm = _permanent_defenses(access, {
         "identity": {"species": "Species A", "classes": [{"class": "Class A", "level": 3}]},
         "feats": [{"name": "Feat Check Adv", "source": "asi"}]})
-    assert perm.get("check_advantages") == ["initiative"]
+    # The full per-owner scope set is emitted (sorted), not just the initiative scope.
+    assert perm.get("check_advantages") == ["athletics", "initiative"]
 
 
 def test_core_deriver_additive_when_absent(access):

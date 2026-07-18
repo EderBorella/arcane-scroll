@@ -16,7 +16,7 @@ _HEADERS = {
     "grant_bonus": "target_kind TEXT, target_id TEXT, value INTEGER",
     "grant_companion": "creature_id TEXT, duration_amount INTEGER, duration_unit_id TEXT, at_spell_level INTEGER, notes TEXT",
     "grant_condition": "condition_id TEXT, effect TEXT",
-    "grant_d20_modifier": "condition_kind TEXT, target_kind TEXT, ability_id TEXT, modifier_id TEXT, source_name TEXT, scope_note TEXT",
+    "grant_d20_modifier": "condition_kind TEXT, target_kind TEXT, ability_id TEXT, modifier_id TEXT, scope TEXT, source_name TEXT, scope_note TEXT",
     "grant_expertise": "choose_n INTEGER, mode TEXT",
     "grant_feat": "condition_kind TEXT, choose_n INTEGER, from_category TEXT",
     "grant_hp": "flat INTEGER, per_level INTEGER",
