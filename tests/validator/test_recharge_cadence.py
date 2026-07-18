@@ -10,7 +10,7 @@ Synthetic fixtures: 'Pool A' (class-a) recovers on short OR long rest (collapses
 'Pool Esc' (class-a) on long rest, 'Sub Ladder Pool' (subclass 'Sub Ladder') has no recharge row.
 'Feat Res Boon' (feat 'Feat Res') recovers on a long rest."""
 from app.derivation.modifier import ActiveEffects, derive_resource_state, derive_feats
-from validator.checks.resources import check_recharge
+from validator.checks.resources import check_feat_uses, check_recharge
 
 
 def _core(budgets, classes=None, feats=None):
@@ -87,3 +87,35 @@ def test_feat_pool_surfaced_when_not_a_budget(access):
     entry = next(f for f in feats if f["name"] == "Feat Res")
     assert entry["uses"]["max"] == 1
     assert entry["uses"]["recharge"] == "long-rest"
+
+
+# ---- validator: independent feat uses re-derivation (FIX 2) ----
+
+def test_feat_uses_correct_passes(access):
+    core = _core({}, feats=[{"name": "Feat Res", "source": "asi"}])
+    mod_feats = [{"name": "Feat Res", "uses": {"max": 1, "recharge": "long-rest"}}]
+    assert check_feat_uses(core, mod_feats, access) == []
+
+
+def test_feat_uses_wrong_max_flagged(access):
+    core = _core({}, feats=[{"name": "Feat Res", "source": "asi"}])
+    mod_feats = [{"name": "Feat Res", "uses": {"max": 3, "recharge": "long-rest"}}]
+    codes = {v.code for v in check_feat_uses(core, mod_feats, access)}
+    assert "feat-uses-max-wrong" in codes
+
+
+def test_feat_uses_wrong_recharge_flagged(access):
+    core = _core({}, feats=[{"name": "Feat Res", "source": "asi"}])
+    mod_feats = [{"name": "Feat Res", "uses": {"max": 1, "recharge": "short-rest"}}]
+    codes = {v.code for v in check_feat_uses(core, mod_feats, access)}
+    assert "feat-uses-recharge-wrong" in codes
+
+
+def test_feat_uses_single_homed_expects_none(access):
+    # The pool IS a budget entry (single-homed in resource_state), so the feat expects max None and no
+    # recharge — a feat carrying that passes, and one duplicating the pool's max is flagged.
+    core = _core({"Feat Res Boon": {"max": 1}}, feats=[{"name": "Feat Res", "source": "asi"}])
+    assert check_feat_uses(core, [{"name": "Feat Res", "uses": {"max": None}}], access) == []
+    codes = {v.code for v in check_feat_uses(
+        core, [{"name": "Feat Res", "uses": {"max": 1, "recharge": "long-rest"}}], access)}
+    assert "feat-uses-max-wrong" in codes

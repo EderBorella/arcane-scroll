@@ -269,6 +269,75 @@ def check_recharge(core_sheet: dict, resource_state: dict, access) -> list[Viola
     return v
 
 
+def _feat_pool_uses(access, fid: str, budget_names: set[str], pb: int,
+                    ability_mods: dict) -> dict | None:
+    """The ``uses`` a feat-owned bounded ``grant_resource`` pool confers — ``{max, recharge}`` (recharge
+    only when a cadence is recorded) — or None when the feat confers no such non-budget pool. Re-derived
+    from the DB, independent of the deriver; single-homing skips a pool already in ``resource_budgets``
+    (matched on the same normalised key the deriver uses)."""
+    for res in q.grant_resources(access, "feat", fid):
+        if _norm(res["name"]) in budget_names:
+            continue  # single-homed in resource_state — the deriver does not duplicate it onto the feat
+        mx = _grant_resource_max(res, pb, ability_mods)
+        if mx is None:
+            continue
+        uses: dict = {"max": mx}
+        cadence = _collapse_recharge(q.recharge_cadences(access, "grant_resource", res["id"]))
+        if cadence:
+            uses["recharge"] = cadence
+        return uses
+    return None
+
+
+def check_feat_uses(core_sheet: dict, mod_feats, access) -> list[Violation]:
+    """Independently re-derive each MODIFIER feat's ``uses.max``/``uses.recharge`` from a feat-owned
+    bounded ``grant_resource`` pool that is NOT a ``resource_budgets`` entry, and flag a mismatch.
+
+    ``check_recharge`` covers only ``resource_state`` budget keys and the MODIFIER feat-presence check
+    validates presence only, so a feat that surfaces its own bounded pool (a pool single-homed on the
+    feat, not in ``resource_state``) had no independent coverage. This closes that gap. A feat whose
+    only pool is a budget entry (single-homed in ``resource_state``) expects ``max: None`` and no
+    recharge — re-derived from the DB, never from the deriver."""
+    v: list[Violation] = []
+    if not isinstance(mod_feats, list) or not mod_feats:
+        return v
+    if not isinstance(core_sheet, dict):
+        core_sheet = {}
+    budget_names = {_norm(k) for k in (core_sheet.get("resource_budgets") or {})}
+    ident = core_sheet.get("identity", {}) or {}
+    total_level = 0
+    for c in (ident.get("classes", []) if isinstance(ident, dict) else []):
+        if isinstance(c, dict) and isinstance(c.get("level"), int) and not isinstance(c.get("level"), bool):
+            total_level += c["level"]
+    pb = _proficiency_bonus(total_level)
+    ability_mods = _ability_mods(core_sheet, access)
+
+    for f in mod_feats:
+        if not isinstance(f, dict):
+            continue
+        name = f.get("name")
+        fid = access.resolve("feat", name)
+        if fid is None:
+            continue
+        expected = _feat_pool_uses(access, fid, budget_names, pb, ability_mods)
+        uses = f.get("uses")
+        if not isinstance(uses, dict):
+            uses = {}
+        exp_max = expected.get("max") if expected else None
+        exp_recharge = expected.get("recharge") if expected else None
+        if uses.get("max") != exp_max:
+            v.append(Violation(DOMAIN, "feat-uses-max-wrong", "illegal",
+                               f"{name}: feat uses max {uses.get('max')!r} does not match the {exp_max!r} "
+                               "the feat's bounded pool confers for the build",
+                               f"feats.{name}.uses.max"))
+        if uses.get("recharge") != exp_recharge:
+            v.append(Violation(DOMAIN, "feat-uses-recharge-wrong", "illegal",
+                               f"{name}: feat uses recharge {uses.get('recharge')!r} does not match the "
+                               f"{exp_recharge!r} the feat's bounded pool recharges on for the build",
+                               f"feats.{name}.uses.recharge"))
+    return v
+
+
 def check(sheet: dict, access) -> list[Violation]:
     v: list[Violation] = []
     budgets = sheet.get("resource_budgets")
