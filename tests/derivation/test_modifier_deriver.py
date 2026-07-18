@@ -451,6 +451,54 @@ def test_no_granted_attack_without_state(access):
     assert [a for a in attacks if a["name"] == "Attack Alpha"] == []
 
 
+# ── non-spellcasting ability_mode resolution (T136) ──────────────────────────
+
+
+def _strmode_state():
+    """An active self-buff granting a strength-mode attack (uses the Strength modifier)."""
+    return {"state": "buffed", "source": "Spell Str Mode", "source_type": "spell", "detail": {}}
+
+
+def _finmode_state():
+    """An active self-buff granting a finesse-mode attack (best of Strength/Dexterity)."""
+    return {"state": "buffed", "source": "Spell Fin Mode", "source_type": "spell", "detail": {}}
+
+
+def test_granted_strength_mode_attack_uses_strength(access):
+    """A 'strength' ability_mode grant adds the Strength modifier to bonus and damage, plus PB."""
+    core = _core()  # proficiency_bonus 2
+    effects = resolve_active_effects(core, None, [_strmode_state()], [], access)
+    attacks = derive_attacks(core, None, {"strength": 2, "dexterity": 4}, [], effects, access)
+    granted = [a for a in attacks if a["name"] == "Attack Str"]
+    assert len(granted) == 1
+    a = granted[0]
+    assert a["attack_bonus"] == 2 + 2     # STR mod (2) + PB (2) -- NOT the higher DEX
+    assert a["damage"] == "1d8+2"
+    assert a["damage_type"] == "poison"
+    assert a["properties"] == ["light"]
+
+
+def test_granted_finesse_mode_picks_dexterity_when_higher(access):
+    """A 'finesse' ability_mode grant adds the better of Strength/Dexterity (here DEX 4 > STR 2)."""
+    core = _core()
+    effects = resolve_active_effects(core, None, [_finmode_state()], [], access)
+    attacks = derive_attacks(core, None, {"strength": 2, "dexterity": 4}, [], effects, access)
+    a = [x for x in attacks if x["name"] == "Attack Fin"][0]
+    assert a["attack_bonus"] == 4 + 2     # max(STR 2, DEX 4) + PB
+    assert a["damage"] == "1d4+4"
+    assert a["damage_type"] == "fire"
+
+
+def test_granted_finesse_mode_picks_strength_when_higher(access):
+    """Finesse picks Strength when it beats Dexterity (proves it is the max, not always DEX)."""
+    core = _core()
+    effects = resolve_active_effects(core, None, [_finmode_state()], [], access)
+    attacks = derive_attacks(core, None, {"strength": 5, "dexterity": 1}, [], effects, access)
+    a = [x for x in attacks if x["name"] == "Attack Fin"][0]
+    assert a["attack_bonus"] == 5 + 2     # max(STR 5, DEX 1) + PB
+    assert a["damage"] == "1d4+5"
+
+
 # ── stats-less magic weapon attack materialization (T56) ─────────────────────
 
 

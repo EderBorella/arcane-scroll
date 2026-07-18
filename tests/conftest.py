@@ -606,6 +606,19 @@ def _build_rules_db(path: str) -> None:
                 " die_faces, damage_type, properties, note, condition_kind) "
                 "VALUES ('gat-natwep','spell','sp-natwep',NULL,'Attack Alpha','spellcasting',"
                 "1,6,'poison',NULL,NULL,NULL)")
+    # Non-spellcasting ability_mode grants (T136). A 'strength' grant adds the Strength modifier; a
+    # 'finesse' grant adds the better of Strength/Dexterity. Both are owned by an off-list self-buff
+    # spell so a state can activate them without polluting any spell pool.
+    cur.execute("INSERT INTO grant_attack "
+                "(id, owner_kind, owner_id, gained_at_level, name, ability_mode, die_count, "
+                " die_faces, damage_type, properties, note, condition_kind) "
+                "VALUES ('gat-strmode','spell','sp-strmode',NULL,'Attack Str','strength',"
+                "1,8,'poison','light',NULL,NULL)")
+    cur.execute("INSERT INTO grant_attack "
+                "(id, owner_kind, owner_id, gained_at_level, name, ability_mode, die_count, "
+                " die_faces, damage_type, properties, note, condition_kind) "
+                "VALUES ('gat-finmode','spell','sp-finmode',NULL,'Attack Fin','finesse',"
+                "1,4,'fire',NULL,NULL,NULL)")
 
     cur.execute("INSERT INTO class_resource VALUES ('bonus-speed','class','class-a','Bonus Speed')")
     cur.execute("INSERT INTO class_resource_level VALUES ('bonus-speed',2,NULL,NULL,NULL,10)")
@@ -703,6 +716,9 @@ def _build_rules_db(path: str) -> None:
     # it does not pollute the spell pools; the granted attack's 'spellcasting' ability resolves via
     # the single-caster fallback (class-a's spellcasting ability).
     cur.execute("INSERT INTO spell VALUES ('sp-natwep','Spell Natwep',2,0)")
+    # Off-list self-buff spells owning the non-spellcasting-mode grant_attack rows (T136).
+    cur.execute("INSERT INTO spell VALUES ('sp-strmode','Spell Str Mode',2,0)")
+    cur.execute("INSERT INTO spell VALUES ('sp-finmode','Spell Fin Mode',2,0)")
     # species-a always grants sp4 (legal even though it's off class-a's list)
     cur.execute("INSERT INTO grant_spell VALUES ('gsp-species-a','species','species-a',NULL)")
     cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-species-a','sp4')")

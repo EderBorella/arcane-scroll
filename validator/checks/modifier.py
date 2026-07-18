@@ -448,20 +448,75 @@ def _spellcasting_ability_id(access, core: dict, owner_kind: str, owner_id: str)
     return caster_abilities[0][1]
 
 
+def _granted_attack_ability_mod(access, core: dict, mod_abilities: dict, grant,
+                                owner_kind: str, owner_id: str) -> int:
+    """The ability modifier a granted attack (grant_attack row) adds to its bonus and damage,
+    re-derived here independently of the deriver, by ability_mode: 'spellcasting' → the character's
+    spellcasting-ability modifier (resolved against the granting owner); 'strength' → the Strength
+    modifier (an unarmed/natural attack that uses Strength); 'finesse' → the better of
+    Strength/Dexterity (matching the finesse rule); anything else → 0 (the fallback)."""
+    mode = grant["ability_mode"]
+    if mode == "spellcasting":
+        ability_id = _spellcasting_ability_id(access, core, owner_kind, owner_id)
+        return _mod_for_ability(access, mod_abilities, ability_id) if ability_id else 0
+    if mode == "strength":
+        return _mod_for_ability(access, mod_abilities, "strength")
+    if mode == "finesse":
+        return max(_mod_for_ability(access, mod_abilities, "strength"),
+                   _mod_for_ability(access, mod_abilities, "dexterity"))
+    return 0
+
+
+def _assert_granted_attack(grant, ab_mod: int, pb, by_name: dict, v: list[Violation],
+                           context: str = "") -> None:
+    """Assert one effect-granted attack appears on the MODIFIER with the expected bonus, damage and
+    type. The attack bonus adds the character's PB (the growth reshapes the always-proficient unarmed
+    strike) and the damage adds the resolved ability modifier; the die term and damage type come from
+    the DB row. A missing attack is flagged incomplete; a present-but-wrong one is flagged illegal.
+    Shared by the state-owner, item-owner and permanent-owner passes."""
+    dc, df = grant["die_count"], grant["die_faces"]
+    if not (_int(dc) and _int(df)):
+        return
+    expected_bonus = ab_mod + (pb if _int(pb) else 0)
+    expected_damage = f"{dc}d{df}"
+    if ab_mod > 0:
+        expected_damage += f"+{ab_mod}"
+    elif ab_mod < 0:
+        expected_damage += str(ab_mod)
+    name = grant["name"]
+
+    atk = by_name.get(name)
+    if atk is None:
+        v.append(Violation(DOMAIN, "granted-attack-missing", "incomplete",
+                           f"effect-granted attack {name!r}{context} not in attacks", "attacks"))
+        return
+    if atk.get("attack_bonus") != expected_bonus:
+        v.append(Violation(DOMAIN, "granted-attack-bonus-mismatch", "illegal",
+                           f"{name}: attack bonus {atk.get('attack_bonus')} != expected "
+                           f"{expected_bonus}", "attacks"))
+    if atk.get("damage") != expected_damage:
+        v.append(Violation(DOMAIN, "granted-attack-damage-mismatch", "illegal",
+                           f"{name}: damage {atk.get('damage')!r} != expected "
+                           f"{expected_damage!r}", "attacks"))
+    if grant["damage_type"] is not None and atk.get("damage_type") != grant["damage_type"]:
+        v.append(Violation(DOMAIN, "granted-attack-type-mismatch", "illegal",
+                           f"{name}: damage_type {atk.get('damage_type')!r} != expected "
+                           f"{grant['damage_type']!r}", "attacks"))
+
+
 def _check_granted_attacks(sheet: dict, access, v: list[Violation]) -> None:
     """Independently re-derive each effect-granted attack from grant_attack (never from the deriver's
     attacks[]) and assert it appears on the MODIFIER with the correct bonus, damage and type.
 
-    For each active state, resolve its owner and read the owner's grant_attack rows. A 'spellcasting'
-    ability_mode resolves to the character's spellcasting-ability modifier (re-derived here); the
-    attack bonus adds the character's PB (the growth reshapes the always-proficient unarmed strike)
-    and the damage adds the same ability modifier. The die term and damage type come from the DB row.
-    A missing granted attack is flagged incomplete; a present-but-wrong one is flagged illegal."""
+    Three owner sources contribute grants: active states (their resolved owner), the character's
+    always-on permanent owners (species/feats/classes/subclasses), and equipped/attuned magic items.
+    The ability_mode ('spellcasting'/'strength'/'finesse') is re-derived here; all three passes share
+    the same expected-value assertion."""
     core = sheet.get("core", {}) or {}
     mod = sheet.get("modifier", {}) or {}
     states = mod.get("character_states", []) or []
-    if not isinstance(states, list) or not states:
-        return
+    if not isinstance(states, list):
+        states = []
     attacks = mod.get("attacks", []) or []
     if not isinstance(attacks, list):
         attacks = []
@@ -479,40 +534,10 @@ def _check_granted_attacks(sheet: dict, access, v: list[Violation]) -> None:
         if owner_id is None:
             continue
         for grant in attacks_q.attack_grants(access, owner_kind, owner_id):
-            dc, df = grant["die_count"], grant["die_faces"]
-            if not (_int(dc) and _int(df)):
-                continue
-            if grant["ability_mode"] == "spellcasting":
-                ability_id = _spellcasting_ability_id(access, core, owner_kind, owner_id)
-                ab_mod = _mod_for_ability(access, mod_abilities, ability_id) if ability_id else 0
-            else:
-                ab_mod = 0
-            expected_bonus = ab_mod + (pb if _int(pb) else 0)
-            expected_damage = f"{dc}d{df}"
-            if ab_mod > 0:
-                expected_damage += f"+{ab_mod}"
-            elif ab_mod < 0:
-                expected_damage += str(ab_mod)
-            name = grant["name"]
-
-            atk = by_name.get(name)
-            if atk is None:
-                v.append(Violation(DOMAIN, "granted-attack-missing", "incomplete",
-                                   f"effect-granted attack {name!r} (state {st.get('state')!r}) not "
-                                   f"in attacks", "attacks"))
-                continue
-            if atk.get("attack_bonus") != expected_bonus:
-                v.append(Violation(DOMAIN, "granted-attack-bonus-mismatch", "illegal",
-                                   f"{name}: attack bonus {atk.get('attack_bonus')} != expected "
-                                   f"{expected_bonus}", "attacks"))
-            if atk.get("damage") != expected_damage:
-                v.append(Violation(DOMAIN, "granted-attack-damage-mismatch", "illegal",
-                                   f"{name}: damage {atk.get('damage')!r} != expected "
-                                   f"{expected_damage!r}", "attacks"))
-            if grant["damage_type"] is not None and atk.get("damage_type") != grant["damage_type"]:
-                v.append(Violation(DOMAIN, "granted-attack-type-mismatch", "illegal",
-                                   f"{name}: damage_type {atk.get('damage_type')!r} != expected "
-                                   f"{grant['damage_type']!r}", "attacks"))
+            ab_mod = _granted_attack_ability_mod(access, core, mod_abilities, grant,
+                                                 owner_kind, owner_id)
+            _assert_granted_attack(grant, ab_mod, pb, by_name, v,
+                                   context=f" (state {st.get('state')!r})")
 
 
 def _item_rider_active(sheet: dict, access, weapon_name: str, magic_item_id: str) -> bool:

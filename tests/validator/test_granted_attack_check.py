@@ -94,3 +94,58 @@ def test_no_state_no_granted_attack_check(access):
     """With no active state the granted-attack check is inert (no owner to read a grant from)."""
     sheet = _sheet(character_states=[], attacks=[])
     assert _granted_codes(sheet, access) == set()
+
+
+# ── non-spellcasting ability_mode resolution (T136) ──────────────────────────
+
+
+def _strmode_state():
+    return [{"state": "buffed", "source": "Spell Str Mode", "source_type": "spell", "detail": {}}]
+
+
+def _finmode_state():
+    return [{"state": "buffed", "source": "Spell Fin Mode", "source_type": "spell", "detail": {}}]
+
+
+def _str_dex(strength: int, dexterity: int) -> dict:
+    return {"strength": {"modifier": strength, "reduction": 0},
+            "dexterity": {"modifier": dexterity, "reduction": 0}}
+
+
+def test_strength_mode_granted_attack_passes(access):
+    """A strength-mode grant re-derives to the Strength modifier (2) + PB (2) = 4, damage 1d8+2."""
+    sheet = _sheet(
+        abilities=_str_dex(2, 4),
+        attacks=[{"name": "Attack Str", "attack_bonus": 4, "damage": "1d8+2",
+                  "damage_type": "poison", "weapon_mastery": None, "properties": ["light"]}],
+        character_states=_strmode_state())
+    assert _granted_codes(sheet, access) == set()
+
+
+def test_finesse_mode_picks_dexterity_when_higher(access):
+    """Finesse re-derives to max(STR 2, DEX 4) = 4 + PB = 6, damage 1d4+4."""
+    sheet = _sheet(
+        abilities=_str_dex(2, 4),
+        attacks=[{"name": "Attack Fin", "attack_bonus": 6, "damage": "1d4+4",
+                  "damage_type": "fire", "weapon_mastery": None, "properties": []}],
+        character_states=_finmode_state())
+    assert _granted_codes(sheet, access) == set()
+
+
+def test_finesse_mode_picks_strength_when_higher(access):
+    """Finesse re-derives to max(STR 5, DEX 1) = 5 + PB = 7, damage 1d4+5."""
+    sheet = _sheet(
+        abilities=_str_dex(5, 1),
+        attacks=[{"name": "Attack Fin", "attack_bonus": 7, "damage": "1d4+5",
+                  "damage_type": "fire", "weapon_mastery": None, "properties": []}],
+        character_states=_finmode_state())
+    assert _granted_codes(sheet, access) == set()
+
+
+def test_strength_mode_wrong_bonus_flagged(access):
+    sheet = _sheet(
+        abilities=_str_dex(2, 4),
+        attacks=[{"name": "Attack Str", "attack_bonus": 99, "damage": "1d8+2",
+                  "damage_type": "poison", "weapon_mastery": None, "properties": ["light"]}],
+        character_states=_strmode_state())
+    assert "granted-attack-bonus-mismatch" in _granted_codes(sheet, access)

@@ -197,6 +197,24 @@ def _character_spellcasting_ability(access, core: dict, grant: dict) -> str | No
     return caster_abilities[0][1]
 
 
+def _granted_attack_ability_mod(access, core: dict, abilities: dict, grant: dict) -> int:
+    """The ability modifier a granted attack (grant_attack row) adds to its bonus and damage, by
+    ability_mode: 'spellcasting' → the character's spellcasting-ability modifier (resolved against
+    the granting owner); 'strength' → the Strength modifier (an unarmed/natural attack that uses
+    Strength); 'finesse' → the better of Strength/Dexterity (matching the weapon-finesse rule);
+    anything else → 0 (the fallback)."""
+    mode = grant.get("ability_mode")
+    if mode == "spellcasting":
+        ability_id = _character_spellcasting_ability(access, core, grant)
+        return _mod_for_ability_id(access, abilities, ability_id) if ability_id else 0
+    if mode == "strength":
+        return _mod_for_ability_id(access, abilities, "strength")
+    if mode == "finesse":
+        return max(_mod_for_ability_id(access, abilities, "strength"),
+                   _mod_for_ability_id(access, abilities, "dexterity"))
+    return 0
+
+
 def _granted_attacks(core: dict, abilities: dict, effects: "ActiveEffects", access) -> list[dict]:
     """Materialise effect-granted attacks (grant_attack rows) into modifier attack dicts, reusing the
     weapon-attack shape. A 'spellcasting' ability_mode resolves to the character's spellcasting-ability
@@ -210,11 +228,7 @@ def _granted_attacks(core: dict, abilities: dict, effects: "ActiveEffects", acce
         df = grant.get("die_faces")
         if not (_int(dc) and _int(df)):
             continue
-        if grant.get("ability_mode") == "spellcasting":
-            ability_id = _character_spellcasting_ability(access, core, grant)
-            ab_mod = _mod_for_ability_id(access, abilities, ability_id) if ability_id else 0
-        else:
-            ab_mod = 0
+        ab_mod = _granted_attack_ability_mod(access, core, abilities, grant)
         attack_bonus = ab_mod + (pb if _int(pb) else 0)
         damage = f"{dc}d{df}"
         if ab_mod > 0:
