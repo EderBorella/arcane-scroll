@@ -596,7 +596,7 @@ def _build_rules_db(path: str) -> None:
     cur.execute("CREATE TABLE class_resource_level (resource_id TEXT, level INTEGER, count INTEGER, "
                 "die_count INTEGER, die_faces INTEGER, bonus INTEGER)")
     # attacks domain: grant_attack spine (effect-granted natural-weapon attack). A spell owner
-    # (sp-natwep, on class-a's list) grants a 1d6 attack whose ability_mode 'spellcasting' resolves
+    # (sp-natwep, off every class list — resolves via the single-caster fallback) grants a 1d6 attack whose ability_mode 'spellcasting' resolves
     # to class-a's spellcasting ability (a1); damage type carried through generically.
     cur.execute("CREATE TABLE grant_attack (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
                 "gained_at_level INTEGER, name TEXT, ability_mode TEXT, die_count INTEGER, "

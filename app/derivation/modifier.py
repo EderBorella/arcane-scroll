@@ -228,7 +228,7 @@ def _granted_attacks(core: dict, abilities: dict, effects: "ActiveEffects", acce
             "damage": damage,
             "damage_type": grant.get("damage_type"),
             "weapon_mastery": None,
-            "properties": [p for p in props.split(",")] if isinstance(props, str) and props else [],
+            "properties": [p.strip() for p in props.split(",")] if isinstance(props, str) and props else [],
         })
     return out
 
