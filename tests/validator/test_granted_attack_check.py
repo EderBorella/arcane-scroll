@@ -222,3 +222,63 @@ def test_item_passive_on_equip_granted_attack_passes(access):
                   "damage_type": "fire", "weapon_mastery": None, "properties": []}],
         abilities=_str_dex(1, 4))
     assert _granted_codes(sheet, access) == set()
+
+
+# ── multi-caster spellcasting-ability disambiguation (T135) ──────────────────
+
+# class-cast1 casts with a1, class-cast2 with a2; abilities give a1→3, a2→5.
+_C1 = {"class": "Class Cast1", "level": 3, "subclass": None}
+_C2 = {"class": "Class Cast2", "level": 3, "subclass": None}
+
+
+def _mc_sheet(classes, source, attack):
+    sheet = _sheet(
+        abilities={"a1": {"modifier": 3, "reduction": 0}, "a2": {"modifier": 5, "reduction": 0}},
+        attacks=[attack],
+        character_states=[{"state": "buffed", "source": source, "source_type": "spell",
+                           "detail": {}}])
+    sheet["core"]["identity"] = {"size": "medium", "classes": classes}
+    return sheet
+
+
+def test_mc_carrier_ability_carrier_first_passes(access):
+    """Spell on cast1's list only, cast1 first → re-derives cast1's ability a1 (3) + PB 2 = 5."""
+    sheet = _mc_sheet([_C1, _C2], "Spell MC Atk1",
+        {"name": "Attack MC1", "attack_bonus": 5, "damage": "1d6+3",
+         "damage_type": "poison", "weapon_mastery": None, "properties": []})
+    assert _granted_codes(sheet, access) == set()
+
+
+def test_mc_carrier_ability_regardless_of_order_passes(access):
+    """Ordering independence: non-carrier cast2 first, carrier cast1 second → still a1 (5), not a2."""
+    sheet = _mc_sheet([_C2, _C1], "Spell MC Atk1",
+        {"name": "Attack MC1", "attack_bonus": 5, "damage": "1d6+3",
+         "damage_type": "poison", "weapon_mastery": None, "properties": []})
+    assert _granted_codes(sheet, access) == set()
+
+
+def test_mc_wrong_when_using_first_listed_ability_flagged(access):
+    """Proof the re-derivation is NOT 'first caster': with cast2 listed first, an attack authored from
+    cast2's ability (a2 → bonus 7, 1d6+5) is flagged, because the carrier is cast1 (a1)."""
+    sheet = _mc_sheet([_C2, _C1], "Spell MC Atk1",
+        {"name": "Attack MC1", "attack_bonus": 7, "damage": "1d6+5",
+         "damage_type": "poison", "weapon_mastery": None, "properties": []})
+    codes = _granted_codes(sheet, access)
+    assert "granted-attack-bonus-mismatch" in codes
+    assert "granted-attack-damage-mismatch" in codes
+
+
+def test_mc_spell_on_other_class_resolves_that_class_passes(access):
+    """Spell on cast2's list only → re-derives cast2's ability a2 (5) + PB 2 = 7."""
+    sheet = _mc_sheet([_C1, _C2], "Spell MC Atk2",
+        {"name": "Attack MC2", "attack_bonus": 7, "damage": "1d6+5",
+         "damage_type": "fire", "weapon_mastery": None, "properties": []})
+    assert _granted_codes(sheet, access) == set()
+
+
+def test_mc_single_caster_off_all_lists_falls_back_passes(access):
+    """Single caster, granting spell off every class list → fallback keeps the first caster's a1 (3)."""
+    sheet = _mc_sheet([_C1], "Spell Natwep",
+        {"name": "Attack Alpha", "attack_bonus": 5, "damage": "1d6+3",
+         "damage_type": "poison", "weapon_mastery": None, "properties": []})
+    assert _granted_codes(sheet, access) == set()

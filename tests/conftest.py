@@ -1732,6 +1732,29 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO species_trait VALUES ('st-a2','species-a',2,'Species Trait B')")
     # class-a primary ability + suggested standard array + (saving throws already inserted above)
     cur.execute("INSERT INTO class_primary_ability VALUES ('class-a','a1','spellcasting')")
+    # Multi-caster disambiguation scaffolding (T135): two dedicated full-caster classes with DIFFERENT
+    # spellcasting abilities (class-cast1 casts with a1, class-cast2 with a2). Two off-shared-list
+    # granting spells, each on EXACTLY ONE class's list, each owning a 'spellcasting'-mode grant_attack.
+    # A granted attack must resolve to the ability of the class whose list carries the granting spell —
+    # never "the first caster" — so ordering must not decide it. Dedicated so class-a's list stays clean.
+    cur.execute("INSERT INTO class VALUES ('class-cast1','Class Cast1',8,3,'full','all',2,0,'')")
+    cur.execute("INSERT INTO class VALUES ('class-cast2','Class Cast2',8,3,'full','all',2,0,'')")
+    cur.execute("INSERT INTO class_primary_ability VALUES ('class-cast1','a1','spellcasting')")
+    cur.execute("INSERT INTO class_primary_ability VALUES ('class-cast2','a2','spellcasting')")
+    cur.execute("INSERT INTO spell VALUES ('sp-mcatk1','Spell MC Atk1',2,0)")
+    cur.execute("INSERT INTO spell VALUES ('sp-mcatk2','Spell MC Atk2',2,0)")
+    cur.execute("INSERT INTO spell_class VALUES ('sp-mcatk1','class-cast1')")  # on cast1's list only
+    cur.execute("INSERT INTO spell_class VALUES ('sp-mcatk2','class-cast2')")  # on cast2's list only
+    cur.execute("INSERT INTO grant_attack "
+                "(id, owner_kind, owner_id, gained_at_level, name, ability_mode, die_count, "
+                " die_faces, damage_type, properties, note, condition_kind) "
+                "VALUES ('gat-mcatk1','spell','sp-mcatk1',NULL,'Attack MC1','spellcasting',"
+                "1,6,'poison',NULL,NULL,NULL)")
+    cur.execute("INSERT INTO grant_attack "
+                "(id, owner_kind, owner_id, gained_at_level, name, ability_mode, die_count, "
+                " die_faces, damage_type, properties, note, condition_kind) "
+                "VALUES ('gat-mcatk2','spell','sp-mcatk2',NULL,'Attack MC2','spellcasting',"
+                "1,6,'fire',NULL,NULL,NULL)")
     for aid, score in [("a1", 15), ("a2", 14), ("a3", 13)]:
         cur.execute("INSERT INTO class_standard_array VALUES ('class-a',?,?)", (aid, score))
     # class-a starting-equipment bundles: option 'sa-a' (an item + gp), option 'sa-b' (gp only) --

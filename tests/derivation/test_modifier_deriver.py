@@ -562,6 +562,70 @@ def test_item_passive_on_equip_granted_attack_materializes(access):
     assert a["damage_type"] == "fire"
 
 
+# ── multi-caster spellcasting-ability disambiguation (T135) ──────────────────
+
+
+def _mc_core(classes):
+    """A core with the given caster classes; abilities/PB from _core (proficiency_bonus 2)."""
+    return _core(identity={"name": "T", "species": "Species A", "size": "medium",
+                           "creature_type": "Type A", "classes": classes,
+                           "total_level": sum(c["level"] for c in classes),
+                           "background": "Background A"})
+
+
+def _mc_state(source):
+    return {"state": "buffed", "source": source, "source_type": "spell", "detail": {}}
+
+
+# class-cast1 casts with a1, class-cast2 with a2; abilities dict gives a1→3, a2→5.
+_C1 = {"class": "Class Cast1", "level": 3, "subclass": None}
+_C2 = {"class": "Class Cast2", "level": 3, "subclass": None}
+_MC_ABIL = {"a1": 3, "a2": 5}
+
+
+def test_mc_spell_resolves_carrier_ability_carrier_first(access):
+    """Spell on cast1's list only, cast1 listed first → resolves cast1's ability (a1)."""
+    core = _mc_core([_C1, _C2])
+    effects = resolve_active_effects(core, None, [_mc_state("Spell MC Atk1")], [], access)
+    attacks = derive_attacks(core, None, _MC_ABIL, [], effects, access)
+    a = [x for x in attacks if x["name"] == "Attack MC1"][0]
+    assert a["attack_bonus"] == 3 + 2     # a1 mod (3) + PB
+    assert a["damage"] == "1d6+3"
+
+
+def test_mc_spell_resolves_carrier_ability_regardless_of_order(access):
+    """Ordering independence: the NON-carrier (cast2) listed FIRST, the carrier (cast1) second — the
+    granted attack still resolves cast1's ability (a1), proving it is not 'the first caster'."""
+    core = _mc_core([_C2, _C1])
+    effects = resolve_active_effects(core, None, [_mc_state("Spell MC Atk1")], [], access)
+    attacks = derive_attacks(core, None, _MC_ABIL, [], effects, access)
+    a = [x for x in attacks if x["name"] == "Attack MC1"][0]
+    assert a["attack_bonus"] == 3 + 2     # still a1 (3), NOT a2 (5)
+    assert a["damage"] == "1d6+3"
+
+
+def test_mc_spell_on_other_class_resolves_that_class(access):
+    """Spell on cast2's list only → resolves cast2's ability (a2)."""
+    core = _mc_core([_C1, _C2])
+    effects = resolve_active_effects(core, None, [_mc_state("Spell MC Atk2")], [], access)
+    attacks = derive_attacks(core, None, _MC_ABIL, [], effects, access)
+    a = [x for x in attacks if x["name"] == "Attack MC2"][0]
+    assert a["attack_bonus"] == 5 + 2     # a2 mod (5) + PB
+    assert a["damage"] == "1d6+5"
+
+
+def test_mc_spell_off_all_lists_falls_back_to_first_caster(access):
+    """Single caster, granting spell off every class list → the fallback keeps the first caster's
+    ability (a1)."""
+    core = _mc_core([_C1])
+    effects = resolve_active_effects(core, None, [_natwep_state()], [], access)
+    attacks = derive_attacks(core, None, _MC_ABIL, [], effects, access)
+    a = [x for x in attacks if x["name"] == "Attack Alpha"][0]
+    assert a["attack_bonus"] == 3 + 2     # fallback → a1 (3) + PB
+    assert a["damage"] == "1d6+3"
+    assert a["damage_type"] == "poison"
+
+
 # ── stats-less magic weapon attack materialization (T56) ─────────────────────
 
 
