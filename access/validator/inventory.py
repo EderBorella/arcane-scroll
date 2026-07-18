@@ -112,6 +112,28 @@ def weapon_attack_facts(access: ValidatorAccess, weapon_id: str) -> dict | None:
             "finesse": finesse}
 
 
+def weapon_flat_damage_facts(access: ValidatorAccess, weapon_id: str) -> dict | None:
+    """A weapon's base damage dice and flat damage (``die_count``, ``die_faces``, ``dmg_flat``), or
+    None if the id is not a weapon.
+
+    Mirrors `weapon_attack_facts`: a stats-less magic weapon (no ``weapon`` row) falls back to its
+    canonical base weapon's row (F05-T56) so the consuming check can still re-derive its damage. Pure
+    DB reads — the ability-mod choice, flat-bonus math and dice formatting live in the consuming
+    check."""
+    row = access.db.one(
+        "SELECT dmg_dice_count, dmg_die_faces, dmg_flat FROM weapon WHERE id=?", weapon_id)
+    if row is None:
+        base_id = base_weapon_id_for_item(access, weapon_id)
+        if base_id is None:
+            return None
+        row = access.db.one(
+            "SELECT dmg_dice_count, dmg_die_faces, dmg_flat FROM weapon WHERE id=?", base_id)
+        if row is None:
+            return None
+    return {"die_count": row["dmg_dice_count"], "die_faces": row["dmg_die_faces"],
+            "dmg_flat": row["dmg_flat"]}
+
+
 def weapon_attack_item_bonuses(access: ValidatorAccess, magic_item_id: str) -> list[int]:
     """Weapon-attack bonus values a magic item confers, one per grant_bonus row.
 
@@ -122,6 +144,20 @@ def weapon_attack_item_bonuses(access: ValidatorAccess, magic_item_id: str) -> l
     rows = access.db.q(
         "SELECT value FROM grant_bonus WHERE owner_kind='magic_item' AND owner_id=? "
         "AND target_kind='weapon_attack' AND target_id IS NULL", magic_item_id)
+    return [(r["value"] or 0) for r in rows]
+
+
+def weapon_damage_item_bonuses(access: ValidatorAccess, magic_item_id: str) -> list[int]:
+    """Weapon-damage bonus values a magic item confers, one per grant_bonus row.
+
+    Every UNSCOPED ``grant_bonus`` row with ``target_kind='weapon_damage'`` for the item (target_id
+    NULL — a character-wide weapon-damage bonus), as its raw integer value list (NULLs coerced to 0).
+    A row scoped to a specific granted attack (target_id set) is excluded here; it folds into that
+    granted attack only (never onto a real weapon), per the granted-attack scoping. Mirrors
+    `weapon_attack_item_bonuses`. Pure DB read — the consuming check owns summing/applying them."""
+    rows = access.db.q(
+        "SELECT value FROM grant_bonus WHERE owner_kind='magic_item' AND owner_id=? "
+        "AND target_kind='weapon_damage' AND target_id IS NULL", magic_item_id)
     return [(r["value"] or 0) for r in rows]
 
 

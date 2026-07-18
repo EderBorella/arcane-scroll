@@ -1652,6 +1652,13 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-charm','rare',1)")
     cur.execute("INSERT INTO grant_bonus (id,owner_kind,owner_id,target_kind,target_id,value,source_name) "
                 "VALUES ('gb-mi-charm','magic_item','mi-charm','weapon_attack',NULL,1,'Charm Alpha')")
+    # F05-T139: attuned item granting +1 to every real weapon's DAMAGE (UNSCOPED weapon_damage).
+    # Mirrors mi-charm for the real-weapon damage re-derivation; target_id NULL = character-wide, so it
+    # folds into a real weapon's damage base (unlike mi-gauntlet's SCOPED weapon_damage row above).
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-hilt','Hilt Alpha','wondrous','waist')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-hilt','rare',1)")
+    cur.execute("INSERT INTO grant_bonus (id,owner_kind,owner_id,target_kind,target_id,value,source_name) "
+                "VALUES ('gb-mi-hilt','magic_item','mi-hilt','weapon_damage',NULL,1,'Hilt Alpha')")
     # T47 cross-owner symmetry: an always-on species-owned ability-set grant (a NON-item owner) --
     # exercises the validator's ability-set re-derivation across owner kinds. species-a SETs a2 to
     # 20. No sheet in the default fixture carries species-a, so this is inert unless a test opts in.
