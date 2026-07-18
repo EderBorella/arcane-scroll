@@ -200,7 +200,8 @@ def derive_document(choices: Choices, access) -> dict:
     grimoire = grimoire_full if _has_grimoire_source(grimoire_full) else None
 
     modifier, _mod_meta = derive_modifier(core, inventory, grimoire, None, "full", access,
-                                          starting_treasure=choices.get("treasure"))
+                                          starting_treasure=choices.get("treasure"),
+                                          starting_equipment=choices.get("starting_equipment"))
     companion, _comp_meta = derive_companions(core, None, "full", access, grimoire)
 
     document: dict = {"core": core, "inventory": inventory, "modifier": modifier}

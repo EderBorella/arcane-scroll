@@ -694,3 +694,21 @@ def test_weapon_mastery_pick_constrained_to_masterable_pool(gen_access):
         {"name": "K", "weapon_masteries": ["weapon-a", "not-a-weapon", "weapon-b", "weapon-c"]})
     # 'not-a-weapon' dropped, capped at the count of 2
     assert choices["weapon_masteries"] == ["weapon-a", "weapon-b"]
+
+
+def test_weapon_mastery_count_stacks_across_multiclass(gen_access):
+    # A multiclass build combining two mastery-granting classes STACKS (sums) each class's
+    # allowance at its own level, rather than keeping the larger one. class-wm grants 2 at
+    # level 1; class-wm2 grants 1 at level 1 -> 2 + 1 = 3 (the SUM, not the MAX of 2).
+    n, pool = options.weapon_mastery_choice(
+        gen_access, [("class-wm", 1, None), ("class-wm2", 1, None)])
+    assert n == 3
+    assert pool == ["weapon-a", "weapon-b", "weapon-c"]
+    # A single-class build is unchanged: it keeps its own allowance (2 at level 1).
+    n_single, _ = options.weapon_mastery_choice(gen_access, [("class-wm", 1, None)])
+    assert n_single == 2
+    # The stacked count is still capped at the masterable-weapon pool size: class-wm at
+    # level 5 grants 3 and class-wm2 grants 1, summing to 4 -> capped at the 3-weapon pool.
+    n_capped, _ = options.weapon_mastery_choice(
+        gen_access, [("class-wm", 5, None), ("class-wm2", 1, None)])
+    assert n_capped == 3

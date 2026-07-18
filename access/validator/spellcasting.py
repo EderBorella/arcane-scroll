@@ -11,6 +11,15 @@ def caster_progression(access: ValidatorAccess, class_id: str) -> str | None:
     return access.db.scalar("SELECT caster_progression FROM class WHERE id=?", class_id)
 
 
+def class_spellcasting_ability(access: ValidatorAccess, class_id: str) -> str | None:
+    """The ability id a class casts with (``class_primary_ability`` where kind='spellcasting'), or
+    None. A pure DB fact — the same table the grimoire's source derivation reads for a class source;
+    the caller decides which of the character's caster classes applies."""
+    return access.db.scalar(
+        "SELECT ability_id FROM class_primary_ability WHERE class_id=? AND kind='spellcasting'",
+        class_id)
+
+
 def class_slots(access: ValidatorAccess, class_id: str, class_level: int) -> dict[int, int]:
     """{slot_level: slot_count} for a single-class caster at a given class level."""
     return {row["slot_level"]: row["slot_count"] for row in access.db.q(

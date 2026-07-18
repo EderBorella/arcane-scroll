@@ -18,6 +18,7 @@ from access.db import RulesDB
 GRANT_TABLES: dict[str, list[str]] = {
     "grant_ability_increase": ["grant_ability_increase_value"],
     "grant_ability_set": [],
+    "grant_attack": [],
     "grant_bonus": [],
     "grant_companion": [],
     "grant_condition": [],
@@ -177,7 +178,8 @@ def item_grants_for(db: RulesDB, sheet: dict, grant_table: str,
                     resolver) -> list:
     """Grant rows of one table for every magic item the character has equipped or in backpack.
     Resolves item names by direct catalog_item.name lookup (bypasses the resolver's parenthetical
-    stripping, which would collapse 'Ioun Stone (Protection)' and 'Ioun Stone (Sustenance)')."""
+    stripping, which would collapse two variants of one item that differ only by a parenthetical
+    suffix, e.g. 'Item Name (Variant A)' vs 'Item Name (Variant B)')."""
     rows = []
     if grant_table not in GRANT_TABLES:
         raise ValueError(f"unknown grant table: {grant_table!r}")

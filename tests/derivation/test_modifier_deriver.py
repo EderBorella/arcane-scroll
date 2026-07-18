@@ -409,6 +409,48 @@ def test_item_rider_only_on_owning_weapon(access):
     assert by_name["Weapon A"] == "1d12+2"   # rider does NOT leak to the other weapon
 
 
+# ── effect-granted natural-weapon attack (T128) ───────────────────────────────
+
+
+def _natwep_state():
+    """An active self-buff state whose source spell (Spell Natwep) owns a grant_attack row."""
+    return {"state": "altered", "source": "Spell Natwep", "source_type": "spell",
+            "detail": {"option": "natural_weapons"}}
+
+
+def test_granted_attack_accumulates(access):
+    core = _core()
+    effects = resolve_active_effects(core, None, [_natwep_state()], [], access)
+    assert len(effects.attack_grants) == 1
+    g = effects.attack_grants[0]
+    assert g["owner_kind"] == "spell" and g["owner_id"] == "sp-natwep"
+    assert g["ability_mode"] == "spellcasting"
+
+
+def test_granted_natural_weapon_attack_derived(access):
+    """The granted attack uses the character's spellcasting-ability modifier (class-a casts with a1,
+    keyed x1 here → mod 3) for BOTH attack and damage, plus PB (2) on the attack (reshaped unarmed
+    strike). Die term + damage type come from the DB row."""
+    core = _core()  # proficiency_bonus 2
+    effects = resolve_active_effects(core, None, [_natwep_state()], [], access)
+    attacks = derive_attacks(core, None, {"x1": 3}, [], effects, access)
+    granted = [a for a in attacks if a["name"] == "Attack Alpha"]
+    assert len(granted) == 1
+    a = granted[0]
+    assert a["attack_bonus"] == 3 + 2      # spellcasting mod (3) + PB (2)
+    assert a["damage"] == "1d6+3"          # 1d6 + spellcasting mod
+    assert a["damage_type"] == "poison"    # carried straight from the grant row
+    assert a["weapon_mastery"] is None
+
+
+def test_no_granted_attack_without_state(access):
+    core = _core()
+    effects = resolve_active_effects(core, None, [], [], access)
+    assert effects.attack_grants == []
+    attacks = derive_attacks(core, None, {"x1": 3}, [], effects, access)
+    assert [a for a in attacks if a["name"] == "Attack Alpha"] == []
+
+
 # ── stats-less magic weapon attack materialization (T56) ─────────────────────
 
 

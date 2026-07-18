@@ -72,8 +72,13 @@
       "description": "Coin purse. NON-OVERWRITABLE. Absent denomination = 0."
     },
     "start_equipment_option": {
-      "type": "string",
-      "description": "OPTIONAL provenance: the id of the chosen starting-equipment bundle (one of the mutually-exclusive equipment options an owner offers). Set at generation time; absent = not recorded. When present, the starting treasure (treasure.gp) is independently re-derivable from the bundle's gp grants in the reference dataset."
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "class": { "type": "string", "description": "Id of the chosen class starting-equipment bundle." },
+        "background": { "type": "string", "description": "Id of the chosen background starting-equipment bundle." }
+      },
+      "description": "OPTIONAL provenance: the ids of the chosen starting-equipment bundles (the class bundle and the background bundle, each a mutually-exclusive option its owner offers). Set at generation time; absent = not recorded. When present, the starting treasure (treasure.gp) is independently re-derivable as the sum of both bundles' gp grants in the reference dataset."
     },
     "hit_points": {
       "type": "object",

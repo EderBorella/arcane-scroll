@@ -202,12 +202,17 @@ def _treasure(starting_treasure: dict | None) -> dict:
 
 def derive_modifier(core: dict, inventory: dict | None, grimoire: dict | None,
                     existing_modifier: dict | None, mode: str, access,
-                    starting_treasure: dict | None = None) -> tuple[dict, dict]:
+                    starting_treasure: dict | None = None,
+                    starting_equipment: dict | None = None) -> tuple[dict, dict]:
     """Produce a modifier-sheet:1 dict. Returns (sheet, meta).
 
     ``starting_treasure`` seeds the (non-overwritable) coin purse when deriving from scratch — the
     starting wealth the generation pipeline derives from the chosen equipment bundles (F05-T79).
-    Absent, the purse defaults to zero. In ``fill`` mode a pre-filled purse is preserved as before."""
+    Absent, the purse defaults to zero. In ``fill`` mode a pre-filled purse is preserved as before.
+
+    ``starting_equipment`` records the chosen bundle ids (``{"class": ..., "background": ...}``) as
+    provenance so the starting treasure stays independently re-derivable; the ids are threaded through,
+    never re-picked or recomputed here (F05-T119)."""
     meta = {"mode": mode, "derived": mode != "validate"}
 
     if mode == "validate":
@@ -304,6 +309,16 @@ def derive_modifier(core: dict, inventory: dict | None, grimoire: dict | None,
     # penalty. Absent means no penalty (0). Non-sheet-representable combat riders stay out.
     if effects.d20_penalty:
         full["d20_penalty"] = effects.d20_penalty
+
+    # An additive provenance field: the chosen starting-equipment bundle ids (the class bundle and the
+    # background bundle). Present only when recorded at generation time; the ids are threaded through
+    # as-is. Lets the starting treasure be independently re-derived as the sum of both bundles' gp
+    # grants (F05-T119).
+    if isinstance(starting_equipment, dict):
+        recorded = {k: v for k, v in starting_equipment.items()
+                    if k in ("class", "background") and isinstance(v, str) and v}
+        if recorded:
+            full["start_equipment_option"] = recorded
 
     if mode == "fill" and existing_modifier is not None:
         full = _deep_merge(full, existing_modifier)

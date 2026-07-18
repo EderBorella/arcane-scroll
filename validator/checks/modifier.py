@@ -4,6 +4,7 @@ passives, defenses, features, feats, state compatibility, prepared spells, and s
 enforcement. NOT in ALL_CHECKS — modifier:1-specific."""
 from access.constants import CON_ABBREV
 from access.validator import abilities as abilities_q
+from access.validator import attacks as attacks_q
 from access.validator import conditions as conditions_q
 from access.validator import creature as creature_q
 from access.validator import defenses as defenses_q
@@ -12,6 +13,7 @@ from access.validator import inventory as inventory_q
 from access.validator import movement as movement_q
 from access.validator import size as size_q
 from access.validator import skills as skills_q
+from access.validator import spellcasting as spellcasting_q
 from access.validator import vitals as vitals_q
 from access.validator.state_compatibility import blocked_states
 from validator.report import Violation
@@ -417,6 +419,100 @@ def _check_attacks(sheet: dict, access, v: list[Violation]) -> None:
             v.append(Violation(DOMAIN, "attack-bonus-mismatch", "illegal",
                                f"{name}: attack bonus {actual} != expected {expected}",
                                "attacks"))
+
+
+def _spellcasting_ability_id(access, core: dict, owner_kind: str, owner_id: str) -> str | None:
+    """The character's spellcasting-ability id for a granted attack, re-derived here independently of
+    the deriver: walk CORE.identity.classes, keep each caster class's spellcasting ability
+    (``class_primary_ability``), and — when the granting owner is a spell — prefer the caster class
+    whose spell list carries that spell (the ability "you cast it with"); else the first caster."""
+    ident = core.get("identity", {}) or {}
+    classes = ident.get("classes", []) if isinstance(ident, dict) else []
+    caster_abilities: list[tuple[str, str]] = []
+    if isinstance(classes, list):
+        for c in classes:
+            if not isinstance(c, dict):
+                continue
+            cid = access.resolve("class", c.get("class"))
+            if not cid:
+                continue
+            ab = spellcasting_q.class_spellcasting_ability(access, cid)
+            if ab:
+                caster_abilities.append((cid, ab))
+    if not caster_abilities:
+        return None
+    if owner_kind == "spell":
+        for cid, ab in caster_abilities:
+            if owner_id and spellcasting_q.spell_on_class_list(access, owner_id, cid):
+                return ab
+    return caster_abilities[0][1]
+
+
+def _check_granted_attacks(sheet: dict, access, v: list[Violation]) -> None:
+    """Independently re-derive each effect-granted attack from grant_attack (never from the deriver's
+    attacks[]) and assert it appears on the MODIFIER with the correct bonus, damage and type.
+
+    For each active state, resolve its owner and read the owner's grant_attack rows. A 'spellcasting'
+    ability_mode resolves to the character's spellcasting-ability modifier (re-derived here); the
+    attack bonus adds the character's PB (the growth reshapes the always-proficient unarmed strike)
+    and the damage adds the same ability modifier. The die term and damage type come from the DB row.
+    A missing granted attack is flagged incomplete; a present-but-wrong one is flagged illegal."""
+    core = sheet.get("core", {}) or {}
+    mod = sheet.get("modifier", {}) or {}
+    states = mod.get("character_states", []) or []
+    if not isinstance(states, list) or not states:
+        return
+    attacks = mod.get("attacks", []) or []
+    if not isinstance(attacks, list):
+        attacks = []
+    by_name = {a.get("name"): a for a in attacks if isinstance(a, dict) and a.get("name")}
+    pb = core.get("proficiency_bonus", 0)
+    mod_abilities = mod.get("abilities", {}) or {}
+
+    for st in states:
+        if not isinstance(st, dict):
+            continue
+        owner_kind = _owner_kind_for_source_type(st.get("source_type", ""))
+        if owner_kind is None:
+            continue
+        owner_id = access.resolve(owner_kind, st.get("source"))
+        if owner_id is None:
+            continue
+        for grant in attacks_q.attack_grants(access, owner_kind, owner_id):
+            dc, df = grant["die_count"], grant["die_faces"]
+            if not (_int(dc) and _int(df)):
+                continue
+            if grant["ability_mode"] == "spellcasting":
+                ability_id = _spellcasting_ability_id(access, core, owner_kind, owner_id)
+                ab_mod = _mod_for_ability(access, mod_abilities, ability_id) if ability_id else 0
+            else:
+                ab_mod = 0
+            expected_bonus = ab_mod + (pb if _int(pb) else 0)
+            expected_damage = f"{dc}d{df}"
+            if ab_mod > 0:
+                expected_damage += f"+{ab_mod}"
+            elif ab_mod < 0:
+                expected_damage += str(ab_mod)
+            name = grant["name"]
+
+            atk = by_name.get(name)
+            if atk is None:
+                v.append(Violation(DOMAIN, "granted-attack-missing", "incomplete",
+                                   f"effect-granted attack {name!r} (state {st.get('state')!r}) not "
+                                   f"in attacks", "attacks"))
+                continue
+            if atk.get("attack_bonus") != expected_bonus:
+                v.append(Violation(DOMAIN, "granted-attack-bonus-mismatch", "illegal",
+                                   f"{name}: attack bonus {atk.get('attack_bonus')} != expected "
+                                   f"{expected_bonus}", "attacks"))
+            if atk.get("damage") != expected_damage:
+                v.append(Violation(DOMAIN, "granted-attack-damage-mismatch", "illegal",
+                                   f"{name}: damage {atk.get('damage')!r} != expected "
+                                   f"{expected_damage!r}", "attacks"))
+            if grant["damage_type"] is not None and atk.get("damage_type") != grant["damage_type"]:
+                v.append(Violation(DOMAIN, "granted-attack-type-mismatch", "illegal",
+                                   f"{name}: damage_type {atk.get('damage_type')!r} != expected "
+                                   f"{grant['damage_type']!r}", "attacks"))
 
 
 def _item_rider_active(sheet: dict, access, weapon_name: str, magic_item_id: str) -> bool:
@@ -1030,51 +1126,80 @@ def _per_level_coeff(modifier: str) -> int:
         return 0
 
 
-def _resolve_base_speeds(grant_rows: list, base_walk: int) -> dict:
-    """Resolve speeds from grant rows (independent of the deriver): sets_total takes MAX,
-    additive SUMs, equals_walk mirrors resolved walk. Zero modes are dropped."""
-    phases = {"walk": base_walk or 0}
-    sets_total_max: dict = {}
-    additive_sum: dict = {}
-    equals_walk: set = set()
-    for row in grant_rows:
-        mode = row["movement_mode_id"]
-        if row["sets_total"]:
-            ft = row["feet"]
-            if ft is not None:
-                sets_total_max[mode] = max(sets_total_max.get(mode, 0), ft)
-        elif row["additive"]:
-            additive_sum[mode] = additive_sum.get(mode, 0) + (row["feet"] or 0)
-        elif row["equals_walk"]:
-            equals_walk.add(mode)
-    for mode, ft in sets_total_max.items():
-        phases[mode] = ft
-    for mode, ft in additive_sum.items():
-        phases[mode] = phases.get(mode, 0) + ft
-    for mode in sorted(equals_walk):
-        if mode != "walk":
-            phases[mode] = phases.get("walk", 0)
-    return {k: val for k, val in phases.items() if val > 0}
+def _core_speed_view(sheet: dict) -> dict:
+    """A CORE-shaped view of the MODIFIER sheet for the movement domain's shared speed walkers.
+
+    Carries the CORE identity and feats plus the inventory's equipped/backpack items, annotating
+    each item's attunement from the MODIFIER item_states. The shared item-grant walker then gates
+    attunement-required items exactly as the deriver does: an attuned item (recorded in item_states)
+    contributes its grants, while a non-attunement magic item contributes while equipped/carried."""
+    core = sheet.get("core", {}) or {}
+    if not isinstance(core, dict):
+        core = {}
+    inv = sheet.get("inventory", {}) or {}
+    if not isinstance(inv, dict):
+        inv = {}
+    mod = sheet.get("modifier", {}) or {}
+    item_states = mod.get("item_states", []) or []
+    attuned_ids = {ist.get("inventory_ref") for ist in item_states
+                   if isinstance(ist, dict) and ist.get("attuned")}
+
+    def _annotate(item):
+        if not isinstance(item, dict):
+            return item
+        if item.get("id") in attuned_ids:
+            out = dict(item)
+            out["attunement"] = {"attuned": True}
+            return out
+        return item
+
+    equipped = inv.get("equipped", {})
+    equipped_view = {}
+    if isinstance(equipped, dict):
+        for slot, it in equipped.items():
+            equipped_view[slot] = _annotate(it)
+    backpack = inv.get("backpack", [])
+    backpack_view = [_annotate(it) for it in backpack] if isinstance(backpack, list) else []
+    return {
+        "identity": core.get("identity", {}) or {},
+        "feats": core.get("feats", []) or [],
+        "equipped": equipped_view,
+        "backpack": backpack_view,
+    }
 
 
 def _base_effective_speeds(sheet: dict, access) -> dict:
-    """Re-derive the character's effective speeds BEFORE any condition effect, from CORE
-    permanent speed plus active non-condition-state speed grants. Item speed grants are
-    handled by the caller's guard, not here."""
+    """Re-derive the character's effective speeds BEFORE any condition effect, independently from
+    DB facts and the rule (never from the deriver): the species/lineage base walk, every
+    non-condition owner speed grant (species, lineage, class, subclass, feat, magic items), the
+    class movement bonus, and active non-condition state speed grants. Resolution reuses the
+    movement domain's shared walkers/resolver so the base matches the fully-resolved pre-penalty
+    speed the deriver subtracts the condition penalty from."""
+    from validator.checks.movement import _resolve_speeds
+
     core = sheet.get("core", {}) or {}
-    perm = core.get("permanent_speed", {}) or {}
-    if not isinstance(perm, dict):
-        perm = {}
-    base_walk = perm.get("walk", 30)
+    ident = core.get("identity", {}) or {}
+    if not isinstance(ident, dict):
+        ident = {}
+    core_view = _core_speed_view(sheet)
+
+    spid = access.resolve("species", ident.get("species"))
+    base_walk = movement_q.species_base_walk(access, spid) if spid else 0
+    lineage_name = ident.get("lineage")
+    if isinstance(lineage_name, str) and lineage_name:
+        lid = access.resolve("lineage", lineage_name)
+        if lid:
+            parent = movement_q.lineage_parent_species(access, lid)
+            if parent and not base_walk:
+                base_walk = movement_q.species_base_walk(access, parent) or base_walk
     if not _int(base_walk):
-        base_walk = 30
-    grants = []
-    for mode, ft in perm.items():
-        if mode == "walk":
-            continue
-        if _int(ft):
-            grants.append({"movement_mode_id": mode, "feet": ft,
-                           "sets_total": 1, "additive": 0, "equals_walk": 0})
+        base_walk = 0
+
+    grants = movement_q.gather_owner_grants(access, core_view)
+    class_bonuses = movement_q.gather_class_bonuses(access, core_view)
+
+    # Active non-condition states (e.g. a speed-granting spell buff) are not walked by
+    # gather_owner_grants (which covers always-on owners) — add their grants here.
     mod = sheet.get("modifier", {}) or {}
     for st in mod.get("character_states", []) or []:
         if not isinstance(st, dict):
@@ -1087,35 +1212,8 @@ def _base_effective_speeds(sheet: dict, access) -> dict:
             continue
         for row in movement_q.speed_grants(access, owner_kind, owner_id):
             grants.append(dict(row))
-    return _resolve_base_speeds(grants, base_walk)
 
-
-def _has_item_speed_grants(sheet: dict, access) -> bool:
-    """Whether any magic item on the sheet grants a speed. When true, the condition
-    speed-penalty re-derivation is skipped (item speeds are not re-derived on this path), so
-    an item-boosted speed never false-flags a mismatch. The d20 and speed-zero checks still run."""
-    inv = sheet.get("inventory", {}) or {}
-    if not isinstance(inv, dict):
-        return False
-    items = []
-    equipped = inv.get("equipped", {})
-    if isinstance(equipped, dict):
-        items.extend(equipped.values())
-    backpack = inv.get("backpack", [])
-    if isinstance(backpack, list):
-        items.extend(backpack)
-    for it in items:
-        if not isinstance(it, dict):
-            continue
-        name = it.get("name")
-        if not name:
-            continue
-        mid = access.resolve("magic_item", name)
-        if not mid:
-            continue
-        if movement_q.speed_grants(access, "magic_item", mid):
-            return True
-    return False
+    return _resolve_speeds(grants, base_walk, class_bonuses)
 
 
 def _check_condition_effects(sheet: dict, access, v: list[Violation]) -> None:
@@ -1220,8 +1318,6 @@ def _check_condition_speed(sheet: dict, access, v: list[Violation],
                                    f"speed.{mode}"))
         return
     if not speed_penalty:
-        return
-    if _has_item_speed_grants(sheet, access):
         return
     base = _base_effective_speeds(sheet, access)
     for mode, base_ft in base.items():
@@ -1398,19 +1494,25 @@ def _check_prepared_spells(sheet: dict, access, v: list[Violation]) -> None:
 
 
 def _check_starting_treasure(sheet: dict, access, v: list[Violation]) -> None:
-    """When the MODIFIER records the chosen starting-equipment bundle id, independently re-derive the
-    starting treasure from that bundle's gp grants in the DB and assert the sheet's coin gp matches.
-    Grounded in the reference DB, never the deriver: the expected gp is the sum of the bundle's
-    ``kind='gp'`` entries.
+    """When the MODIFIER records the chosen starting-equipment bundle ids, independently re-derive the
+    starting treasure as the SUM of every recorded bundle's gp grants in the DB and assert the sheet's
+    coin gp matches. Starting wealth is the class bundle's gp PLUS the background bundle's gp (both
+    bundles carry gp), so the expectation sums the ``kind='gp'`` entries of every recorded bundle.
+    Grounded in the reference DB, never the deriver.
 
-    Dormant when no bundle id is recorded (the field is optional; a sheet that omits it is not checked
-    here). A recorded id that does not resolve to a bundle is skipped — there is nothing to re-derive
-    against (F05-T119, in-layer half)."""
+    The field is an object naming the chosen bundles (e.g. ``{"class": ..., "background": ...}``).
+    Dormant when it is absent or records no bundle id. If any recorded id does not resolve to a bundle
+    the treasure cannot be fully re-derived, so the check skips it rather than assert a partial sum
+    (F05-T119)."""
     mod = sheet.get("modifier", {}) or {}
-    option_id = mod.get("start_equipment_option")
-    if not isinstance(option_id, str) or not option_id:
+    bundles = mod.get("start_equipment_option")
+    if not isinstance(bundles, dict):
         return
-    if not inventory_q.starting_equipment_bundle_exists(access, option_id):
+    option_ids = [oid for oid in (bundles.get("class"), bundles.get("background"))
+                  if isinstance(oid, str) and oid]
+    if not option_ids:
+        return
+    if not all(inventory_q.starting_equipment_bundle_exists(access, oid) for oid in option_ids):
         return
     treasure = mod.get("treasure", {}) or {}
     if not isinstance(treasure, dict):
@@ -1418,11 +1520,12 @@ def _check_starting_treasure(sheet: dict, access, v: list[Violation]) -> None:
     actual_gp = treasure.get("gp", 0)
     if not _int(actual_gp):
         return
-    expected_gp = sum(inventory_q.starting_equipment_gp_grants(access, option_id))
+    expected_gp = sum(sum(inventory_q.starting_equipment_gp_grants(access, oid))
+                      for oid in option_ids)
     if actual_gp != expected_gp:
         v.append(Violation(DOMAIN, "starting-treasure-mismatch", "illegal",
                            f"treasure gp {actual_gp} != re-derived starting gp {expected_gp} for "
-                           f"bundle {option_id!r}", "treasure.gp"))
+                           f"bundles {option_ids}", "treasure.gp"))
 
 
 # ── state compatibility ──────────────────────────────────────────────────────
@@ -1717,6 +1820,7 @@ def check(sheet: dict, access) -> list[Violation]:
     if transform is None:
         _check_attacks(sheet, access, v)
         _check_attack_damage(sheet, access, v)
+        _check_granted_attacks(sheet, access, v)
         _check_effective_abilities(sheet, access, v)
         _check_defenses(sheet, v)
         _check_state_defenses(sheet, access, v)
