@@ -159,13 +159,14 @@ def boon_slot_count(access, resolved):
 
 
 def weapon_mastery_choice(access, resolved):
-    """``(n, weapon_ids)`` the build may fill with weapon-mastery picks: ``n`` is the largest
-    weapon-mastery count granted across the build's classes at each class's own level (the counts do
-    not stack — a multiclass keeps the higher allowance), capped at the pool size; ``weapon_ids`` is
-    the masterable-weapon pool. ``(0, [])`` when no class grants a weapon-mastery feature.
-    ``resolved`` is ``[(class_id, level, subclass_id), ...]``."""
+    """``(n, weapon_ids)`` the build may fill with weapon-mastery picks: ``n`` is the sum of the
+    weapon-mastery counts granted across the build's classes, each counted at its OWN class level
+    (the allowance STACKS — a multiclass build adds each mastery-granting class's picks, since the
+    multiclassing rules special-case only a few features and weapon mastery is not among them),
+    capped at the pool size; ``weapon_ids`` is the masterable-weapon pool. ``(0, [])`` when no class
+    grants a weapon-mastery feature. ``resolved`` is ``[(class_id, level, subclass_id), ...]``."""
     counts = [class_q.weapon_mastery_count(access, cid, lv) for cid, lv, _sub in resolved]
-    n = max(counts) if counts else 0
+    n = sum(counts)
     if n <= 0:
         return 0, []
     pool = [r["id"] for r in catalog.masterable_weapons(access)]
