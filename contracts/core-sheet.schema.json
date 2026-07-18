@@ -189,6 +189,11 @@
           "items": { "type": "string" },
           "description": "Advantage on saving throws by ability ID or scope keyword. Scope keywords: concentration, death, spells."
         },
+        "check_advantages": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Always-on advantage on ability checks by scope keyword (e.g. initiative). Additive: present only when the build owns at least one such grant."
+        },
         "condition_advantages": {
           "type": "array",
           "items": {

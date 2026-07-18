@@ -663,6 +663,12 @@ def _build_rules_db(path: str) -> None:
 
     # recharge_cadence — referenced by grant_spell.recharge_id (e.g. short-rest)
     cur.execute("CREATE TABLE recharge_cadence (id TEXT PRIMARY KEY, name TEXT)")
+    # resource_recharge — maps a class_resource / grant_resource to the cadence(s) it recovers on
+    # (F05-T141). Presence of a row = a bounded, recharging pool; absence = no recharge cadence
+    # recorded (a genuinely unlimited pool). A resource may carry more than one cadence; rows are
+    # inserted below once both cadences exist.
+    cur.execute("CREATE TABLE resource_recharge (resource_kind TEXT NOT NULL, resource_id TEXT NOT NULL, "
+                "recharge_id TEXT NOT NULL, PRIMARY KEY (resource_kind, resource_id, recharge_id))")
 
     # class_option — needed for grant_spell owner_kind='class_option' (a class-option spell-grant analog)
     cur.execute("CREATE TABLE class_option (id TEXT PRIMARY KEY, catalog TEXT, owner_kind TEXT, "
@@ -1302,6 +1308,13 @@ def _build_rules_db(path: str) -> None:
                 "source_name TEXT, scope_note TEXT)")
     cur.execute("INSERT INTO grant_d20_modifier (owner_kind,owner_id,target_kind,modifier_id,source_name) "
                 "VALUES ('feat','feat-gen','initiative','advantage','feat-gen')")
+    # A permanent-owner check-advantage grant (F05-T142): a dedicated feat confers always-on advantage
+    # on an ability check (target_kind='check', modifier_id='advantage'), mapping to the 'initiative'
+    # scope. Owned by a feat no default fixture carries, so it is inert on the standard sheets and
+    # exercised only by the check-advantage tests (mirrors the feat-owneratk pattern).
+    cur.execute("INSERT INTO feat VALUES ('feat-checkadv','Feat Check Adv','general',0)")
+    cur.execute("INSERT INTO grant_d20_modifier (owner_kind,owner_id,target_kind,ability_id,modifier_id,source_name) "
+                "VALUES ('feat','feat-checkadv','check','a1','advantage','feat-checkadv')")
 
     cur.execute("CREATE TABLE armor (id TEXT PRIMARY KEY REFERENCES catalog_item(id), "
                 "category_id TEXT, base_ac INT, dex_cap INT, ac_bonus INT, strength_req INT, "
@@ -1560,6 +1573,17 @@ def _build_rules_db(path: str) -> None:
     # 17->9. Two level-6 spells (sp-w6a/sp-w6b) exercise the deterministic lowest-catalog-id pick.
     cur.execute("INSERT INTO class VALUES ('class-w','Class W',8,3,'pact','all',2,0,'')")
     cur.execute("INSERT INTO recharge_cadence VALUES ('long-rest','Long Rest')")
+    # resource_recharge rows (F05-T141), inserted now that both cadences exist. 'Pool A' recovers on a
+    # short OR a long rest (collapses to the more-frequent short-rest); 'Pool Esc' on a long rest; a
+    # species use-pool ('Species L Boon') on a long rest. 'Sub Ladder Pool' has NO row → recharge None
+    # (a genuinely unlimited pool).
+    cur.execute("INSERT INTO resource_recharge VALUES ('class_resource','class-a-pool','short-rest')")
+    cur.execute("INSERT INTO resource_recharge VALUES ('class_resource','class-a-pool','long-rest')")
+    cur.execute("INSERT INTO resource_recharge VALUES ('class_resource','class-a-escalating','long-rest')")
+    cur.execute("INSERT INTO resource_recharge VALUES ('grant_resource','gr-species-l-int','long-rest')")
+    # A feat-owned bounded pool that recharges (used only by the feat single-home tests): when the pool
+    # is NOT already a budget entry, derive_feats surfaces max + recharge on the feat's own uses.
+    cur.execute("INSERT INTO resource_recharge VALUES ('grant_resource','gr-feat-res','long-rest')")
     for _sid, _lvl in [("sp-w6a", 6), ("sp-w6b", 6), ("sp-w7", 7), ("sp-w8", 8), ("sp-w9", 9)]:
         cur.execute("INSERT INTO spell VALUES (?,?,?,0)", (_sid, _sid.capitalize(), _lvl))
         cur.execute("INSERT INTO spell_class VALUES (?, 'class-w')", (_sid,))
