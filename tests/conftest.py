@@ -606,6 +606,29 @@ def _build_rules_db(path: str) -> None:
                 " die_faces, damage_type, properties, note, condition_kind) "
                 "VALUES ('gat-natwep','spell','sp-natwep',NULL,'Attack Alpha','spellcasting',"
                 "1,6,'poison',NULL,NULL,NULL)")
+    # Non-spellcasting ability_mode grants (T136). A 'strength' grant adds the Strength modifier; a
+    # 'finesse' grant adds the better of Strength/Dexterity. Both are owned by an off-list self-buff
+    # spell so a state can activate them without polluting any spell pool.
+    cur.execute("INSERT INTO grant_attack "
+                "(id, owner_kind, owner_id, gained_at_level, name, ability_mode, die_count, "
+                " die_faces, damage_type, properties, note, condition_kind) "
+                "VALUES ('gat-strmode','spell','sp-strmode',NULL,'Attack Str','strength',"
+                "1,8,'poison','light',NULL,NULL)")
+    cur.execute("INSERT INTO grant_attack "
+                "(id, owner_kind, owner_id, gained_at_level, name, ability_mode, die_count, "
+                " die_faces, damage_type, properties, note, condition_kind) "
+                "VALUES ('gat-finmode','spell','sp-finmode',NULL,'Attack Fin','finesse',"
+                "1,4,'fire',NULL,NULL,NULL)")
+    # A PERMANENT-OWNER granted attack (T-owner-path): a feat (a permanent owner, not a state or an
+    # item) owns a finesse grant_attack. Owned by a dedicated feat that no default fixture carries, so
+    # it is inert on the standard sheets and exercised only by the permanent-owner path tests. No such
+    # non-state, non-item grant exists in the reference dataset, so this path is inert there.
+    cur.execute("INSERT INTO feat VALUES ('feat-owneratk','Feat Owner Atk','general',0)")
+    cur.execute("INSERT INTO grant_attack "
+                "(id, owner_kind, owner_id, gained_at_level, name, ability_mode, die_count, "
+                " die_faces, damage_type, properties, note, condition_kind) "
+                "VALUES ('gat-owneratk','feat','feat-owneratk',NULL,'Attack Owner','finesse',"
+                "1,6,'poison',NULL,NULL,NULL)")
 
     cur.execute("INSERT INTO class_resource VALUES ('bonus-speed','class','class-a','Bonus Speed')")
     cur.execute("INSERT INTO class_resource_level VALUES ('bonus-speed',2,NULL,NULL,NULL,10)")
@@ -703,6 +726,9 @@ def _build_rules_db(path: str) -> None:
     # it does not pollute the spell pools; the granted attack's 'spellcasting' ability resolves via
     # the single-caster fallback (class-a's spellcasting ability).
     cur.execute("INSERT INTO spell VALUES ('sp-natwep','Spell Natwep',2,0)")
+    # Off-list self-buff spells owning the non-spellcasting-mode grant_attack rows (T136).
+    cur.execute("INSERT INTO spell VALUES ('sp-strmode','Spell Str Mode',2,0)")
+    cur.execute("INSERT INTO spell VALUES ('sp-finmode','Spell Fin Mode',2,0)")
     # species-a always grants sp4 (legal even though it's off class-a's list)
     cur.execute("INSERT INTO grant_spell VALUES ('gsp-species-a','species','species-a',NULL)")
     cur.execute("INSERT INTO grant_spell_fixed VALUES ('gsp-species-a','sp4')")
@@ -1536,6 +1562,38 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO catalog_item VALUES ('mi-goggles','Goggles Alpha','wondrous','head')")
     cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-goggles','uncommon',0)")
     cur.execute("INSERT INTO grant_sense VALUES ('gs-mi-goggles','magic_item','mi-goggles',NULL,'blindsight',10,0,NULL,NULL)")
+    # item-owned granted attacks (T134): an attunement-required item owns a strength-mode attack
+    # (materialises only when attuned); a passive-on-equip item (no attunement) owns a finesse attack.
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-claws','Claws Alpha','wondrous','hands')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-claws','rare',1)")
+    cur.execute("INSERT INTO grant_attack "
+                "(id, owner_kind, owner_id, gained_at_level, name, ability_mode, die_count, "
+                " die_faces, damage_type, properties, note, condition_kind) "
+                "VALUES ('gat-mi-claws','magic_item','mi-claws',NULL,'Attack Claws','strength',"
+                "1,8,'poison',NULL,NULL,NULL)")
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-fangs','Fangs Alpha','wondrous','head')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-fangs','uncommon',0)")
+    cur.execute("INSERT INTO grant_attack "
+                "(id, owner_kind, owner_id, gained_at_level, name, ability_mode, die_count, "
+                " die_faces, damage_type, properties, note, condition_kind) "
+                "VALUES ('gat-mi-fangs','magic_item','mi-fangs',NULL,'Attack Fangs','finesse',"
+                "1,6,'fire',NULL,NULL,NULL)")
+    # attunement item owning a strength grant_attack PLUS a +1 attack/damage bonus SCOPED to that
+    # granted attack via target_id (reuses the weapon-bonus mechanism; folds into THIS attack only,
+    # never onto real weapons). Attack Gauntlet: STR + PB + 1 attack, 1d8 + STR + 1 damage.
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-gauntlet','Gauntlet Alpha','wondrous','hands')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-gauntlet','rare',1)")
+    cur.execute("INSERT INTO grant_attack "
+                "(id, owner_kind, owner_id, gained_at_level, name, ability_mode, die_count, "
+                " die_faces, damage_type, properties, note, condition_kind) "
+                "VALUES ('gat-mi-gauntlet','magic_item','mi-gauntlet',NULL,'Attack Gauntlet',"
+                "'strength',1,8,'slashing',NULL,NULL,NULL)")
+    cur.execute("INSERT INTO grant_bonus (id,owner_kind,owner_id,target_kind,target_id,value,source_name) "
+                "VALUES ('gb-mi-gauntlet-atk','magic_item','mi-gauntlet','weapon_attack',"
+                "'gat-mi-gauntlet',1,'Gauntlet Alpha')")
+    cur.execute("INSERT INTO grant_bonus (id,owner_kind,owner_id,target_kind,target_id,value,source_name) "
+                "VALUES ('gb-mi-gauntlet-dmg','magic_item','mi-gauntlet','weapon_damage',"
+                "'gat-mi-gauntlet',1,'Gauntlet Alpha')")
     # two attuned items, each granting +1 to all saves (they stack to +2)
     cur.execute("INSERT INTO catalog_item VALUES ('mi-ring','Ring Alpha','wondrous','finger_1')")
     cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) VALUES ('mi-ring','rare',1)")
@@ -1690,6 +1748,29 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO species_trait VALUES ('st-a2','species-a',2,'Species Trait B')")
     # class-a primary ability + suggested standard array + (saving throws already inserted above)
     cur.execute("INSERT INTO class_primary_ability VALUES ('class-a','a1','spellcasting')")
+    # Multi-caster disambiguation scaffolding (T135): two dedicated full-caster classes with DIFFERENT
+    # spellcasting abilities (class-cast1 casts with a1, class-cast2 with a2). Two off-shared-list
+    # granting spells, each on EXACTLY ONE class's list, each owning a 'spellcasting'-mode grant_attack.
+    # A granted attack must resolve to the ability of the class whose list carries the granting spell —
+    # never "the first caster" — so ordering must not decide it. Dedicated so class-a's list stays clean.
+    cur.execute("INSERT INTO class VALUES ('class-cast1','Class Cast1',8,3,'full','all',2,0,'')")
+    cur.execute("INSERT INTO class VALUES ('class-cast2','Class Cast2',8,3,'full','all',2,0,'')")
+    cur.execute("INSERT INTO class_primary_ability VALUES ('class-cast1','a1','spellcasting')")
+    cur.execute("INSERT INTO class_primary_ability VALUES ('class-cast2','a2','spellcasting')")
+    cur.execute("INSERT INTO spell VALUES ('sp-mcatk1','Spell MC Atk1',2,0)")
+    cur.execute("INSERT INTO spell VALUES ('sp-mcatk2','Spell MC Atk2',2,0)")
+    cur.execute("INSERT INTO spell_class VALUES ('sp-mcatk1','class-cast1')")  # on cast1's list only
+    cur.execute("INSERT INTO spell_class VALUES ('sp-mcatk2','class-cast2')")  # on cast2's list only
+    cur.execute("INSERT INTO grant_attack "
+                "(id, owner_kind, owner_id, gained_at_level, name, ability_mode, die_count, "
+                " die_faces, damage_type, properties, note, condition_kind) "
+                "VALUES ('gat-mcatk1','spell','sp-mcatk1',NULL,'Attack MC1','spellcasting',"
+                "1,6,'poison',NULL,NULL,NULL)")
+    cur.execute("INSERT INTO grant_attack "
+                "(id, owner_kind, owner_id, gained_at_level, name, ability_mode, die_count, "
+                " die_faces, damage_type, properties, note, condition_kind) "
+                "VALUES ('gat-mcatk2','spell','sp-mcatk2',NULL,'Attack MC2','spellcasting',"
+                "1,6,'fire',NULL,NULL,NULL)")
     for aid, score in [("a1", 15), ("a2", 14), ("a3", 13)]:
         cur.execute("INSERT INTO class_standard_array VALUES ('class-a',?,?)", (aid, score))
     # class-a starting-equipment bundles: option 'sa-a' (an item + gp), option 'sa-b' (gp only) --

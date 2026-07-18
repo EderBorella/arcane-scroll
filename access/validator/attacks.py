@@ -18,3 +18,15 @@ def attack_grants(access: ValidatorAccess, owner_kind: str, owner_id: str,
         params.append(at_level)
     sql += " ORDER BY id"
     return access.db.q(sql, *params)
+
+
+def scoped_weapon_bonuses(access: ValidatorAccess, owner_kind: str, owner_id: str,
+                          grant_id: str) -> list:
+    """``grant_bonus`` rows SCOPED to one granted attack (``target_id`` == the grant's id) for the
+    weapon attack/damage targets. A scoped weapon bonus folds into that granted attack only (an
+    unscoped row — NULL target_id — is a character-wide weapon bonus, excluded here). Pure DB read —
+    the consumer sums the values by target_kind."""
+    return access.db.q(
+        "SELECT target_kind, value FROM grant_bonus WHERE owner_kind=? AND owner_id=? "
+        "AND target_id=? AND target_kind IN ('weapon_attack','weapon_damage') ORDER BY id",
+        owner_kind, owner_id, grant_id)

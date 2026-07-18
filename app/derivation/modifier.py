@@ -197,12 +197,50 @@ def _character_spellcasting_ability(access, core: dict, grant: dict) -> str | No
     return caster_abilities[0][1]
 
 
+def _granted_attack_ability_mod(access, core: dict, abilities: dict, grant: dict) -> int:
+    """The ability modifier a granted attack (grant_attack row) adds to its bonus and damage, by
+    ability_mode: 'spellcasting' → the character's spellcasting-ability modifier (resolved against
+    the granting owner); 'strength' → the Strength modifier (an unarmed/natural attack that uses
+    Strength); 'finesse' → the better of Strength/Dexterity (matching the weapon-finesse rule);
+    anything else → 0 (the fallback)."""
+    mode = grant.get("ability_mode")
+    if mode == "spellcasting":
+        ability_id = _character_spellcasting_ability(access, core, grant)
+        return _mod_for_ability_id(access, abilities, ability_id) if ability_id else 0
+    if mode == "strength":
+        return _mod_for_ability_id(access, abilities, "strength")
+    if mode == "finesse":
+        return max(_mod_for_ability_id(access, abilities, "strength"),
+                   _mod_for_ability_id(access, abilities, "dexterity"))
+    return 0
+
+
+def _granted_attack_scoped_bonuses(effects: "ActiveEffects", grant_id) -> tuple[int, int]:
+    """The flat weapon bonuses (from grant_bonus) SCOPED to a single granted attack via target_id —
+    returned as (attack_add, damage_add). A scoped weapon-bonus row (target_id == the grant's id)
+    folds into THIS granted attack only; an unscoped row (target_id NULL) is a character-wide weapon
+    bonus and is never folded here. Reuses the existing weapon-bonus mechanism (no new schema)."""
+    if not grant_id:
+        return 0, 0
+    atk = dmg = 0
+    for b in effects.bonuses:
+        if not b.get("value") or b.get("target_id") != grant_id:
+            continue
+        if b.get("target_kind") == "weapon_attack":
+            atk += b["value"]
+        elif b.get("target_kind") == "weapon_damage":
+            dmg += b["value"]
+    return atk, dmg
+
+
 def _granted_attacks(core: dict, abilities: dict, effects: "ActiveEffects", access) -> list[dict]:
     """Materialise effect-granted attacks (grant_attack rows) into modifier attack dicts, reusing the
     weapon-attack shape. A 'spellcasting' ability_mode resolves to the character's spellcasting-ability
     modifier for BOTH the attack bonus and the damage bonus; proficiency (the character's PB) always
-    applies, since the growth reshapes the always-proficient unarmed strike. The die term and damage
-    type come straight from the DB row (the canonical damage-type pick is fixed at build time)."""
+    applies, since the growth reshapes the always-proficient unarmed strike. A weapon bonus scoped to
+    this grant (a grant_bonus row whose target_id names it) folds into the attack/damage — this is how
+    an item that also grants a flat +N to the reshaped strike is modelled. The die term and damage type
+    come straight from the DB row (the canonical damage-type pick is fixed at build time)."""
     pb = core.get("proficiency_bonus", 0)
     out: list[dict] = []
     for grant in effects.attack_grants:
@@ -210,17 +248,15 @@ def _granted_attacks(core: dict, abilities: dict, effects: "ActiveEffects", acce
         df = grant.get("die_faces")
         if not (_int(dc) and _int(df)):
             continue
-        if grant.get("ability_mode") == "spellcasting":
-            ability_id = _character_spellcasting_ability(access, core, grant)
-            ab_mod = _mod_for_ability_id(access, abilities, ability_id) if ability_id else 0
-        else:
-            ab_mod = 0
-        attack_bonus = ab_mod + (pb if _int(pb) else 0)
+        ab_mod = _granted_attack_ability_mod(access, core, abilities, grant)
+        scoped_atk, scoped_dmg = _granted_attack_scoped_bonuses(effects, grant.get("id"))
+        attack_bonus = ab_mod + (pb if _int(pb) else 0) + scoped_atk
+        dmg_bonus = ab_mod + scoped_dmg
         damage = f"{dc}d{df}"
-        if ab_mod > 0:
-            damage += f"+{ab_mod}"
-        elif ab_mod < 0:
-            damage += str(ab_mod)
+        if dmg_bonus > 0:
+            damage += f"+{dmg_bonus}"
+        elif dmg_bonus < 0:
+            damage += str(dmg_bonus)
         props = grant.get("properties")
         out.append({
             "name": grant.get("name"),
@@ -295,6 +331,9 @@ def resolve_active_effects(core: dict, inventory: dict | None,
     # effective-ability mismatch (reconciliation debt (b)). Runs before the empty-state fast path so
     # a gearless, stateless build still resolves its permanent ability sets.
     _accumulate_owner_ability_sets(effects, core, access)
+    # Always-on granted attacks from the same permanent owners (species/feats/classes/subclasses),
+    # so a permanent-owner grant_attack materialises even for a gearless, stateless build.
+    _accumulate_owner_attacks(effects, core, access)
     has_equipped = isinstance(inventory, dict) and bool(inventory.get("equipped"))
     if not states and not item_states and not has_equipped:
         return effects
@@ -557,6 +596,50 @@ def _accumulate_owner_ability_sets(effects: ActiveEffects, core: dict, access):
                 _collect("subclass", access.resolve("subclass", sub), at)
 
 
+def _accumulate_owner_attacks(effects: ActiveEffects, core: dict, access):
+    """Always-on granted attacks from the character's PERMANENT owners — species, each feat, each
+    class, and each subclass — gated by class-entry level. Mirrors ``_accumulate_owner_ability_sets``:
+    a grant_attack on a permanent owner (not just an active state or an attuned item) reaches the
+    attack derivation. No such non-state, non-item grant exists in the reference dataset today, so
+    this is inert there; the synthetic ruleset carries one on a permanent owner, which this
+    materialises. Each row is tagged with its owner context (as ``_accumulate_attacks`` does) so a
+    'spellcasting' ability_mode still resolves against the granting owner."""
+    if not isinstance(core, dict):
+        return
+    ident = core.get("identity", {}) or {}
+    if not isinstance(ident, dict):
+        ident = {}
+
+    def _collect(owner_kind: str, owner_id, at_level=None) -> None:
+        if owner_id is None:
+            return
+        for row in grants_for(access.db, "grant_attack", owner_kind, owner_id, at_level):
+            g = dict(row)
+            g["owner_kind"] = owner_kind
+            g["owner_id"] = owner_id
+            effects.attack_grants.append(g)
+
+    _collect("species", access.resolve("species", ident.get("species")))
+
+    feats = core.get("feats")
+    if isinstance(feats, list):
+        for f in feats:
+            name = f if isinstance(f, str) else (f.get("name") if isinstance(f, dict) else None)
+            _collect("feat", access.resolve("feat", name))
+
+    classes = ident.get("classes")
+    if isinstance(classes, list):
+        for c in classes:
+            if not isinstance(c, dict):
+                continue
+            lvl = c.get("level")
+            at = lvl if isinstance(lvl, int) and not isinstance(lvl, bool) else 0
+            _collect("class", access.resolve("class", c.get("class")), at)
+            sub = c.get("subclass")
+            if sub:
+                _collect("subclass", access.resolve("subclass", sub), at)
+
+
 def _accumulate_hp(effects: ActiveEffects, access, owner_kind, owner_id, state: dict):
     """Accumulate a state's owner's HP grants. A grant_hp row applies when it is ungated
     (condition_kind None) or its condition_kind matches this state's id — mirroring the extra-damage
@@ -622,6 +705,7 @@ def _accumulate_item_effects(effects: ActiveEffects, access, inventory, item_sta
             _accumulate_ability_sets(effects, access, "magic_item", mid)
             _accumulate_senses(effects, access, "magic_item", mid)
             _accumulate_speeds(effects, access, "magic_item", mid)
+            _accumulate_attacks(effects, access, "magic_item", mid)
 
     # 2) Passive-on-equip items: a magic item that does NOT require attunement
     #    confers its sense/speed grants while equipped (no attunement needed).
@@ -645,6 +729,7 @@ def _accumulate_item_effects(effects: ActiveEffects, access, inventory, item_sta
                 continue
             _accumulate_senses(effects, access, "magic_item", mid)
             _accumulate_speeds(effects, access, "magic_item", mid)
+            _accumulate_attacks(effects, access, "magic_item", mid)
 
 
 # ── C2: Derivation helpers ───────────────────────────────────────────────────
@@ -1231,8 +1316,11 @@ def derive_attacks(core: dict, inventory: dict | None, abilities: dict,
         if _int(pb) and _weapon_proficient(weapon_profs, tier, weapon_id, name):
             bonus += pb
 
+        # Real weapons take only UNSCOPED weapon bonuses (target_id is NULL). A weapon bonus scoped
+        # to a specific granted attack (target_id set) folds into THAT attack only (see
+        # _granted_attacks) and must never leak onto the character's real weapons.
         for b in effects.bonuses:
-            if b["target_kind"] == "weapon_attack" and b["value"]:
+            if b["target_kind"] == "weapon_attack" and b["value"] and not b.get("target_id"):
                 bonus += b["value"]
 
         dmg_flat = wrow["dmg_flat"] or 0
@@ -1241,7 +1329,7 @@ def derive_attacks(core: dict, inventory: dict | None, abilities: dict,
 
         dmg_bonus = ab_mod + dmg_flat
         for b in effects.bonuses:
-            if b["target_kind"] == "weapon_damage" and b["value"]:
+            if b["target_kind"] == "weapon_damage" and b["value"] and not b.get("target_id"):
                 dmg_bonus += b["value"]
 
         damage = f"{dmg_count}d{dmg_faces}"

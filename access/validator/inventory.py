@@ -115,11 +115,13 @@ def weapon_attack_facts(access: ValidatorAccess, weapon_id: str) -> dict | None:
 def weapon_attack_item_bonuses(access: ValidatorAccess, magic_item_id: str) -> list[int]:
     """Weapon-attack bonus values a magic item confers, one per grant_bonus row.
 
-    Every ``grant_bonus`` row with ``target_kind='weapon_attack'`` for the item, as its raw integer
-    value list (NULLs coerced to 0). Pure DB read — the consuming check owns summing/applying them."""
+    Every UNSCOPED ``grant_bonus`` row with ``target_kind='weapon_attack'`` for the item (target_id
+    NULL — a character-wide weapon bonus), as its raw integer value list (NULLs coerced to 0). A row
+    scoped to a specific granted attack (target_id set) is excluded here; it folds into that attack
+    only. Pure DB read — the consuming check owns summing/applying them."""
     rows = access.db.q(
         "SELECT value FROM grant_bonus WHERE owner_kind='magic_item' AND owner_id=? "
-        "AND target_kind='weapon_attack'", magic_item_id)
+        "AND target_kind='weapon_attack' AND target_id IS NULL", magic_item_id)
     return [(r["value"] or 0) for r in rows]
 
 

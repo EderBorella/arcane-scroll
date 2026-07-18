@@ -451,6 +451,252 @@ def test_no_granted_attack_without_state(access):
     assert [a for a in attacks if a["name"] == "Attack Alpha"] == []
 
 
+# ── non-spellcasting ability_mode resolution (T136) ──────────────────────────
+
+
+def _strmode_state():
+    """An active self-buff granting a strength-mode attack (uses the Strength modifier)."""
+    return {"state": "buffed", "source": "Spell Str Mode", "source_type": "spell", "detail": {}}
+
+
+def _finmode_state():
+    """An active self-buff granting a finesse-mode attack (best of Strength/Dexterity)."""
+    return {"state": "buffed", "source": "Spell Fin Mode", "source_type": "spell", "detail": {}}
+
+
+def test_granted_strength_mode_attack_uses_strength(access):
+    """A 'strength' ability_mode grant adds the Strength modifier to bonus and damage, plus PB."""
+    core = _core()  # proficiency_bonus 2
+    effects = resolve_active_effects(core, None, [_strmode_state()], [], access)
+    attacks = derive_attacks(core, None, {"strength": 2, "dexterity": 4}, [], effects, access)
+    granted = [a for a in attacks if a["name"] == "Attack Str"]
+    assert len(granted) == 1
+    a = granted[0]
+    assert a["attack_bonus"] == 2 + 2     # STR mod (2) + PB (2) -- NOT the higher DEX
+    assert a["damage"] == "1d8+2"
+    assert a["damage_type"] == "poison"
+    assert a["properties"] == ["light"]
+
+
+def test_granted_finesse_mode_picks_dexterity_when_higher(access):
+    """A 'finesse' ability_mode grant adds the better of Strength/Dexterity (here DEX 4 > STR 2)."""
+    core = _core()
+    effects = resolve_active_effects(core, None, [_finmode_state()], [], access)
+    attacks = derive_attacks(core, None, {"strength": 2, "dexterity": 4}, [], effects, access)
+    a = [x for x in attacks if x["name"] == "Attack Fin"][0]
+    assert a["attack_bonus"] == 4 + 2     # max(STR 2, DEX 4) + PB
+    assert a["damage"] == "1d4+4"
+    assert a["damage_type"] == "fire"
+
+
+def test_granted_finesse_mode_picks_strength_when_higher(access):
+    """Finesse picks Strength when it beats Dexterity (proves it is the max, not always DEX)."""
+    core = _core()
+    effects = resolve_active_effects(core, None, [_finmode_state()], [], access)
+    attacks = derive_attacks(core, None, {"strength": 5, "dexterity": 1}, [], effects, access)
+    a = [x for x in attacks if x["name"] == "Attack Fin"][0]
+    assert a["attack_bonus"] == 5 + 2     # max(STR 5, DEX 1) + PB
+    assert a["damage"] == "1d4+5"
+
+
+# ── permanent-owner granted attack (always-on, no state) ─────────────────────
+
+
+def test_permanent_owner_granted_attack_materializes(access):
+    """A permanent owner (a feat) owning a finesse grant_attack materialises WITHOUT any active state
+    or item — the always-on owner path (mirrors the owner ability-set path)."""
+    core = _core(feats=[{"name": "Feat Owner Atk", "source": "bg-a"}])
+    effects = resolve_active_effects(core, None, [], [], access)
+    grants = [g for g in effects.attack_grants if g["owner_id"] == "feat-owneratk"]
+    assert len(grants) == 1 and grants[0]["owner_kind"] == "feat"
+    attacks = derive_attacks(core, None, {"strength": 1, "dexterity": 3}, [], effects, access)
+    a = [x for x in attacks if x["name"] == "Attack Owner"][0]
+    assert a["attack_bonus"] == 3 + 2     # finesse max(STR 1, DEX 3) + PB
+    assert a["damage"] == "1d6+3"
+    assert a["damage_type"] == "poison"
+
+
+def test_no_permanent_owner_attack_without_the_owner(access):
+    """The default core (which does not carry the granting feat) gains no permanent-owner attack."""
+    core = _core()
+    effects = resolve_active_effects(core, None, [], [], access)
+    assert [g for g in effects.attack_grants if g["owner_id"] == "feat-owneratk"] == []
+
+
+# ── item-owned granted attack (T134) ─────────────────────────────────────────
+
+
+def test_item_attuned_granted_attack_materializes(access):
+    """An attuned magic item owning a strength-mode grant_attack materialises at MODIFIER."""
+    core = _core()
+    inventory = {"equipped": {"hands": {"id": "item-hands", "name": "Claws Alpha"}}}
+    item_states = [{"inventory_ref": "item-hands", "attuned": True}]
+    effects = resolve_active_effects(core, inventory, [], item_states, access)
+    attacks = derive_attacks(core, inventory, {"strength": 3, "dexterity": 1},
+                             item_states, effects, access)
+    a = [x for x in attacks if x["name"] == "Attack Claws"][0]
+    assert a["attack_bonus"] == 3 + 2     # STR mod (3) + PB
+    assert a["damage"] == "1d8+3"
+    assert a["damage_type"] == "poison"
+
+
+def test_item_attunement_required_not_attuned_no_attack(access):
+    """An attunement-required item that is NOT attuned confers no granted attack."""
+    core = _core()
+    inventory = {"equipped": {"hands": {"id": "item-hands", "name": "Claws Alpha"}}}
+    effects = resolve_active_effects(core, inventory, [], [], access)
+    attacks = derive_attacks(core, inventory, {"strength": 3, "dexterity": 1}, [], effects, access)
+    assert [x for x in attacks if x["name"] == "Attack Claws"] == []
+
+
+def test_item_passive_on_equip_granted_attack_materializes(access):
+    """A passive-on-equip (no-attunement) item owning a finesse grant_attack materialises when
+    equipped, without attunement."""
+    core = _core()
+    inventory = {"equipped": {"head": {"id": "item-head", "name": "Fangs Alpha"}}}
+    effects = resolve_active_effects(core, inventory, [], [], access)
+    attacks = derive_attacks(core, inventory, {"strength": 1, "dexterity": 4}, [], effects, access)
+    a = [x for x in attacks if x["name"] == "Attack Fangs"][0]
+    assert a["attack_bonus"] == 4 + 2     # finesse max(STR 1, DEX 4) + PB
+    assert a["damage"] == "1d6+4"
+    assert a["damage_type"] == "fire"
+
+
+# ── item weapon-bonus scoped to a granted attack (no cross-share) ────────────
+
+
+def test_scoped_bonus_applies_to_its_granted_attack(access):
+    """A weapon bonus scoped (target_id) to the item's granted attack folds into THAT attack:
+    STR + PB + 1 on the bonus, 1d8 + STR + 1 on the damage."""
+    core = _core()
+    inventory = {"equipped": {"hands": {"id": "item-hands", "name": "Gauntlet Alpha"}}}
+    item_states = [{"inventory_ref": "item-hands", "attuned": True}]
+    effects = resolve_active_effects(core, inventory, [], item_states, access)
+    attacks = derive_attacks(core, inventory, {"strength": 2, "dexterity": 1},
+                             item_states, effects, access)
+    a = [x for x in attacks if x["name"] == "Attack Gauntlet"][0]
+    assert a["attack_bonus"] == 2 + 2 + 1   # STR + PB + scoped +1
+    assert a["damage"] == "1d8+3"           # 1d8 + STR(2) + scoped +1
+
+
+def test_scoped_bonus_does_not_leak_to_real_weapon(access):
+    """The scoped bonus folds into the granted attack only — an equipped REAL weapon is untouched."""
+    core = _core()
+    inventory = {"equipped": {"hands": {"id": "item-hands", "name": "Gauntlet Alpha"},
+                              "main_hand": {"id": "w1", "name": "Weapon A"}}}
+    item_states = [{"inventory_ref": "item-hands", "attuned": True}]
+    effects = resolve_active_effects(core, inventory, [], item_states, access)
+    attacks = derive_attacks(core, inventory, {"strength": 2, "dexterity": 3},
+                             item_states, effects, access)
+    by = {a["name"]: a for a in attacks}
+    assert by["Weapon A"]["attack_bonus"] == 2 + 2   # STR + PB, NO scoped +1
+    assert by["Weapon A"]["damage"] == "1d12+2"      # no scoped +1 on the real weapon
+    assert by["Attack Gauntlet"]["attack_bonus"] == 2 + 2 + 1   # scoped +1 lands here only
+
+
+def test_unscoped_weapon_bonus_applies_to_weapon_not_granted(access):
+    """An UNSCOPED weapon bonus (target_id NULL) applies to real weapons but NOT to a granted attack:
+    Charm Alpha gives every weapon attack +1; the item-granted Attack Claws does not receive it."""
+    core = _core()
+    inventory = {"equipped": {"waist": {"id": "item-waist", "name": "Charm Alpha"},
+                              "hands": {"id": "item-hands", "name": "Claws Alpha"},
+                              "main_hand": {"id": "w1", "name": "Weapon A"}}}
+    item_states = [{"inventory_ref": "item-waist", "attuned": True},
+                   {"inventory_ref": "item-hands", "attuned": True}]
+    effects = resolve_active_effects(core, inventory, [], item_states, access)
+    attacks = derive_attacks(core, inventory, {"strength": 2, "dexterity": 3},
+                             item_states, effects, access)
+    by = {a["name"]: a for a in attacks}
+    assert by["Weapon A"]["attack_bonus"] == 2 + 2 + 1   # STR + PB + unscoped +1 (Charm)
+    assert by["Attack Claws"]["attack_bonus"] == 2 + 2   # granted attack does NOT get the unscoped +1
+    assert by["Attack Claws"]["damage"] == "1d8+2"       # STR only, no unscoped bonus folded
+
+
+def test_scoped_bonus_does_not_bleed_onto_another_granted_attack(access):
+    """A bonus scoped to granted attack A does NOT apply to a DIFFERENT granted attack B. Two items
+    each grant a strength attack; only the gauntlet owns a scoped +1, so its attack folds it while the
+    other item's attack (no scoped bonus) is unchanged."""
+    core = _core()
+    inventory = {"equipped": {"hands": {"id": "ig", "name": "Gauntlet Alpha"},
+                              "off_hand": {"id": "ic", "name": "Claws Alpha"}}}
+    item_states = [{"inventory_ref": "ig", "attuned": True},
+                   {"inventory_ref": "ic", "attuned": True}]
+    effects = resolve_active_effects(core, inventory, [], item_states, access)
+    attacks = derive_attacks(core, inventory, {"strength": 2, "dexterity": 1},
+                             item_states, effects, access)
+    by = {a["name"]: a for a in attacks}
+    # A (scoped): STR + PB + 1 / 1d8 + STR + 1
+    assert by["Attack Gauntlet"]["attack_bonus"] == 2 + 2 + 1
+    assert by["Attack Gauntlet"]["damage"] == "1d8+3"
+    # B (a different granted attack, no scoped bonus): UNCHANGED — the +1 does not bleed onto it
+    assert by["Attack Claws"]["attack_bonus"] == 2 + 2
+    assert by["Attack Claws"]["damage"] == "1d8+2"
+
+
+# ── multi-caster spellcasting-ability disambiguation (T135) ──────────────────
+
+
+def _mc_core(classes):
+    """A core with the given caster classes; abilities/PB from _core (proficiency_bonus 2)."""
+    return _core(identity={"name": "T", "species": "Species A", "size": "medium",
+                           "creature_type": "Type A", "classes": classes,
+                           "total_level": sum(c["level"] for c in classes),
+                           "background": "Background A"})
+
+
+def _mc_state(source):
+    return {"state": "buffed", "source": source, "source_type": "spell", "detail": {}}
+
+
+# class-cast1 casts with a1, class-cast2 with a2; abilities dict gives a1→3, a2→5.
+_C1 = {"class": "Class Cast1", "level": 3, "subclass": None}
+_C2 = {"class": "Class Cast2", "level": 3, "subclass": None}
+_MC_ABIL = {"a1": 3, "a2": 5}
+
+
+def test_mc_spell_resolves_carrier_ability_carrier_first(access):
+    """Spell on cast1's list only, cast1 listed first → resolves cast1's ability (a1)."""
+    core = _mc_core([_C1, _C2])
+    effects = resolve_active_effects(core, None, [_mc_state("Spell MC Atk1")], [], access)
+    attacks = derive_attacks(core, None, _MC_ABIL, [], effects, access)
+    a = [x for x in attacks if x["name"] == "Attack MC1"][0]
+    assert a["attack_bonus"] == 3 + 2     # a1 mod (3) + PB
+    assert a["damage"] == "1d6+3"
+
+
+def test_mc_spell_resolves_carrier_ability_regardless_of_order(access):
+    """Ordering independence: the NON-carrier (cast2) listed FIRST, the carrier (cast1) second — the
+    granted attack still resolves cast1's ability (a1), proving it is not 'the first caster'."""
+    core = _mc_core([_C2, _C1])
+    effects = resolve_active_effects(core, None, [_mc_state("Spell MC Atk1")], [], access)
+    attacks = derive_attacks(core, None, _MC_ABIL, [], effects, access)
+    a = [x for x in attacks if x["name"] == "Attack MC1"][0]
+    assert a["attack_bonus"] == 3 + 2     # still a1 (3), NOT a2 (5)
+    assert a["damage"] == "1d6+3"
+
+
+def test_mc_spell_on_other_class_resolves_that_class(access):
+    """Spell on cast2's list only → resolves cast2's ability (a2)."""
+    core = _mc_core([_C1, _C2])
+    effects = resolve_active_effects(core, None, [_mc_state("Spell MC Atk2")], [], access)
+    attacks = derive_attacks(core, None, _MC_ABIL, [], effects, access)
+    a = [x for x in attacks if x["name"] == "Attack MC2"][0]
+    assert a["attack_bonus"] == 5 + 2     # a2 mod (5) + PB
+    assert a["damage"] == "1d6+5"
+
+
+def test_mc_spell_off_all_lists_falls_back_to_first_caster(access):
+    """Single caster, granting spell off every class list → the fallback keeps the first caster's
+    ability (a1)."""
+    core = _mc_core([_C1])
+    effects = resolve_active_effects(core, None, [_natwep_state()], [], access)
+    attacks = derive_attacks(core, None, _MC_ABIL, [], effects, access)
+    a = [x for x in attacks if x["name"] == "Attack Alpha"][0]
+    assert a["attack_bonus"] == 3 + 2     # fallback → a1 (3) + PB
+    assert a["damage"] == "1d6+3"
+    assert a["damage_type"] == "poison"
+
+
 # ── stats-less magic weapon attack materialization (T56) ─────────────────────
 
 
