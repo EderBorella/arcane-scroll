@@ -82,3 +82,34 @@ def test_exists(db):
 def test_exists_rejects_unlisted_table(db):
     with pytest.raises(ValueError):
         p.exists(db, "rules_constant", "const-a")
+
+
+# ── item_grants_for: stowed non-attunement items confer nothing (F05-T138) ────
+# A non-attunement magic item confers its passive grants only while EQUIPPED
+# (mirroring the deriver's passive-on-equip branch). The same item stowed in the
+# backpack must yield NO rows, or the walker over-includes and false-flags a
+# grant the deriver never materialised. 'Item Passive' (mi-passive) is a
+# non-attunement item owning one grant_sense row.
+
+def test_item_grants_for_skips_stowed_non_attunement_item(db):
+    sheet = {"backpack": [{"magic": True, "name": "Item Passive"}]}
+    assert p.item_grants_for(db, sheet, "grant_sense", None) == []
+
+
+def test_item_grants_for_includes_equipped_non_attunement_item(db):
+    sheet = {"equipped": {"head": {"magic": True, "name": "Item Passive"}}}
+    rows = p.item_grants_for(db, sheet, "grant_sense", None)
+    assert {r["id"] for r in rows} == {"gs-mi-passive"}
+
+
+def test_item_grants_for_attunement_gate_unchanged_when_stowed(db):
+    # An ATTUNEMENT item ('Item Attune', mi-attune) confers its grants whenever
+    # attuned, regardless of equipped/stowed location — the attunement gate is
+    # untouched by the non-attunement location fix.
+    stowed = {"backpack": [{"magic": True, "name": "Item Attune",
+                            "attunement": {"attuned": True}}]}
+    rows = p.item_grants_for(db, stowed, "grant_sense", None)
+    assert {r["id"] for r in rows} == {"gs-mi-attune"}
+    # ...and an un-attuned attunement item still confers nothing.
+    unattuned = {"backpack": [{"magic": True, "name": "Item Attune"}]}
+    assert p.item_grants_for(db, unattuned, "grant_sense", None) == []

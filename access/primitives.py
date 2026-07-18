@@ -185,15 +185,17 @@ def item_grants_for(db: RulesDB, sheet: dict, grant_table: str,
         raise ValueError(f"unknown grant table: {grant_table!r}")
 
     seen_items = set()
-    items = []
+    # Track each item's location: an equipped item can confer either kind of grant,
+    # but a backpack (stowed) item confers nothing unless it is an attuned item.
+    items = []  # (item, is_equipped)
     equipped = sheet.get("equipped")
     if isinstance(equipped, dict):
-        items.extend(equipped.values())
+        items.extend((it, True) for it in equipped.values())
     backpack = sheet.get("backpack")
     if isinstance(backpack, list):
-        items.extend(backpack)
+        items.extend((it, False) for it in backpack)
 
-    for item in items:
+    for item, is_equipped in items:
         if not isinstance(item, dict):
             continue
         if item.get("magic") is not True:
@@ -208,13 +210,20 @@ def item_grants_for(db: RulesDB, sheet: dict, grant_table: str,
             "WHERE LOWER(ci.name) = ?", name.strip().lower())
         if not item_id:
             continue
-        # Attunement check: if item requires attunement, it must be attuned
+        # Attunement gates grant eligibility by item location, mirroring the deriver:
+        #  - an attunement item confers its grants only when attuned, regardless of
+        #    whether it is worn or stowed (deriver branch 1, keyed off item_states);
+        #  - a non-attunement item confers its passive grants only when EQUIPPED
+        #    (deriver branch 2). A stowed, non-attuned item confers nothing, so a
+        #    non-attunement item sitting in the backpack must be skipped here.
         requires = db.scalar(
             "SELECT requires_attunement FROM magic_item WHERE id=?", item_id)
         if requires:
             attune = item.get("attunement")
             if not isinstance(attune, dict) or attune.get("attuned") is not True:
                 continue
+        elif not is_equipped:
+            continue
         if item_id not in seen_items:
             seen_items.add(item_id)
             gr = grants_for(db, grant_table, "magic_item", item_id)
