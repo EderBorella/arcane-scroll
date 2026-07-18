@@ -1030,51 +1030,80 @@ def _per_level_coeff(modifier: str) -> int:
         return 0
 
 
-def _resolve_base_speeds(grant_rows: list, base_walk: int) -> dict:
-    """Resolve speeds from grant rows (independent of the deriver): sets_total takes MAX,
-    additive SUMs, equals_walk mirrors resolved walk. Zero modes are dropped."""
-    phases = {"walk": base_walk or 0}
-    sets_total_max: dict = {}
-    additive_sum: dict = {}
-    equals_walk: set = set()
-    for row in grant_rows:
-        mode = row["movement_mode_id"]
-        if row["sets_total"]:
-            ft = row["feet"]
-            if ft is not None:
-                sets_total_max[mode] = max(sets_total_max.get(mode, 0), ft)
-        elif row["additive"]:
-            additive_sum[mode] = additive_sum.get(mode, 0) + (row["feet"] or 0)
-        elif row["equals_walk"]:
-            equals_walk.add(mode)
-    for mode, ft in sets_total_max.items():
-        phases[mode] = ft
-    for mode, ft in additive_sum.items():
-        phases[mode] = phases.get(mode, 0) + ft
-    for mode in sorted(equals_walk):
-        if mode != "walk":
-            phases[mode] = phases.get("walk", 0)
-    return {k: val for k, val in phases.items() if val > 0}
+def _core_speed_view(sheet: dict) -> dict:
+    """A CORE-shaped view of the MODIFIER sheet for the movement domain's shared speed walkers.
+
+    Carries the CORE identity and feats plus the inventory's equipped/backpack items, annotating
+    each item's attunement from the MODIFIER item_states. The shared item-grant walker then gates
+    attunement-required items exactly as the deriver does: an attuned item (recorded in item_states)
+    contributes its grants, while a non-attunement magic item contributes while equipped/carried."""
+    core = sheet.get("core", {}) or {}
+    if not isinstance(core, dict):
+        core = {}
+    inv = sheet.get("inventory", {}) or {}
+    if not isinstance(inv, dict):
+        inv = {}
+    mod = sheet.get("modifier", {}) or {}
+    item_states = mod.get("item_states", []) or []
+    attuned_ids = {ist.get("inventory_ref") for ist in item_states
+                   if isinstance(ist, dict) and ist.get("attuned")}
+
+    def _annotate(item):
+        if not isinstance(item, dict):
+            return item
+        if item.get("id") in attuned_ids:
+            out = dict(item)
+            out["attunement"] = {"attuned": True}
+            return out
+        return item
+
+    equipped = inv.get("equipped", {})
+    equipped_view = {}
+    if isinstance(equipped, dict):
+        for slot, it in equipped.items():
+            equipped_view[slot] = _annotate(it)
+    backpack = inv.get("backpack", [])
+    backpack_view = [_annotate(it) for it in backpack] if isinstance(backpack, list) else []
+    return {
+        "identity": core.get("identity", {}) or {},
+        "feats": core.get("feats", []) or [],
+        "equipped": equipped_view,
+        "backpack": backpack_view,
+    }
 
 
 def _base_effective_speeds(sheet: dict, access) -> dict:
-    """Re-derive the character's effective speeds BEFORE any condition effect, from CORE
-    permanent speed plus active non-condition-state speed grants. Item speed grants are
-    handled by the caller's guard, not here."""
+    """Re-derive the character's effective speeds BEFORE any condition effect, independently from
+    DB facts and the rule (never from the deriver): the species/lineage base walk, every
+    non-condition owner speed grant (species, lineage, class, subclass, feat, magic items), the
+    class movement bonus, and active non-condition state speed grants. Resolution reuses the
+    movement domain's shared walkers/resolver so the base matches the fully-resolved pre-penalty
+    speed the deriver subtracts the condition penalty from."""
+    from validator.checks.movement import _resolve_speeds
+
     core = sheet.get("core", {}) or {}
-    perm = core.get("permanent_speed", {}) or {}
-    if not isinstance(perm, dict):
-        perm = {}
-    base_walk = perm.get("walk", 30)
+    ident = core.get("identity", {}) or {}
+    if not isinstance(ident, dict):
+        ident = {}
+    core_view = _core_speed_view(sheet)
+
+    spid = access.resolve("species", ident.get("species"))
+    base_walk = movement_q.species_base_walk(access, spid) if spid else 0
+    lineage_name = ident.get("lineage")
+    if isinstance(lineage_name, str) and lineage_name:
+        lid = access.resolve("lineage", lineage_name)
+        if lid:
+            parent = movement_q.lineage_parent_species(access, lid)
+            if parent and not base_walk:
+                base_walk = movement_q.species_base_walk(access, parent) or base_walk
     if not _int(base_walk):
-        base_walk = 30
-    grants = []
-    for mode, ft in perm.items():
-        if mode == "walk":
-            continue
-        if _int(ft):
-            grants.append({"movement_mode_id": mode, "feet": ft,
-                           "sets_total": 1, "additive": 0, "equals_walk": 0})
+        base_walk = 0
+
+    grants = movement_q.gather_owner_grants(access, core_view)
+    class_bonuses = movement_q.gather_class_bonuses(access, core_view)
+
+    # Active non-condition states (e.g. a speed-granting spell buff) are not walked by
+    # gather_owner_grants (which covers always-on owners) — add their grants here.
     mod = sheet.get("modifier", {}) or {}
     for st in mod.get("character_states", []) or []:
         if not isinstance(st, dict):
@@ -1087,35 +1116,8 @@ def _base_effective_speeds(sheet: dict, access) -> dict:
             continue
         for row in movement_q.speed_grants(access, owner_kind, owner_id):
             grants.append(dict(row))
-    return _resolve_base_speeds(grants, base_walk)
 
-
-def _has_item_speed_grants(sheet: dict, access) -> bool:
-    """Whether any magic item on the sheet grants a speed. When true, the condition
-    speed-penalty re-derivation is skipped (item speeds are not re-derived on this path), so
-    an item-boosted speed never false-flags a mismatch. The d20 and speed-zero checks still run."""
-    inv = sheet.get("inventory", {}) or {}
-    if not isinstance(inv, dict):
-        return False
-    items = []
-    equipped = inv.get("equipped", {})
-    if isinstance(equipped, dict):
-        items.extend(equipped.values())
-    backpack = inv.get("backpack", [])
-    if isinstance(backpack, list):
-        items.extend(backpack)
-    for it in items:
-        if not isinstance(it, dict):
-            continue
-        name = it.get("name")
-        if not name:
-            continue
-        mid = access.resolve("magic_item", name)
-        if not mid:
-            continue
-        if movement_q.speed_grants(access, "magic_item", mid):
-            return True
-    return False
+    return _resolve_speeds(grants, base_walk, class_bonuses)
 
 
 def _check_condition_effects(sheet: dict, access, v: list[Violation]) -> None:
@@ -1220,8 +1222,6 @@ def _check_condition_speed(sheet: dict, access, v: list[Violation],
                                    f"speed.{mode}"))
         return
     if not speed_penalty:
-        return
-    if _has_item_speed_grants(sheet, access):
         return
     base = _base_effective_speeds(sheet, access)
     for mode, base_ft in base.items():
