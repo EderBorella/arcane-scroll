@@ -443,6 +443,71 @@ def test_attack_tier_title_case(access):
     assert "attack-bonus-mismatch" not in _codes(sheet, access)
 
 
+# ── real-weapon damage (F05-T139) ────────────────────────────────────────────
+# weapon-e: 1d8, finesse (ability mod = max(str,dex)); dmg_flat NULL. _attack_sheet defaults
+# str_mod=1, dex_mod=3 -> ability damage mod = 3, so the base with no item bonus is "1d8+3".
+
+
+def test_real_weapon_damage_base_ok(access):
+    """A real weapon's base damage (dice + finesse ability mod, no item bonus) validates correct."""
+    sheet = _attack_sheet(["martial weapons"], "weapon-e")  # ab mod 3
+    sheet["modifier"]["attacks"] = [{"name": "weapon-e", "attack_bonus": 3 + 2, "damage": "1d8+3"}]
+    assert "real-weapon-damage-mismatch" not in _codes(sheet, access)
+
+
+def test_real_weapon_damage_item_bonus_ok(access):
+    """An attuned item's +1 UNSCOPED weapon_damage folds into a real weapon's damage base (1d8+3 -> 1d8+4)."""
+    sheet = _attack_sheet(["martial weapons"], "weapon-e")  # ab mod 3
+    sheet["inventory"]["equipped"]["waist"] = {"id": "item-hilt", "name": "Hilt Alpha"}
+    sheet["modifier"]["item_states"] = [{"inventory_ref": "item-hilt", "attuned": True}]
+    sheet["modifier"]["attacks"] = [{"name": "weapon-e", "attack_bonus": 3 + 2, "damage": "1d8+4"}]
+    assert "real-weapon-damage-mismatch" not in _codes(sheet, access)
+
+
+def test_real_weapon_damage_item_bonus_missing_flagged(access):
+    """With the item attuned the base must be 1d8+4; the unmodified 1d8+3 (bonus dropped) is flagged."""
+    sheet = _attack_sheet(["martial weapons"], "weapon-e")
+    sheet["inventory"]["equipped"]["waist"] = {"id": "item-hilt", "name": "Hilt Alpha"}
+    sheet["modifier"]["item_states"] = [{"inventory_ref": "item-hilt", "attuned": True}]
+    sheet["modifier"]["attacks"] = [{"name": "weapon-e", "attack_bonus": 3 + 2, "damage": "1d8+3"}]
+    assert "real-weapon-damage-mismatch" in _codes(sheet, access)
+
+
+def test_real_weapon_damage_leaked_bonus_flagged(access):
+    """A weapon_damage bonus present on the sheet with no backing item (1d8+4, expected 1d8+3) is flagged."""
+    sheet = _attack_sheet(["martial weapons"], "weapon-e")  # no item
+    sheet["modifier"]["attacks"] = [{"name": "weapon-e", "attack_bonus": 3 + 2, "damage": "1d8+4"}]
+    assert "real-weapon-damage-mismatch" in _codes(sheet, access)
+
+
+def test_real_weapon_damage_wrong_flat_total_flagged(access):
+    """Base extraction distinguishes a wrong flat total from a rider: 1d8+30 != expected 1d8+3."""
+    sheet = _attack_sheet(["martial weapons"], "weapon-e")
+    sheet["modifier"]["attacks"] = [{"name": "weapon-e", "attack_bonus": 3 + 2, "damage": "1d8+30"}]
+    assert "real-weapon-damage-mismatch" in _codes(sheet, access)
+
+
+def test_real_weapon_damage_scoped_bonus_not_counted(access):
+    """A weapon_damage bonus SCOPED to a granted attack (target_id set) must NOT fold onto a real
+    weapon: Gauntlet Alpha's scoped +1 belongs to its granted attack, so weapon-e stays 1d8+3."""
+    sheet = _attack_sheet(["martial weapons"], "weapon-e")  # ab mod 3
+    sheet["inventory"]["equipped"]["hands"] = {"id": "item-gaunt", "name": "Gauntlet Alpha"}
+    sheet["modifier"]["item_states"] = [{"inventory_ref": "item-gaunt", "attuned": True}]
+    sheet["modifier"]["attacks"] = [{"name": "weapon-e", "attack_bonus": 3 + 2, "damage": "1d8+3"}]
+    assert "real-weapon-damage-mismatch" not in _codes(sheet, access)
+    # if the scoped +1 WERE wrongly folded onto the real weapon, 1d8+4 would be expected -> 1d8+4 flags
+    sheet["modifier"]["attacks"] = [{"name": "weapon-e", "attack_bonus": 3 + 2, "damage": "1d8+4"}]
+    assert "real-weapon-damage-mismatch" in _codes(sheet, access)
+
+
+def test_real_weapon_damage_ignores_rider_tail(access):
+    """An appended extra-damage rider (owned by the rider check) does not false-positive the base
+    check: base 1d8+3 is read from '1d8+3+1d6'."""
+    sheet = _attack_sheet(["martial weapons"], "weapon-e")
+    sheet["modifier"]["attacks"] = [{"name": "weapon-e", "attack_bonus": 3 + 2, "damage": "1d8+3+1d6"}]
+    assert "real-weapon-damage-mismatch" not in _codes(sheet, access)
+
+
 # ── effective abilities ──────────────────────────────────────────────────────
 
 

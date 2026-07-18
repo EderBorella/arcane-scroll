@@ -16,7 +16,7 @@ _HEADERS = {
     "grant_bonus": "target_kind TEXT, target_id TEXT, value INTEGER",
     "grant_companion": "creature_id TEXT, duration_amount INTEGER, duration_unit_id TEXT, at_spell_level INTEGER, notes TEXT",
     "grant_condition": "condition_id TEXT, effect TEXT",
-    "grant_d20_modifier": "condition_kind TEXT, target_kind TEXT, ability_id TEXT, modifier_id TEXT, source_name TEXT, scope_note TEXT",
+    "grant_d20_modifier": "condition_kind TEXT, target_kind TEXT, ability_id TEXT, modifier_id TEXT, scope TEXT, source_name TEXT, scope_note TEXT",
     "grant_expertise": "choose_n INTEGER, mode TEXT",
     "grant_feat": "condition_kind TEXT, choose_n INTEGER, from_category TEXT",
     "grant_hp": "flat INTEGER, per_level INTEGER",
@@ -79,6 +79,23 @@ def _build(path: str) -> None:
     cur.execute("INSERT INTO rules_constant VALUES ('const-a',27,'a fake constant')")
     for lv, nm in [(1, "FeatureA"), (2, "FeatureB"), (5, "FeatureC")]:
         cur.execute("INSERT INTO class_feature (id,class_id,level,name) VALUES (?,?,?,?)", (f"cf-{lv}", "cls-a", lv, nm))
+
+    # Magic-item catalog for item_grants_for's equipped/backpack walk (F05-T138).
+    # 'Item Passive' requires NO attunement and owns one sense grant — the deriver
+    # confers it only while EQUIPPED, so the walker must skip it when stowed.
+    # 'Item Attune' requires attunement and owns one sense grant — its grants apply
+    # whenever attuned, regardless of equipped/stowed location.
+    cur.execute("CREATE TABLE catalog_item (id TEXT PRIMARY KEY, name TEXT, kind TEXT, slot TEXT)")
+    cur.execute("CREATE TABLE magic_item (id TEXT PRIMARY KEY REFERENCES catalog_item(id), "
+                "rarity_id TEXT, requires_attunement INTEGER DEFAULT 0)")
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-passive','Item Passive','wondrous','head')")
+    cur.execute("INSERT INTO magic_item VALUES ('mi-passive','uncommon',0)")
+    cur.execute("INSERT INTO grant_sense (id,owner_kind,owner_id,gained_at_level,sense_id,range_ft) "
+                "VALUES ('gs-mi-passive','magic_item','mi-passive',NULL,'sense-x',10)")
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-attune','Item Attune','wondrous','feet')")
+    cur.execute("INSERT INTO magic_item VALUES ('mi-attune','rare',1)")
+    cur.execute("INSERT INTO grant_sense (id,owner_kind,owner_id,gained_at_level,sense_id,range_ft) "
+                "VALUES ('gs-mi-attune','magic_item','mi-attune',NULL,'sense-y',60)")
     con.commit()
     con.close()
 
