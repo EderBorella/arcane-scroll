@@ -1693,6 +1693,12 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO start_equipment_option VALUES ('sa-bg','background','bg-a','Bundle BG')")
     cur.execute("INSERT INTO start_equipment_entry VALUES "
                 "('se-bg1','sa-bg',1,'tool_category_choice',NULL,1,NULL,'tc-a',NULL,NULL)")
+    # sa-bg-gp: a background bundle (owner bg-b) carrying gp (20) — starting wealth sums the class
+    # bundle's gp AND the background bundle's gp, so this exercises the both-bundle re-derivation
+    # (F05-T119). Owned by bg-b so bg-a's bundle set (asserted elsewhere) is unchanged.
+    cur.execute("INSERT INTO start_equipment_option VALUES ('sa-bg-gp','background','bg-b','Bundle BG GP')")
+    cur.execute("INSERT INTO start_equipment_entry VALUES "
+                "('se-bggp1','sa-bg-gp',1,'gp',NULL,1,20,NULL,NULL,NULL)")
 
     # spell.school_id: added after the positional spell inserts (which supply the base 4 columns) so
     # the choosable class-a spells carry a school. grimoire:1 requires `school` to be a string when

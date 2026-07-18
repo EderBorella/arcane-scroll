@@ -890,26 +890,34 @@ def test_variable_drain_floor_ok_passes(access):
 # ── starting treasure (re-derived from the chosen equipment bundle) ───────────
 
 
-def test_starting_treasure_matches_bundle_passes(access):
-    """When the sheet records the chosen starting-equipment bundle id, the starting coin gp is
-    re-derived from that bundle's gp grants in the DB. Bundle 'sa-a' grants 15 gp, so a treasure of
-    15 gp is consistent and passes."""
+def test_starting_treasure_matches_both_bundles_passes(access):
+    """When the sheet records both chosen bundle ids, the starting coin gp is re-derived as the SUM of
+    both bundles' gp grants in the DB. Class bundle 'sa-b' grants 50 gp and background bundle
+    'sa-bg-gp' grants 20 gp, so a treasure of 70 gp is consistent and passes."""
     sheet = _sheet()
-    sheet["modifier"]["start_equipment_option"] = "sa-a"
+    sheet["modifier"]["start_equipment_option"] = {"class": "sa-b", "background": "sa-bg-gp"}
+    sheet["modifier"]["treasure"] = {"pp": 0, "gp": 70, "ep": 0, "sp": 0, "cp": 0}
+    assert "starting-treasure-mismatch" not in _codes(sheet, access)
+
+
+def test_starting_treasure_single_bundle_passes(access):
+    """A build with only a class bundle re-derives from that bundle alone. 'sa-a' grants 15 gp."""
+    sheet = _sheet()
+    sheet["modifier"]["start_equipment_option"] = {"class": "sa-a"}
     sheet["modifier"]["treasure"] = {"pp": 0, "gp": 15, "ep": 0, "sp": 0, "cp": 0}
     assert "starting-treasure-mismatch" not in _codes(sheet, access)
 
 
 def test_starting_treasure_mismatch_flags(access):
-    """A recorded bundle id whose DB gp grant disagrees with the sheet's coin gp is flagged."""
+    """Recorded bundles whose summed DB gp grant disagrees with the sheet's coin gp are flagged."""
     sheet = _sheet()
-    sheet["modifier"]["start_equipment_option"] = "sa-a"  # grants 15 gp in the DB
-    sheet["modifier"]["treasure"] = {"pp": 0, "gp": 99, "ep": 0, "sp": 0, "cp": 0}
+    sheet["modifier"]["start_equipment_option"] = {"class": "sa-b", "background": "sa-bg-gp"}
+    sheet["modifier"]["treasure"] = {"pp": 0, "gp": 99, "ep": 0, "sp": 0, "cp": 0}  # expected 70
     assert "starting-treasure-mismatch" in _codes(sheet, access)
 
 
 def test_starting_treasure_dormant_without_bundle_id(access):
-    """With no recorded bundle id the branch is dormant: even a coin gp that matches no bundle is not
+    """With no recorded bundle ids the branch is dormant: even a coin gp that matches no bundle is not
     flagged by this check (nothing to re-derive against)."""
     sheet = _sheet()
     sheet["modifier"]["treasure"] = {"pp": 0, "gp": 99, "ep": 0, "sp": 0, "cp": 0}
@@ -917,9 +925,9 @@ def test_starting_treasure_dormant_without_bundle_id(access):
 
 
 def test_starting_treasure_unknown_bundle_id_skipped(access):
-    """An unresolvable bundle id has nothing to re-derive from, so the branch skips it (no flag)."""
+    """An unresolvable bundle id cannot be fully re-derived against, so the branch skips (no flag)."""
     sheet = _sheet()
-    sheet["modifier"]["start_equipment_option"] = "no-such-bundle"
+    sheet["modifier"]["start_equipment_option"] = {"class": "sa-b", "background": "no-such-bundle"}
     sheet["modifier"]["treasure"] = {"pp": 0, "gp": 99, "ep": 0, "sp": 0, "cp": 0}
     assert "starting-treasure-mismatch" not in _codes(sheet, access)
 
