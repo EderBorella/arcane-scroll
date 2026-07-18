@@ -73,6 +73,19 @@ def grant_resource_owner_kinds(access: ValidatorAccess) -> set[str]:
             access.db.q("SELECT DISTINCT owner_kind FROM grant_resource")}
 
 
+def recharge_cadences(access: ValidatorAccess, resource_kind: str, resource_id: str) -> list[str]:
+    """The recharge cadence id(s) a resource recovers on, read from the ``resource_recharge`` spine.
+
+    ``resource_kind`` is ``'class_resource'`` or ``'grant_resource'``. Presence of a row means the
+    pool is bounded and recharges; an empty list means no recharge cadence is recorded (a genuinely
+    unlimited pool). A resource may carry more than one cadence (e.g. a pool that recovers on a short
+    OR a long rest); the collapse to a single sheet label lives in the consumer so the deriver and
+    the check each re-derive it independently. Pure DB read."""
+    return [r["recharge_id"] for r in access.db.q(
+        "SELECT recharge_id FROM resource_recharge WHERE resource_kind=? AND resource_id=?",
+        resource_kind, resource_id)]
+
+
 def ability_abbrev(access: ValidatorAccess, ability_id: str) -> str | None:
     """The lower-cased short abbreviation of an ability (the key CORE uses for it), or None."""
     abbr = access.db.scalar("SELECT abbrev FROM ability WHERE id=?", ability_id)

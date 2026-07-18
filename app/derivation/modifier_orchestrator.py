@@ -17,6 +17,18 @@ def _int(x) -> bool:
     return isinstance(x, int) and not isinstance(x, bool)
 
 
+def _uses_out(uses: dict) -> dict:
+    """Build a feature/feat ``uses`` block for the sheet: ``max`` + a fresh (full) ``remaining`` (None
+    when unlimited), carrying the recharge cadence only when one is set (additive — an unlimited pool
+    stays a bare ``{max: null, remaining: null}``, byte-identical to the prior corpus)."""
+    mx = uses.get("max") if isinstance(uses, dict) else None
+    out = {"max": mx, "remaining": mx if mx is not None else None}
+    recharge = uses.get("recharge") if isinstance(uses, dict) else None
+    if recharge is not None:
+        out["recharge"] = recharge
+    return out
+
+
 # ── non-overwritable field paths (from modifier-sheet.schema.json $comment) ──
 
 NON_OVERWRITABLE = frozenset({
@@ -271,7 +283,8 @@ def derive_modifier(core: dict, inventory: dict | None, grimoire: dict | None,
 
         "resource_state": {
             k: {"max": v.get("max"), "remaining": v.get("max"),
-                "recharge": v.get("recharge"), "recharge_amount": None}
+                "recharge": v.get("recharge"),
+                "recharge_amount": v.get("recharge_amount")}
             for k, v in res_state.items()
         },
 
@@ -292,11 +305,9 @@ def derive_modifier(core: dict, inventory: dict | None, grimoire: dict | None,
 
         "character_states": [],
         "item_states": [],
-        "features": [{"name": f["name"], "uses": {"max": f.get("uses", {}).get("max"),
-                                                    "remaining": None}}
+        "features": [{"name": f["name"], "uses": _uses_out(f.get("uses", {}))}
                      for f in features],
-        "feats": [{"name": f["name"], "uses": {"max": f.get("uses", {}).get("max"),
-                                                "remaining": None}}
+        "feats": [{"name": f["name"], "uses": _uses_out(f.get("uses", {}))}
                   for f in feats],
         "prepared_spells": [],
     }

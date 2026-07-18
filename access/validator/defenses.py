@@ -108,6 +108,36 @@ def save_advantage_grants(access: ValidatorAccess, owner_kind: str, owner_id: st
     return access.db.q(sql, *params)
 
 
+def check_advantage_grants(access: ValidatorAccess, owner_kind: str, owner_id: str,
+                           at_level: int | None = None) -> list:
+    """Raw always-on ability-check advantage grants for an owner, optionally level-gated.
+
+    Reads ``grant_d20_modifier`` rows scoped to an ability check (``target_kind='check'``) that
+    confer advantage (``modifier_id='advantage'``). Pure DB read — the scope mapping lives in
+    ``check_scope_for`` and the accumulation in the consumer, so the deriver and the check each
+    re-derive the resulting set independently (mirrors the ``grant_save_advantage`` spine)."""
+    sql = ("SELECT id, target_kind, ability_id, modifier_id "
+           "FROM grant_d20_modifier "
+           "WHERE owner_kind=? AND owner_id=? AND target_kind='check' AND modifier_id='advantage'")
+    params = [owner_kind, owner_id]
+    if at_level is not None:
+        sql += " AND (gained_at_level IS NULL OR gained_at_level<=?)"
+        params.append(at_level)
+    return access.db.q(sql, *params)
+
+
+def check_scope_for(access: ValidatorAccess, row: dict) -> str | None:
+    """Map a ``grant_d20_modifier`` check-advantage row to a check_advantages scope string.
+
+    Every attested always-on check-advantage grant in the reference dataset confers advantage on
+    the initiative roll (an ability check made with the Dexterity ability), so a check-advantage
+    grant maps to the ``initiative`` scope. The row's free-text ``scope_note`` (render-only, and it
+    may name extra skill-specific checks) is intentionally not structurally modelled here."""
+    if row["modifier_id"] == "advantage" and row["target_kind"] == "check":
+        return "initiative"
+    return None
+
+
 def resistance_options(access: ValidatorAccess, grant_id: str) -> list[str]:
     """Damage-type option pool for a choose-mode resistance grant."""
     return [r["damage_type_id"]

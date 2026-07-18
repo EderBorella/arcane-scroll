@@ -145,6 +145,33 @@ def check(sheet: dict, access) -> list[Violation]:
                                f"save advantage '{scope}': no grant found",
                                "defenses.save_advantages"))
 
+    # check advantages (always-on ability-check advantages from grant_d20_modifier, e.g. initiative)
+    ca_grant_rows = q.gather_owner_grants(access, sheet, q.check_advantage_grants)
+    ca_grant_rows.extend(
+        primitives.item_grants_for(access.db, sheet, "grant_d20_modifier", access.resolver))
+    expected_check_adv: set[str] = set()
+    for row in ca_grant_rows:
+        scope = q.check_scope_for(access, row)
+        if scope:
+            expected_check_adv.add(scope)
+
+    sheet_check_adv = defenses.get("check_advantages")
+    if not isinstance(sheet_check_adv, list):
+        sheet_check_adv = []
+    sheet_check_adv_set = set(sheet_check_adv)
+
+    for scope in expected_check_adv:
+        if scope not in sheet_check_adv_set:
+            v.append(Violation(DOMAIN, "check-advantage-missing", "incomplete",
+                               f"expected check advantage '{scope}', not on sheet",
+                               "defenses.check_advantages"))
+
+    for scope in sheet_check_adv_set:
+        if scope not in expected_check_adv:
+            v.append(Violation(DOMAIN, "check-advantage-ungranted", "illegal",
+                               f"check advantage '{scope}': no grant found",
+                               "defenses.check_advantages"))
+
     # condition advantages (from grant_condition with advantage effects)
     expected_ca: dict[str, str] = {}  # condition_id -> effect
     for row in condition_rows:

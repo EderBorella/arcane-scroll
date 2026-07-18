@@ -8,6 +8,7 @@ from access.validator import creature as creature_q
 from access.validator import defenses as defenses_q
 from access.validator import features as features_q
 from access.validator import inventory as inventory_q
+from access.validator import resources as resources_q
 from access.validator import size as size_q
 from access.validator import skills as skills_q
 from access.validator import spellcasting as spellcasting_q
@@ -295,6 +296,9 @@ class ActiveEffects:
         self.vulnerabilities: set[str] = set()
         self.condition_immunities: set[str] = set()
         self.save_advantages: set[str] = set()
+        # Always-on ability-check advantages (grant_d20_modifier), each a scope string (e.g.
+        # 'initiative'), mirroring save_advantages.
+        self.check_advantages: set[str] = set()
         self.speed_grants: list[dict] = []
         # Effect-granted attacks (grant_attack rows) carried with their owner context so the
         # attack derivation can resolve an 'spellcasting' ability_mode to a concrete modifier.
@@ -365,6 +369,7 @@ def resolve_active_effects(core: dict, inventory: dict | None,
         _accumulate_resistances(effects, access, owner_kind, owner_id)
         _accumulate_conditions(effects, access, owner_kind, owner_id)
         _accumulate_save_advantages(effects, access, owner_kind, owner_id)
+        _accumulate_check_advantages(effects, access, owner_kind, owner_id)
         _accumulate_speeds(effects, access, owner_kind, owner_id)
         _accumulate_attacks(effects, access, owner_kind, owner_id)
         _accumulate_ability_sets(effects, access, owner_kind, owner_id)
@@ -420,6 +425,15 @@ def _accumulate_save_advantages(effects: ActiveEffects, access, owner_kind, owne
         scope = defenses_q.save_scope_for(access, row)
         if scope:
             effects.save_advantages.add(scope)
+
+
+def _accumulate_check_advantages(effects: ActiveEffects, access, owner_kind, owner_id):
+    # Map each grant_d20_modifier check-advantage grant to its scope string (e.g. 'initiative') so
+    # the union in derive_defenses matches CORE's representation (mirrors _accumulate_save_advantages).
+    for row in defenses_q.check_advantage_grants(access, owner_kind, owner_id):
+        scope = defenses_q.check_scope_for(access, row)
+        if scope:
+            effects.check_advantages.add(scope)
 
 
 def _accumulate_size(effects: ActiveEffects, access, owner_kind, owner_id, state: dict):
@@ -1065,6 +1079,11 @@ def derive_defenses(core: dict, effects: ActiveEffects, access) -> dict:
             set(perm.get("save_advantages", [])) | effects.save_advantages),
         "condition_advantages": perm.get("condition_advantages", []) or [],
     }
+    # Always-on ability-check advantages: union CORE permanent grants with any active-state grants.
+    # Additive — emitted only when non-empty, so builds without one stay byte-identical.
+    check_advantages = sorted(set(perm.get("check_advantages", [])) | effects.check_advantages)
+    if check_advantages:
+        result["check_advantages"] = check_advantages
     return result
 
 
@@ -1286,9 +1305,82 @@ def derive_hp_effects(core: dict, effects: ActiveEffects, ability_mods: dict, ac
     }
 
 
+# Recharge-cadence collapse: a resource may recover on more than one cadence (e.g. a short OR a long
+# rest). The single sheet label is the MOST FREQUENT trigger present — a short-rest pool also recovers
+# on a long rest, so short-rest wins. Order = descending frequency; the deriver and the validator each
+# apply this same precedence independently. 'dawn' is unattested in the reference dataset today.
+_RECHARGE_PRIORITY = ("short-rest", "dawn", "long-rest")
+
+
+def _collapse_recharge(cadences) -> str | None:
+    """Collapse a resource's recharge cadence id(s) to a single sheet label by descending frequency,
+    or None when the resource records no recharge cadence (a genuinely unlimited pool)."""
+    present = set(cadences)
+    for cad in _RECHARGE_PRIORITY:
+        if cad in present:
+            return cad
+    return None
+
+
+def _recharge_by_resource_name(core: dict, access) -> dict[str, str]:
+    """Map each owned resource's display NAME to its collapsed recharge cadence, re-derived from the
+    ``resource_recharge`` spine via the access layer. Keyed by the same verbatim resource name the CORE
+    ``resource_budgets`` block uses, so ``derive_resource_state`` can look up a budget key directly.
+
+    Walks the same owner set as the CORE budget derivation (class/subclass count ladders and
+    ``grant_resource`` use-pools on class/subclass/species/lineage/feat). Only pools with a recharge
+    row contribute; on a name collision the higher-frequency cadence wins."""
+    cadences_by_name: dict[str, set[str]] = {}
+    ident = core.get("identity", {}) or {}
+    if not isinstance(ident, dict):
+        ident = {}
+
+    def add(kind: str, resource_id: str, name: str) -> None:
+        cads = resources_q.recharge_cadences(access, kind, resource_id)
+        if cads:
+            cadences_by_name.setdefault(name, set()).update(cads)
+
+    classes = ident.get("classes")
+    if isinstance(classes, list):
+        for c in classes:
+            if not isinstance(c, dict):
+                continue
+            for owner_kind, owner_id in (("class", access.resolve("class", c.get("class"))),
+                                         ("subclass", access.resolve("subclass", c.get("subclass")))):
+                if not owner_id:
+                    continue
+                for res in resources_q.count_class_resources(access, owner_kind, owner_id):
+                    add("class_resource", res["id"], res["name"])
+                for res in resources_q.grant_resources(access, owner_kind, owner_id):
+                    add("grant_resource", res["id"], res["name"])
+
+    for owner_kind, key in (("species", "species"), ("lineage", "lineage")):
+        owner_id = access.resolve(owner_kind, ident.get(key))
+        if owner_id:
+            for res in resources_q.grant_resources(access, owner_kind, owner_id):
+                add("grant_resource", res["id"], res["name"])
+
+    feats = core.get("feats")
+    if isinstance(feats, list):
+        for f in feats:
+            name = f if isinstance(f, str) else (f.get("name") if isinstance(f, dict) else None)
+            fid = access.resolve("feat", name)
+            if fid:
+                for res in resources_q.grant_resources(access, "feat", fid):
+                    add("grant_resource", res["id"], res["name"])
+
+    return {name: _collapse_recharge(cads) for name, cads in cadences_by_name.items()
+            if _collapse_recharge(cads) is not None}
+
+
 def derive_resource_state(core: dict, effects: ActiveEffects, access) -> dict:
-    """Returns resource_state dict from CORE.resource_budgets."""
+    """Returns resource_state dict from CORE.resource_budgets, with the recharge cadence label read
+    from the ``resource_recharge`` spine for each budget key (None when the pool records no recharge —
+    a genuinely unlimited pool). ``recharge_amount`` has no source in the reference dataset and stays
+    None. The cadence is single-homed here for a budget pool; a feature/feat that only mirrors a budget
+    pool does not duplicate it (see derive_features/derive_feats)."""
     budgets = core.get("resource_budgets", {}) or {}
+    recharge_map = _recharge_by_resource_name(core, access) if budgets else {}
     result = {}
     for key, budget in budgets.items():
         if not isinstance(budget, dict):
@@ -1296,7 +1388,7 @@ def derive_resource_state(core: dict, effects: ActiveEffects, access) -> dict:
         mx = budget.get("max")
         result[key] = {
             "max": mx,
-            "recharge": None,
+            "recharge": recharge_map.get(key),
             "recharge_amount": None,
         }
     return result
@@ -1493,26 +1585,93 @@ def derive_senses(core: dict, effects: ActiveEffects, access) -> dict:
     return result
 
 
+def _grant_resource_max(res: dict, proficiency_bonus: int, ability_mods: dict) -> int | None:
+    """The maximum a ``grant_resource`` use-pool confers, re-derived from its ``uses_kind`` (a fixed
+    ``int``, the proficiency bonus, or an ability modifier with a floor of one). Mirrors the CORE
+    budget derivation's own rule so the MODIFIER layer stays independent of it."""
+    kind = res.get("uses_kind")
+    if kind == "int":
+        n = res.get("uses_num")
+        return n if isinstance(n, int) and not isinstance(n, bool) else None
+    if kind == "proficiency_bonus":
+        return proficiency_bonus
+    if kind == "ability_modifier":
+        return max(1, ability_mods.get(res.get("uses_ability_id"), 0))
+    return None
+
+
+def _core_ability_mods(core: dict, access) -> dict[str, int]:
+    """{ability_id: modifier} from CORE.abilities (keyed there by lower-case abbreviation)."""
+    abilities = core.get("abilities", {}) or {}
+    if not isinstance(abilities, dict):
+        return {}
+    mods: dict[str, int] = {}
+    for row in access.db.q("SELECT id, abbrev FROM ability"):
+        entry = abilities.get((row["abbrev"] or "").lower())
+        if isinstance(entry, dict) and _int(entry.get("final")):
+            mods[row["id"]] = (entry["final"] - 10) // 2
+    return mods
+
+
+def _owned_pool_uses(access, owner_kind: str, owner_id: str, budget_names: set,
+                     pb: int, ability_mods: dict) -> dict | None:
+    """The ``uses`` a feat/feature-owned bounded ``grant_resource`` pool confers — ``{max, recharge}``
+    (recharge only when a cadence is recorded) — or None when the owner confers no such pool.
+
+    Single-homing (KB): a pool that already lives in CORE ``resource_budgets`` (hence in the MODIFIER
+    ``resource_state``) is NOT duplicated onto the owning feat/feature — its name is in ``budget_names``
+    and is skipped. Re-derived from the DB, independent of the CORE budget derivation."""
+    for res in resources_q.grant_resources(access, owner_kind, owner_id):
+        if res["name"] in budget_names:
+            continue  # already single-homed in resource_state — do not duplicate the pool here
+        mx = _grant_resource_max(res, pb, ability_mods)
+        if mx is None:
+            continue
+        uses: dict = {"max": mx}
+        cadence = _collapse_recharge(resources_q.recharge_cadences(access, "grant_resource", res["id"]))
+        if cadence:
+            uses["recharge"] = cadence
+        return uses
+    return None
+
+
 def derive_features(core: dict, access) -> list[dict]:
-    """Returns features: [{name, uses}] copied from CORE with uses populated from DB."""
+    """Returns features: [{name, uses}] copied from CORE with uses populated from DB.
+
+    A feature's bounded use pool, when it has one, is a class/subclass-owned ``grant_resource``
+    single-homed in CORE ``resource_budgets`` (keyed by the shared display name), so it already lives
+    in the MODIFIER ``resource_state`` and is NOT duplicated onto the feature (KB: cadence is
+    single-homed). Features therefore carry ``max: None`` unless a future non-budget bounded pool is
+    modelled directly on the feature owner."""
     core_features = core.get("features", []) or []
     result = []
     for f in core_features:
         if not isinstance(f, dict):
             continue
         name = f.get("name", "")
-        uses = {"max": None}
-        result.append({"name": name, "uses": uses})
+        result.append({"name": name, "uses": {"max": None}})
     return result
 
 
 def derive_feats(core: dict, access) -> list[dict]:
-    """Returns feats: [{name, uses}] copied from CORE with uses populated from DB."""
+    """Returns feats: [{name, uses}] copied from CORE with uses populated from DB.
+
+    A feat that owns a bounded ``grant_resource`` pool NOT already single-homed in CORE
+    ``resource_budgets`` (hence not in the MODIFIER ``resource_state``) carries that pool's ``max`` and
+    recharge cadence on its ``uses``; a pool that IS a budget entry is left single-homed in
+    ``resource_state`` and not duplicated here (KB)."""
     core_feats = core.get("feats", []) or []
+    budget_names = set(core.get("resource_budgets") or {})
+    pb = core.get("proficiency_bonus", 0) or 0
+    ability_mods = _core_ability_mods(core, access)
     result = []
     for f in core_feats:
-        if isinstance(f, str):
-            result.append({"name": f, "uses": {"max": None}})
-        elif isinstance(f, dict):
-            result.append({"name": f.get("name", ""), "uses": {"max": None}})
+        name = f if isinstance(f, str) else (f.get("name", "") if isinstance(f, dict) else "")
+        uses = {"max": None}
+        fid = access.resolve("feat", name)
+        if fid:
+            pool = _owned_pool_uses(access, "feat", fid, budget_names, pb, ability_mods)
+            if pool is not None:
+                uses = pool
+        result.append({"name": name, "uses": uses})
     return result

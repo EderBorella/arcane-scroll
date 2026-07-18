@@ -1407,7 +1407,8 @@ def _check_defenses(sheet: dict, v: list[Violation]) -> None:
     if not isinstance(perm, dict) or not isinstance(eff, dict):
         return
 
-    for key in ("resistances", "immunities", "condition_immunities", "save_advantages"):
+    for key in ("resistances", "immunities", "condition_immunities", "save_advantages",
+                "check_advantages"):
         core_set = set(perm.get(key, []) or [])
         mod_list = eff.get(key, []) or []
         if not isinstance(mod_list, list):
@@ -1810,6 +1811,17 @@ def _check_feats(sheet: dict, v: list[Violation]) -> None:
                            f"CORE feat {m!r} not in MODIFIER", "feats"))
 
 
+def _check_resource_recharge(sheet: dict, access, v: list[Violation]) -> None:
+    """Validate each MODIFIER ``resource_state`` budget key's recharge cadence, re-derived
+    independently from the ``resource_recharge`` spine by the resources check (never from the deriver).
+    The pool maxima themselves are validated on the CORE ``resource_budgets`` side."""
+    from validator.checks import resources as resources_check
+    core = sheet.get("core", {}) or {}
+    mod = sheet.get("modifier", {}) or {}
+    resource_state = mod.get("resource_state")
+    v.extend(resources_check.check_recharge(core, resource_state, access))
+
+
 # ── prepared spells ──────────────────────────────────────────────────────────
 
 
@@ -2180,6 +2192,7 @@ def check(sheet: dict, access) -> list[Violation]:
     _check_passives(sheet, v)
     _check_features(sheet, v)
     _check_feats(sheet, v)
+    _check_resource_recharge(sheet, access, v)
     _check_prepared_spells(sheet, access, v)
     _check_states(sheet, access, v)
     _check_starting_treasure(sheet, access, v)

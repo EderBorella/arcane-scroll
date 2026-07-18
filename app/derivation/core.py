@@ -762,7 +762,13 @@ def _permanent_defenses(access, partial: dict) -> dict:
     sa_rows = defenses_q.gather_owner_grants(access, partial, defenses_q.save_advantage_grants)
     save_advantages = sorted({s for s in (defenses_q.save_scope_for(access, r) for r in sa_rows) if s})
 
-    return {
+    # Always-on ability-check advantages (grant_d20_modifier, e.g. advantage on initiative) from the
+    # character's permanent owners. Re-derived from the DB via the shared owner walker so the deriver
+    # stays independent of the validator's own re-derivation (mirrors save_advantages).
+    ca_rows = defenses_q.gather_owner_grants(access, partial, defenses_q.check_advantage_grants)
+    check_advantages = sorted({s for s in (defenses_q.check_scope_for(access, r) for r in ca_rows) if s})
+
+    result = {
         "resistances": resistances,
         "immunities": [],
         "vulnerabilities": [],
@@ -770,6 +776,11 @@ def _permanent_defenses(access, partial: dict) -> dict:
         "save_advantages": save_advantages,
         "condition_advantages": condition_advantages,
     }
+    # Additive: emitted only when the build owns at least one check-advantage grant, so builds without
+    # one stay byte-identical to the prior corpus.
+    if check_advantages:
+        result["check_advantages"] = check_advantages
+    return result
 
 
 # --------------------------------------------------------------------------- orchestrator
