@@ -21,6 +21,9 @@ TRANSFORM_PHYSICAL = "physical"
 TRANSFORM_FULL = "full"
 _TRANSFORM_KINDS = (TRANSFORM_PHYSICAL, TRANSFORM_FULL)
 _MENTAL_ABILITY_IDS = frozenset({"intelligence", "wisdom", "charisma"})
+# The canonical id of the ability whose contribution the AC detail records separately (every
+# unarmoured-defence formula and the base default include it). A rule constant, not a per-row fact.
+_DEX_ABILITY_ID = "dexterity"
 
 
 def _int(x) -> bool:
@@ -788,6 +791,64 @@ def derive_abilities(core: dict, effects: ActiveEffects, access) -> tuple[dict, 
     return result, effective, mods
 
 
+def _unarmored_ac_formulas(access, core: dict, at_level_override=None) -> list[dict]:
+    """Every Armor-Class formula available to a character with no body armour worn: the universal
+    ``unarmored`` base, plus any class/subclass formula the character's classes/subclasses confer,
+    each level-gated by that class entry's level. Pure gathering (no math) shared in spirit with the
+    validator's independent re-derivation — both read the same rows from the DB, then each computes
+    the resulting AC and picks the best on its own."""
+    formulas = list(defenses_q.ac_formulas(access, "base", "unarmored"))
+    ident = core.get("identity", {}) or {}
+    classes = ident.get("classes", []) if isinstance(ident, dict) else []
+    if not isinstance(classes, list):
+        return formulas
+    for c in classes:
+        if not isinstance(c, dict):
+            continue
+        lvl = c.get("level")
+        at = lvl if _int(lvl) else 0
+        cid = access.resolve("class", c.get("class"))
+        if cid:
+            formulas.extend(defenses_q.ac_formulas(access, "class", cid, at))
+        sub = c.get("subclass")
+        if sub:
+            sid = access.resolve("subclass", sub)
+            if sid:
+                formulas.extend(defenses_q.ac_formulas(access, "subclass", sid, at))
+    return formulas
+
+
+def _best_unarmored_ac(access, core: dict, abilities: dict, dex_mod: int,
+                       shield_bonus: int) -> tuple[int, int, str]:
+    """Choose the most-beneficial unarmoured-defence AC. A character with several ways to calculate
+    Armor Class benefits from only ONE (rule: "If you have multiple ways to calculate your Armor
+    Class, you can benefit from only one at a time"), so each applicable formula's AC is computed —
+    ``base`` + the sum of its ability modifiers, plus the equipped shield's bonus only when the
+    formula permits a shield — and the highest wins. Ties favour the base default (it is tried first),
+    keeping a plain unarmoured build's detail unchanged.
+
+    Returns ``(total, dex_component, source)`` where ``total`` is the pre-bonus, pre-floor AC (formula
+    base + every ability mod + the shield when the formula permits one) and ``dex_component`` is the
+    Dexterity contribution recorded separately in the detail (the flat portion is ``total −
+    dex_component``)."""
+    best: tuple | None = None
+    for f in _unarmored_ac_formulas(access, core):
+        dex_component = 0
+        total = f["base"] + (shield_bonus if f["allows_shield"] else 0)
+        for aid in f["ability_ids"]:
+            m = _mod_for_ability_id(access, abilities, aid)
+            total += m
+            if aid == _DEX_ABILITY_ID:
+                dex_component += m
+        source = f["owner_id"] if f["owner_kind"] == "base" else f["id"]
+        if best is None or total > best[0]:
+            best = (total, dex_component, source)
+    if best is None:
+        # No formula at all (no base default present): a plain 10 + Dexterity, shield permitted.
+        return 10 + dex_mod + shield_bonus, dex_mod, "unarmored"
+    return best
+
+
 def derive_ac(core: dict, inventory: dict | None, effects: ActiveEffects, abilities: dict,
               access) -> tuple[int, dict]:
     """Returns (armor_class, armor_class_detail). `abilities` maps an ability key (CORE short
@@ -802,7 +863,7 @@ def derive_ac(core: dict, inventory: dict | None, effects: ActiveEffects, abilit
                   "bonuses": [], "floor": None}
         return ac, detail
 
-    dex_mod = _mod_for_ability_id(access, abilities, "dexterity")
+    dex_mod = _mod_for_ability_id(access, abilities, _DEX_ABILITY_ID)
     equipped = (inventory or {}).get("equipped", {}) or {}
     if not isinstance(equipped, dict):
         equipped = {}
@@ -810,35 +871,43 @@ def derive_ac(core: dict, inventory: dict | None, effects: ActiveEffects, abilit
     armor_item = equipped.get("armor")
     shield_item = equipped.get("shield")
 
-    base = 10 + dex_mod
-    source = "unarmored"
-    dex_bonus = dex_mod
+    # The equipped shield's base AC bonus (from the armour catalogue), applied by the branches below
+    # per the armour/formula rules: worn armour always permits a shield; an unarmoured-defence formula
+    # only when it allows one.
+    shield_bonus = 0
+    if isinstance(shield_item, dict) and shield_item.get("name"):
+        shield_id = access.resolve("catalog_item", shield_item["name"])
+        if shield_id:
+            srow = access.db.one(
+                "SELECT ac_bonus FROM armor WHERE id=? AND category_id='shield'", shield_id)
+            if srow and srow["ac_bonus"]:
+                shield_bonus = srow["ac_bonus"]
+
     bonuses = []
     floor = effects.ac_floor
 
+    base = None
+    source = "unarmored"
+    dex_bonus = dex_mod
     if isinstance(armor_item, dict) and armor_item.get("name"):
-        armor_name = armor_item["name"]
-        armor_id = access.resolve("catalog_item", armor_name)
+        armor_id = access.resolve("catalog_item", armor_item["name"])
         if armor_id:
             arow = access.db.one(
                 "SELECT base_ac, dex_cap, ac_bonus, category_id FROM armor WHERE id=?",
                 armor_id)
             if arow:
-                base = (arow["base_ac"] or 10)
                 cap = arow["dex_cap"]
                 dex_bonus = min(dex_mod, cap) if cap is not None and cap > 0 else (
                     0 if cap == 0 else dex_mod)
-                base += dex_bonus
+                # Worn body armour overrides any unarmoured-defence formula, and always permits a
+                # shield's AC bonus on top.
+                base = (arow["base_ac"] or 10) + dex_bonus + shield_bonus
                 source = armor_id
 
-    if isinstance(shield_item, dict) and shield_item.get("name"):
-        shield_name = shield_item["name"]
-        shield_id = access.resolve("catalog_item", shield_name)
-        if shield_id:
-            srow = access.db.one(
-                "SELECT ac_bonus FROM armor WHERE id=? AND category_id='shield'", shield_id)
-            if srow and srow["ac_bonus"]:
-                base += srow["ac_bonus"]
+    if base is None:
+        # No body armour worn: pick the most-beneficial applicable Armor-Class formula.
+        base, dex_bonus, source = _best_unarmored_ac(
+            access, core, abilities, dex_mod, shield_bonus)
 
     for b in effects.bonuses:
         if b["target_kind"] == "ac" and b["value"]:

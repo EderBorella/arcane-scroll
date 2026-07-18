@@ -94,26 +94,164 @@ def _mod_for_ability(access, mod_abilities: dict, full_id: str) -> int:
 # ── AC checks ────────────────────────────────────────────────────────────────
 
 
-def _check_ac(sheet: dict, v: list[Violation]) -> None:
+# The canonical id of the ability recorded separately in the AC detail (every unarmoured-defence
+# formula and the base default include it). A rule constant, re-declared here so the check stays
+# independent of the deriver.
+_DEX_ABILITY_ID = "dexterity"
+
+
+def _shield_base_bonus(sheet: dict, access) -> int:
+    """The equipped shield's base AC bonus from the armour catalogue (0 when no shield is equipped or
+    it carries none — e.g. a magic shield whose only AC is a separate ``grant_bonus``)."""
+    inventory = sheet.get("inventory", {}) or {}
+    if not isinstance(inventory, dict):
+        return 0
+    equipped = inventory.get("equipped", {}) or {}
+    if not isinstance(equipped, dict):
+        return 0
+    shield_item = equipped.get("shield")
+    if not (isinstance(shield_item, dict) and shield_item.get("name")):
+        return 0
+    sid = access.resolve("catalog_item", shield_item["name"])
+    if not sid:
+        return 0
+    row = access.db.one(
+        "SELECT ac_bonus FROM armor WHERE id=? AND category_id='shield'", sid)
+    return row["ac_bonus"] if row and row["ac_bonus"] else 0
+
+
+def _worn_armor_base(sheet: dict, access, dex_mod: int, shield_bonus: int) -> int | None:
+    """The AC from worn body armour (``base_ac`` + Dexterity capped by the armour + shield), or None
+    when no body armour resolves. Worn armour overrides any unarmoured-defence formula."""
+    inventory = sheet.get("inventory", {}) or {}
+    if not isinstance(inventory, dict):
+        return None
+    equipped = inventory.get("equipped", {}) or {}
+    if not isinstance(equipped, dict):
+        return None
+    armor_item = equipped.get("armor")
+    if not (isinstance(armor_item, dict) and armor_item.get("name")):
+        return None
+    aid = access.resolve("catalog_item", armor_item["name"])
+    if not aid:
+        return None
+    row = access.db.one("SELECT base_ac, dex_cap FROM armor WHERE id=?", aid)
+    if not row:
+        return None
+    cap = row["dex_cap"]
+    capped_dex = min(dex_mod, cap) if cap is not None and cap > 0 else (
+        0 if cap == 0 else dex_mod)
+    return (row["base_ac"] or 10) + capped_dex + shield_bonus
+
+
+def _best_unarmored_ac(sheet: dict, access, mod_abilities: dict, shield_bonus: int) -> int:
+    """The most-beneficial unarmoured-defence AC, re-derived independently from DB facts. Gathers the
+    universal ``unarmored`` base plus each class/subclass formula the character has (level-gated),
+    computes every candidate (``base`` + Σ ability mods, plus the shield only when the formula permits
+    one) and returns the highest — the rule that with several ways to calculate AC you benefit from
+    only one. Grounded in the reference DB, never the sheet's own armor_class_detail."""
+    core = sheet.get("core", {}) or {}
+    formulas = list(defenses_q.ac_formulas(access, "base", "unarmored"))
+    ident = core.get("identity", {}) or {}
+    classes = ident.get("classes", []) if isinstance(ident, dict) else []
+    if isinstance(classes, list):
+        for c in classes:
+            if not isinstance(c, dict):
+                continue
+            lvl = c.get("level")
+            at = lvl if _int(lvl) else 0
+            cid = access.resolve("class", c.get("class"))
+            if cid:
+                formulas.extend(defenses_q.ac_formulas(access, "class", cid, at))
+            sub = c.get("subclass")
+            if sub:
+                sid = access.resolve("subclass", sub)
+                if sid:
+                    formulas.extend(defenses_q.ac_formulas(access, "subclass", sid, at))
+
+    best: int | None = None
+    for f in formulas:
+        total = f["base"] + sum(_mod_for_ability(access, mod_abilities, aid)
+                                for aid in f["ability_ids"])
+        if f["allows_shield"]:
+            total += shield_bonus
+        if best is None or total > best:
+            best = total
+    if best is None:
+        return 10 + _mod_for_ability(access, mod_abilities, _DEX_ABILITY_ID) + shield_bonus
+    return best
+
+
+def _ac_magic_bonuses(sheet: dict, access) -> int:
+    """Flat AC bonuses that stack on top of the chosen formula/armour, re-derived from DB facts by
+    mirroring the deriver's active-effect sources: an attuned magic item's ``grant_bonus`` (ac) and
+    an active non-condition state's owner's ``grant_bonus`` (ac). Both apply on top of the base AC.
+    Permanent owners (species/feats/classes/subclasses) and passive-on-equip items do NOT contribute
+    an AC bonus in the deriver, so they are excluded here to keep the two paths in agreement."""
+    total = 0
+    mod = sheet.get("modifier", {}) or {}
+    inventory = sheet.get("inventory", {}) or {}
+    if not isinstance(inventory, dict):
+        inventory = {}
+
+    item_states = mod.get("item_states", []) or []
+    if isinstance(item_states, list):
+        for istate in item_states:
+            if not isinstance(istate, dict) or not istate.get("attuned"):
+                continue
+            name = _item_name_for_ref(inventory, istate.get("inventory_ref"))
+            if not name:
+                continue
+            mid = access.resolve("magic_item", name)
+            if not mid:
+                continue
+            total += sum(defenses_q.ac_bonus_grants(access, "magic_item", mid))
+
+    states = mod.get("character_states", []) or []
+    if isinstance(states, list):
+        for st in states:
+            if not isinstance(st, dict):
+                continue
+            owner_kind = _owner_kind_for_source_type(st.get("source_type", ""))
+            if owner_kind is None or owner_kind == "condition":
+                continue
+            owner_id = access.resolve(owner_kind, st.get("source"))
+            if owner_id is None:
+                continue
+            total += sum(defenses_q.ac_bonus_grants(access, owner_kind, owner_id))
+    return total
+
+
+def _expected_ac(sheet: dict, access) -> int | None:
+    """Independently re-derive the expected Armor Class from DB facts: worn body armour (base + capped
+    Dexterity + shield) OR, when unarmoured, the most-beneficial unarmoured-defence formula, plus any
+    magic AC bonuses. Never reads ``armor_class_detail`` — that is the whole point (a wrong base or
+    second ability the deriver wrote into the detail must still be caught)."""
+    mod = sheet.get("modifier", {}) or {}
+    mod_abilities = mod.get("abilities", {}) or {}
+    if not isinstance(mod_abilities, dict):
+        mod_abilities = {}
+    dex_mod = _mod_for_ability(access, mod_abilities, _DEX_ABILITY_ID)
+    shield_bonus = _shield_base_bonus(sheet, access)
+
+    base = _worn_armor_base(sheet, access, dex_mod, shield_bonus)
+    if base is None:
+        base = _best_unarmored_ac(sheet, access, mod_abilities, shield_bonus)
+    return base + _ac_magic_bonuses(sheet, access)
+
+
+def _check_ac(sheet: dict, access, v: list[Violation], transform: dict | None = None) -> None:
+    # Under a self-transform the effective AC is the form's flat AC (validated by _check_transform);
+    # the character's own armour/formula re-derivation does not apply.
+    if transform is not None:
+        return
     mod = sheet.get("modifier", {})
     ac = mod.get("armor_class")
-    detail = mod.get("armor_class_detail")
-    if not _int(ac) or not isinstance(detail, dict):
+    if not _int(ac):
         return
-
-    base = detail.get("base", 0)
-    dex = detail.get("dex_bonus", 0)
-    bonuses = detail.get("bonuses", [])
-    floor = detail.get("floor")
-
-    expected = base + dex
-    if isinstance(bonuses, list):
-        for b in bonuses:
-            if isinstance(b, dict) and _int(b.get("value")):
-                expected += b["value"]
-    if floor is not None and _int(floor):
-        expected = max(expected, floor)
-
+    expected = _expected_ac(sheet, access)
+    if expected is None:
+        return
     if ac != expected:
         v.append(Violation(DOMAIN, "ac-mismatch", "illegal",
                            f"armor_class {ac} != expected {expected}", "armor_class"))
@@ -1916,7 +2054,7 @@ def check(sheet: dict, access) -> list[Violation]:
     # ability-derived saves/skills/HP checks stay on, but transform-aware (fork 1 + 2).
     transform = _active_transform(sheet, access)
 
-    _check_ac(sheet, v)
+    _check_ac(sheet, access, v, transform)
     _check_ac_bonus_dedup(sheet, v)
     _check_saves(sheet, access, v, transform)
     _check_skills(sheet, access, v, transform)

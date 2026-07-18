@@ -1250,6 +1250,11 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO catalog_item VALUES ('mi-shield','Shield Alpha','armor','shield')")
     cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) "
                 "VALUES ('mi-shield','uncommon',1)")
+    # An attunement-required item granting a flat +1 AC (a protection-ring analogue) -- its AC
+    # bonus (grant_bonus, added in the grant_bonus block below) stacks on top of the chosen formula.
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-ac-ring','Ring Beta','wondrous','ring')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) "
+                "VALUES ('mi-ac-ring','rare',1)")
 
     cur.execute("CREATE TABLE magic_item_template (id INTEGER PRIMARY KEY, template_id TEXT, "
                 "base_kind TEXT, tier_id TEXT, range_class_id TEXT, base_item_id TEXT)")
@@ -1277,6 +1282,7 @@ def _build_rules_db(path: str) -> None:
         ("gb-ac-spell2","spell","sp1","ac",1,"src-spell-a"),
         ("gb-wpn-atk","spell","sp3","weapon_attack",1,"src-spell-c"),
         ("gb-wpn-dmg","spell","sp3","weapon_damage",1,"src-spell-c"),
+        ("gb-ac-item","magic_item","mi-ac-ring","ac",1,"Ring Beta"),
     ]:
         cur.execute("INSERT INTO grant_bonus (id,owner_kind,owner_id,target_kind,value,source_name) "
                     "VALUES (?,?,?,?,?,?)", (gbid, okind, oid, tkind, val, sn))
@@ -1313,9 +1319,25 @@ def _build_rules_db(path: str) -> None:
 
     cur.execute("CREATE TABLE ac_formula (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
                 "gained_at_level INT, base INT DEFAULT 10, allows_shield INT)")
-    cur.execute("INSERT INTO ac_formula VALUES ('acf-a','class','class-a',NULL,10,0)")
     cur.execute("CREATE TABLE ac_formula_ability (formula_id TEXT, ability_id TEXT)")
-    cur.execute("INSERT INTO ac_formula_ability VALUES ('acf-a','a2')")
+    # Alternative Armor-Class formulas (F05-T140). The universal base default (10 + Dexterity, shield
+    # permitted) is the fallback; class/subclass formulas add a second ability (a3) and may or may not
+    # permit a shield, exercising the most-beneficial pick + shield gate + level gate. Abilities are
+    # keyed by the canonical id ('dexterity'), matching how the derivation engine resolves them; a3
+    # stands in for a formula's second ability.
+    cur.execute("INSERT INTO ac_formula VALUES ('acf-base','base','unarmored',NULL,10,1)")
+    cur.execute("INSERT INTO ac_formula_ability VALUES ('acf-base','dexterity')")
+    # class-a: single-ability (Dexterity), NO shield permitted.
+    cur.execute("INSERT INTO ac_formula VALUES ('acf-a','class','class-a',NULL,10,0)")
+    cur.execute("INSERT INTO ac_formula_ability VALUES ('acf-a','dexterity')")
+    # class-b: two-ability (Dexterity + a3), NO shield permitted -- a formula that ignores a shield.
+    cur.execute("INSERT INTO ac_formula VALUES ('acf-b','class','class-b',1,10,0)")
+    cur.execute("INSERT INTO ac_formula_ability VALUES ('acf-b','dexterity')")
+    cur.execute("INSERT INTO ac_formula_ability VALUES ('acf-b','a3')")
+    # sub-a (a class-a subclass): two-ability (Dexterity + a3), shield permitted, gained at level 3.
+    cur.execute("INSERT INTO ac_formula VALUES ('acf-sub-a','subclass','sub-a',3,10,1)")
+    cur.execute("INSERT INTO ac_formula_ability VALUES ('acf-sub-a','dexterity')")
+    cur.execute("INSERT INTO ac_formula_ability VALUES ('acf-sub-a','a3')")
 
     cur.execute("CREATE TABLE grant_resource (id TEXT PRIMARY KEY, owner_kind TEXT, owner_id TEXT, "
                 "gained_at_level INT, condition_kind TEXT, name TEXT, uses_kind TEXT, uses_num INT, "
