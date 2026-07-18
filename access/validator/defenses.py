@@ -108,6 +108,39 @@ def save_advantage_grants(access: ValidatorAccess, owner_kind: str, owner_id: st
     return access.db.q(sql, *params)
 
 
+def check_advantage_grants(access: ValidatorAccess, owner_kind: str, owner_id: str,
+                           at_level: int | None = None) -> list:
+    """Raw always-on ability-check advantage grants for an owner, optionally level-gated.
+
+    Reads ``grant_d20_modifier`` rows scoped to an ability check (``target_kind='check'``) that
+    confer advantage (``modifier_id='advantage'``). Each row carries one structured ``scope`` (an
+    owner may confer several — one row per scope, mirroring the ``grant_save_advantage`` spine). Pure
+    DB read — the scope mapping lives in ``check_scope_for`` and the accumulation in the consumer, so
+    the deriver and the check each re-derive the resulting set independently."""
+    sql = ("SELECT id, target_kind, ability_id, modifier_id, scope "
+           "FROM grant_d20_modifier "
+           "WHERE owner_kind=? AND owner_id=? AND target_kind='check' AND modifier_id='advantage'")
+    params = [owner_kind, owner_id]
+    if at_level is not None:
+        sql += " AND (gained_at_level IS NULL OR gained_at_level<=?)"
+        params.append(at_level)
+    return access.db.q(sql, *params)
+
+
+def check_scope_for(access: ValidatorAccess, row: dict) -> str | None:
+    """Map a ``grant_d20_modifier`` check-advantage row to its check_advantages scope string.
+
+    The scope is read from the row's STRUCTURED ``scope`` column (one row per scope), not hardcoded:
+    an owner that confers advantage on several checks (e.g. the initiative roll AND a skill check)
+    carries one row per scope, each with the ability that governs that check (Initiative → Dexterity,
+    Athletics → Strength, Perception → Wisdom). Because the scope is data-driven and the ability is
+    per-row, a non-Dexterity check advantage is never mislabelled as ``initiative``. The free-text
+    ``scope_note`` stays render-only."""
+    if row["modifier_id"] == "advantage" and row["target_kind"] == "check":
+        return row["scope"]
+    return None
+
+
 def resistance_options(access: ValidatorAccess, grant_id: str) -> list[str]:
     """Damage-type option pool for a choose-mode resistance grant."""
     return [r["damage_type_id"]

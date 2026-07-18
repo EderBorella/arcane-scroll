@@ -319,6 +319,11 @@
           "type": "array",
           "items": { "type": "string" }
         },
+        "check_advantages": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Always-on advantage on ability checks by scope keyword (e.g. initiative). Merges CORE.permanent_defenses.check_advantages with active-effect grants. Additive: present only when non-empty."
+        },
         "condition_advantages": {
           "type": "array",
           "items": {
