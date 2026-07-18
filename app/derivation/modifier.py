@@ -309,6 +309,9 @@ def resolve_active_effects(core: dict, inventory: dict | None,
     # effective-ability mismatch (reconciliation debt (b)). Runs before the empty-state fast path so
     # a gearless, stateless build still resolves its permanent ability sets.
     _accumulate_owner_ability_sets(effects, core, access)
+    # Always-on granted attacks from the same permanent owners (species/feats/classes/subclasses),
+    # so a permanent-owner grant_attack materialises even for a gearless, stateless build.
+    _accumulate_owner_attacks(effects, core, access)
     has_equipped = isinstance(inventory, dict) and bool(inventory.get("equipped"))
     if not states and not item_states and not has_equipped:
         return effects
@@ -549,6 +552,50 @@ def _accumulate_owner_ability_sets(effects: ActiveEffects, core: dict, access):
         for row in grants_for(access.db, "grant_ability_set", owner_kind, owner_id, at_level):
             if row["mode"] in ("set", "floor"):
                 effects.ability_sets.append(dict(row))
+
+    _collect("species", access.resolve("species", ident.get("species")))
+
+    feats = core.get("feats")
+    if isinstance(feats, list):
+        for f in feats:
+            name = f if isinstance(f, str) else (f.get("name") if isinstance(f, dict) else None)
+            _collect("feat", access.resolve("feat", name))
+
+    classes = ident.get("classes")
+    if isinstance(classes, list):
+        for c in classes:
+            if not isinstance(c, dict):
+                continue
+            lvl = c.get("level")
+            at = lvl if isinstance(lvl, int) and not isinstance(lvl, bool) else 0
+            _collect("class", access.resolve("class", c.get("class")), at)
+            sub = c.get("subclass")
+            if sub:
+                _collect("subclass", access.resolve("subclass", sub), at)
+
+
+def _accumulate_owner_attacks(effects: ActiveEffects, core: dict, access):
+    """Always-on granted attacks from the character's PERMANENT owners — species, each feat, each
+    class, and each subclass — gated by class-entry level. Mirrors ``_accumulate_owner_ability_sets``:
+    a grant_attack on a permanent owner (not just an active state or an attuned item) reaches the
+    attack derivation. No such non-state, non-item grant exists in the reference dataset today, so
+    this is inert there; the synthetic ruleset carries one on a permanent owner, which this
+    materialises. Each row is tagged with its owner context (as ``_accumulate_attacks`` does) so a
+    'spellcasting' ability_mode still resolves against the granting owner."""
+    if not isinstance(core, dict):
+        return
+    ident = core.get("identity", {}) or {}
+    if not isinstance(ident, dict):
+        ident = {}
+
+    def _collect(owner_kind: str, owner_id, at_level=None) -> None:
+        if owner_id is None:
+            return
+        for row in grants_for(access.db, "grant_attack", owner_kind, owner_id, at_level):
+            g = dict(row)
+            g["owner_kind"] = owner_kind
+            g["owner_id"] = owner_id
+            effects.attack_grants.append(g)
 
     _collect("species", access.resolve("species", ident.get("species")))
 

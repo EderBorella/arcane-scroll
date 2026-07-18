@@ -499,6 +499,30 @@ def test_granted_finesse_mode_picks_strength_when_higher(access):
     assert a["damage"] == "1d4+5"
 
 
+# ── permanent-owner granted attack (always-on, no state) ─────────────────────
+
+
+def test_permanent_owner_granted_attack_materializes(access):
+    """A permanent owner (a feat) owning a finesse grant_attack materialises WITHOUT any active state
+    or item — the always-on owner path (mirrors the owner ability-set path)."""
+    core = _core(feats=[{"name": "Feat Owner Atk", "source": "bg-a"}])
+    effects = resolve_active_effects(core, None, [], [], access)
+    grants = [g for g in effects.attack_grants if g["owner_id"] == "feat-owneratk"]
+    assert len(grants) == 1 and grants[0]["owner_kind"] == "feat"
+    attacks = derive_attacks(core, None, {"strength": 1, "dexterity": 3}, [], effects, access)
+    a = [x for x in attacks if x["name"] == "Attack Owner"][0]
+    assert a["attack_bonus"] == 3 + 2     # finesse max(STR 1, DEX 3) + PB
+    assert a["damage"] == "1d6+3"
+    assert a["damage_type"] == "poison"
+
+
+def test_no_permanent_owner_attack_without_the_owner(access):
+    """The default core (which does not carry the granting feat) gains no permanent-owner attack."""
+    core = _core()
+    effects = resolve_active_effects(core, None, [], [], access)
+    assert [g for g in effects.attack_grants if g["owner_id"] == "feat-owneratk"] == []
+
+
 # ── stats-less magic weapon attack materialization (T56) ─────────────────────
 
 

@@ -619,6 +619,16 @@ def _build_rules_db(path: str) -> None:
                 " die_faces, damage_type, properties, note, condition_kind) "
                 "VALUES ('gat-finmode','spell','sp-finmode',NULL,'Attack Fin','finesse',"
                 "1,4,'fire',NULL,NULL,NULL)")
+    # A PERMANENT-OWNER granted attack (T-owner-path): a feat (a permanent owner, not a state or an
+    # item) owns a finesse grant_attack. Owned by a dedicated feat that no default fixture carries, so
+    # it is inert on the standard sheets and exercised only by the permanent-owner path tests. No such
+    # non-state, non-item grant exists in the reference dataset, so this path is inert there.
+    cur.execute("INSERT INTO feat VALUES ('feat-owneratk','Feat Owner Atk','general',0)")
+    cur.execute("INSERT INTO grant_attack "
+                "(id, owner_kind, owner_id, gained_at_level, name, ability_mode, die_count, "
+                " die_faces, damage_type, properties, note, condition_kind) "
+                "VALUES ('gat-owneratk','feat','feat-owneratk',NULL,'Attack Owner','finesse',"
+                "1,6,'poison',NULL,NULL,NULL)")
 
     cur.execute("INSERT INTO class_resource VALUES ('bonus-speed','class','class-a','Bonus Speed')")
     cur.execute("INSERT INTO class_resource_level VALUES ('bonus-speed',2,NULL,NULL,NULL,10)")

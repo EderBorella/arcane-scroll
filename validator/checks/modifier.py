@@ -504,6 +504,47 @@ def _assert_granted_attack(grant, ab_mod: int, pb, by_name: dict, v: list[Violat
                            f"{grant['damage_type']!r}", "attacks"))
 
 
+def _permanent_owner_granted_attacks(sheet: dict, access) -> list[tuple[str, str, object]]:
+    """Grant_attack rows from the character's always-on owners — species, feats, each class, and each
+    subclass — gated by class-entry level, each tagged with its (owner_kind, owner_id). Mirrors
+    ``_owner_ability_sets``: an independently rule-grounded owner set, inert until a non-state,
+    non-item grant_attack lands on one of these owners (none exist in the reference dataset today)."""
+    out: list[tuple[str, str, object]] = []
+    core = sheet.get("core", {}) or {}
+    if not isinstance(core, dict):
+        return out
+    ident = core.get("identity", {}) or {}
+    if not isinstance(ident, dict):
+        ident = {}
+
+    def _collect(owner_kind: str, owner_id, at_level=None) -> None:
+        if owner_id is None:
+            return
+        for grant in attacks_q.attack_grants(access, owner_kind, owner_id, at_level):
+            out.append((owner_kind, owner_id, grant))
+
+    _collect("species", access.resolve("species", ident.get("species")))
+
+    feats = core.get("feats")
+    if isinstance(feats, list):
+        for f in feats:
+            name = f if isinstance(f, str) else (f.get("name") if isinstance(f, dict) else None)
+            _collect("feat", access.resolve("feat", name))
+
+    classes = ident.get("classes")
+    if isinstance(classes, list):
+        for c in classes:
+            if not isinstance(c, dict):
+                continue
+            lvl = c.get("level")
+            at = lvl if isinstance(lvl, int) and not isinstance(lvl, bool) else 0
+            _collect("class", access.resolve("class", c.get("class")), at)
+            sub = c.get("subclass")
+            if sub:
+                _collect("subclass", access.resolve("subclass", sub), at)
+    return out
+
+
 def _check_granted_attacks(sheet: dict, access, v: list[Violation]) -> None:
     """Independently re-derive each effect-granted attack from grant_attack (never from the deriver's
     attacks[]) and assert it appears on the MODIFIER with the correct bonus, damage and type.
@@ -538,6 +579,12 @@ def _check_granted_attacks(sheet: dict, access, v: list[Violation]) -> None:
                                                  owner_kind, owner_id)
             _assert_granted_attack(grant, ab_mod, pb, by_name, v,
                                    context=f" (state {st.get('state')!r})")
+
+    # Permanent-owner pass: always-on granted attacks from species/feats/classes/subclasses.
+    for owner_kind, owner_id, grant in _permanent_owner_granted_attacks(sheet, access):
+        ab_mod = _granted_attack_ability_mod(access, core, mod_abilities, grant,
+                                             owner_kind, owner_id)
+        _assert_granted_attack(grant, ab_mod, pb, by_name, v, context=f" ({owner_kind} owner)")
 
 
 def _item_rider_active(sheet: dict, access, weapon_name: str, magic_item_id: str) -> bool:

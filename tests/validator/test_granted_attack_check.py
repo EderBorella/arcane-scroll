@@ -149,3 +149,29 @@ def test_strength_mode_wrong_bonus_flagged(access):
                   "damage_type": "poison", "weapon_mastery": None, "properties": ["light"]}],
         character_states=_strmode_state())
     assert "granted-attack-bonus-mismatch" in _granted_codes(sheet, access)
+
+
+# ── permanent-owner granted attack (always-on, no state) ─────────────────────
+
+
+def _with_owner_feat(sheet):
+    """Add the granting feat (a permanent owner) to CORE.feats so the permanent-owner pass reads it."""
+    sheet["core"]["feats"] = [{"name": "Feat Owner Atk", "source": "bg-a"}]
+    return sheet
+
+
+def test_permanent_owner_granted_attack_passes(access):
+    """A feat-owned finesse grant is re-derived from the permanent-owner pass (no active state):
+    max(STR 1, DEX 3) = 3 + PB 2 = 5, damage 1d6+3."""
+    sheet = _with_owner_feat(_sheet(
+        abilities=_str_dex(1, 3),
+        attacks=[{"name": "Attack Owner", "attack_bonus": 5, "damage": "1d6+3",
+                  "damage_type": "poison", "weapon_mastery": None, "properties": []}],
+        character_states=[]))
+    assert _granted_codes(sheet, access) == set()
+
+
+def test_permanent_owner_granted_attack_missing_flagged(access):
+    """The feat's attack is required even with no active state; omitting it is flagged incomplete."""
+    sheet = _with_owner_feat(_sheet(abilities=_str_dex(1, 3), attacks=[], character_states=[]))
+    assert "granted-attack-missing" in _granted_codes(sheet, access)
