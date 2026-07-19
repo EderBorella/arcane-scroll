@@ -70,9 +70,9 @@ item_states[].cumulative_seconds_used, prepared_spells, treasure.*, xp
 - **Content-neutral.** All 5 schemas are structural only. Game vocabulary (ability/skill/class/spell/
   species/condition names) is catalog-driven and never hard-coded.
 - **additionalProperties: false** at root of every schema — no field may appear without being defined.
-- **Legacy contract.** `item.schema.json` (v3) remains for backward compatibility during migration
-  (Phase D). It will be removed after migration is complete. The monolithic `character-sheet.schema.json`
-  (v10) has been retired — the five sub-schemas replaced it and nothing consumed it.
+- **Retired contracts.** The legacy standalone item contract has been removed — nothing consumed it
+  and the inventory sub-schema now owns item shape. The monolithic `character-sheet.schema.json`
+  (v10) has likewise been retired — the five sub-schemas replaced it and nothing consumed it.
 
 ## Legacy field migration
 

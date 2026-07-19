@@ -1,20 +1,13 @@
-"""Arcane Scroll API. Loads the catalog into memory at startup, exposes liveness/readiness, and
-mounts the generation controller."""
-from contextlib import asynccontextmanager
-
+"""Arcane Scroll API. Exposes liveness/readiness and mounts the generation controller. Data is read
+from the reference dataset through the access layer per request — there is no startup preload."""
 from fastapi import FastAPI
 
-from app import catalog
+from access.generator import GeneratorAccess
+from access.generator import catalog
 from app.controllers import generation
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    catalog.load()
-    yield
-
-
-app = FastAPI(title="Arcane Scroll", version="0.0.1", lifespan=lifespan)
+app = FastAPI(title="Arcane Scroll", version="0.0.1")
 app.include_router(generation.router)
 
 
@@ -26,9 +19,14 @@ def health():
 
 @app.get("/ready")
 def ready():
-    """Readiness — the catalog is loaded into memory (proves the data mount works)."""
+    """Readiness — the reference data is reachable (proves the data mount works). Opens a short-lived
+    access handle and reads a small, always-present enumeration; closes it on every path."""
     try:
-        cat = catalog.get_catalog()
-        return {"ready": True, **cat.stats()}
+        access = GeneratorAccess()
+        try:
+            abilities = len(catalog.list_abilities(access))
+        finally:
+            access.db.close()
+        return {"ready": True, "abilities": abilities}
     except Exception:                       # readiness must never throw — any failure means "not ready"
         return {"ready": False}
