@@ -1,7 +1,7 @@
 """Controller (HTTP): /v1/characters end-to-end with the model client mocked. Exercises the wiring
-(catalog singleton via lifespan, request validation, the DAL choice grammar + derivation pipeline),
-not the model. /v1/characters now returns the five-schema document; each part is asserted to conform
-to its live sub-schema AND to pass its rule validator."""
+(request validation, the DAL choice grammar + derivation pipeline), not the model. /v1/characters
+now returns the five-schema document; each part is asserted to conform to its live sub-schema AND to
+pass its rule validator."""
 import json
 import pathlib
 
@@ -51,14 +51,17 @@ def _fake_model(prompt, schema, **kw):
 
 
 @pytest.fixture
-def client(db_path, rules_db, monkeypatch):
-    # db_path builds + points at the old catalog (backstory); rules_db builds the DAL rules DB that
-    # the /characters pipeline reads via $ARCANE_RULES_DB.
+def client(rules_db, monkeypatch):
+    # rules_db builds the DAL rules DB that the /characters + /backstory pipeline reads via
+    # $ARCANE_RULES_DB. The model client is mocked, so no real backend is contacted; OLLAMA_URL/MODEL
+    # are set only to satisfy the client module's env reads.
     monkeypatch.setenv("ARCANE_RULES_DB", rules_db)
+    monkeypatch.setenv("OLLAMA_URL", "http://test")
+    monkeypatch.setenv("MODEL", "test-model")
     import app.generation.client as model_client
     monkeypatch.setattr(model_client, "generate", _fake_model)
     from app.main import app
-    with TestClient(app) as c:        # lifespan loads the synthetic catalog from ARCANE_DB_PATH
+    with TestClient(app) as c:
         yield c
 
 
