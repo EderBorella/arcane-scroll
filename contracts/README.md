@@ -74,6 +74,44 @@ item_states[].cumulative_seconds_used, prepared_spells, treasure.*, xp
   and the inventory sub-schema now owns item shape. The monolithic `character-sheet.schema.json`
   (v10) has likewise been retired — the five sub-schemas replaced it and nothing consumed it.
 
+## Orchestrator contracts (F07)
+
+Two contracts front the orchestrator's generator-independent endpoints
+(`/v1/derive`, `/validate-document`). Both are **pre-1.0** and may break until F07
+closes.
+
+| Schema | URN | Purpose |
+|--------|-----|---------|
+| **CHARACTER_DOCUMENT** | `urn:arcane:contract:character-document:1` | Transport envelope `{core, inventory?, grimoire?, modifier?, companion?}`. `core` is the only required sheet; each present sheet `$ref`s and validates against its own contract. Structural only — rule-math validation stays in the per-sheet validators. |
+| **COMPLETENESS_REPORT** | `urn:arcane:contract:completeness-report:1` | The derive/validate response. Extends the validator verdict `{legal, complete, violations[], summary}` with `awaiting_choices` and a typed `manifest[]`. |
+
+**Minimal accepted core** = species · background · class · subclass · level. From
+these the orchestrator derives everything derivable and flags the rest; choice
+fields are never invented.
+
+### The completeness manifest
+
+Each `manifest[]` entry is one completeness issue — a missing or over-filled
+choice — typed for machines and carrying a human `description`:
+
+| Field | Meaning |
+|-------|---------|
+| `choice_key` | stable, deterministic public id — a readable `section.path` (e.g. `core.classes.0.subclass`), identical across stateless calls so a UI can track a choice |
+| `section` | `core \| grimoire \| inventory \| companion` (manifest is ordered by this) |
+| `path` | field path within the section (e.g. `classes[0].subclass`) |
+| `resource` | generic KIND to choose (`subclass`, `feat`, `spell`, `skill`, `expertise`, `tool`, `language`, …) |
+| `type` | `missing \| too_few \| too_many` |
+| `count` | `{required?, min?, max?, filled}` — drives "2 feats missing", "too many skills, max 3" |
+| `status` | `required` (drives `awaiting_choices`) vs `optional` |
+| `description` | human string — non-authoritative convenience only |
+
+**Flag-only (liability principle).** The manifest names *what* is missing/over —
+the generic kind and the counts — and **never an options pool, a source-specific
+name, or any source content.** The caller already holds the source and inputs
+their pick; the service validates/derives/flags it, it does not hand back a menu.
+`choice_key` is deterministic (a pure function of section + path), never server
+state, so reports diff cleanly across stateless calls.
+
 ## Legacy field migration
 
 The old v10 `character-sheet.schema.json` single-contract fields split as follows:
