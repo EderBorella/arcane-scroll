@@ -1727,6 +1727,33 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO magic_item_template (template_id,base_kind,base_item_id) "
                 "VALUES ('mi-ambi-blade','weapon','weapon-b')")
 
+    # T145 fixtures: magic ARMOUR / SHIELD as a base+enchantment overlay (mirroring the magic-weapon
+    # base link). A magic armour is catalogued as armour but carries no ``armor`` stats row of its own;
+    # its base is a template link (single base) OR a player choice on the sheet (``base_item``), and it
+    # may carry its own ``ac`` grant_bonus enchantment (source_name = the item id, as in the reference
+    # data). Both require attunement, so the SAME fixture exercises non-attuned (enchantment still
+    # applies, equip-gated) and attuned (no double-count).
+    #   'mi-armor'         -> single template base 'armor-d' (heavy, base 16, Dex cap 0), +1 ac.
+    #   'mi-armor-generic' -> NO template base (a generic '+2 armour'), +2 ac; base is chosen on the
+    #                          sheet's ``base_item`` (unresolvable without it -> graceful fallthrough).
+    #   'mi-shield'        -> existing magic shield (no armor row); base +2 re-derived from the mundane
+    #                          shield, plus its own +1 ac enchantment (added here).
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-armor','Armor Alpha','armor','armor')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) "
+                "VALUES ('mi-armor','rare',1)")
+    cur.execute("INSERT INTO magic_item_template (template_id,base_kind,base_item_id) "
+                "VALUES ('mi-armor','armor','armor-d')")
+    cur.execute("INSERT INTO grant_bonus (id,owner_kind,owner_id,target_kind,value,source_name) "
+                "VALUES ('gb-ac-mi-armor','magic_item','mi-armor','ac',1,'mi-armor')")
+    cur.execute("INSERT INTO catalog_item VALUES ('mi-armor-generic','Armor Gamma','armor','armor')")
+    cur.execute("INSERT INTO magic_item (id,rarity_id,requires_attunement) "
+                "VALUES ('mi-armor-generic','rare',1)")
+    cur.execute("INSERT INTO grant_bonus (id,owner_kind,owner_id,target_kind,value,source_name) "
+                "VALUES ('gb-ac-mi-armor-generic','magic_item','mi-armor-generic','ac',2,"
+                "'mi-armor-generic')")
+    cur.execute("INSERT INTO grant_bonus (id,owner_kind,owner_id,target_kind,value,source_name) "
+                "VALUES ('gb-ac-mi-shield','magic_item','mi-shield','ac',1,'mi-shield')")
+
     # T57 fixtures: a magic weapon owning MULTIPLE extra_damage rows, disambiguated by condition_kind.
     # 'mi-multi-blade' (martial melee, no attunement) owns an ungated base rider (+1d6) and a gated
     # variant (+3d6, condition_kind 'gated-variant'). The deriver/validator fold ONLY the single

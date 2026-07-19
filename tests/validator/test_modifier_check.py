@@ -238,6 +238,98 @@ def test_ac_validator_independent_of_detail_rubber_stamp(access):
     assert "ac-mismatch" in _codes(sheet, access)
 
 
+# ── magic armour / shield as base + enchantment overlay (F05-T145) ────────────
+
+
+def test_ac_magic_armor_single_base(access):
+    """A magic body armour with no armor row re-derives its base from the single template base (heavy
+    'armor-d', base 16, Dex cap 0) plus its own +1 ac enchantment: 17."""
+    sheet = _ac_sheet([], equipped={"armor": {"id": "a1", "name": "Armor Alpha"}})
+    sheet["modifier"]["armor_class"] = 17
+    assert "ac-mismatch" not in _codes(sheet, access)
+    sheet["modifier"]["armor_class"] = 16  # enchantment dropped
+    assert "ac-mismatch" in _codes(sheet, access)
+
+
+def test_ac_magic_armor_sheet_chosen_base(access):
+    """A generic magic armour (no template base) re-derives its base from the sheet's ``base_item``
+    (light 'armor-e', base 11) plus its own +2 ac: 11 + Dex(3) + 2 = 16."""
+    sheet = _ac_sheet([], equipped={
+        "armor": {"id": "a1", "name": "Armor Gamma", "base_item": "armor-e"}})
+    sheet["modifier"]["armor_class"] = 16
+    assert "ac-mismatch" not in _codes(sheet, access)
+    sheet["modifier"]["armor_class"] = 14  # wrong base / missing enchantment
+    assert "ac-mismatch" in _codes(sheet, access)
+
+
+def test_ac_magic_shield(access):
+    """A magic shield with no armor row re-derives its base +2 plus its own +1 ac enchantment on the
+    shield-permitting base formula: 10 + Dex(3) + 3 = 16."""
+    sheet = _ac_sheet([], equipped={"shield": {"id": "s1", "name": "Shield Alpha"}})
+    sheet["modifier"]["armor_class"] = 16
+    assert "ac-mismatch" not in _codes(sheet, access)
+    sheet["modifier"]["armor_class"] = 13  # shield base + enchantment dropped
+    assert "ac-mismatch" in _codes(sheet, access)
+
+
+def test_ac_magic_armor_and_shield_combined(access):
+    """Worn magic armour + magic shield: 16 + 0 Dex + shield(2+1) + armour(1) = 20."""
+    sheet = _ac_sheet([], equipped={
+        "armor": {"id": "a1", "name": "Armor Alpha"},
+        "shield": {"id": "s1", "name": "Shield Alpha"},
+    })
+    sheet["modifier"]["armor_class"] = 20
+    assert "ac-mismatch" not in _codes(sheet, access)
+
+
+def test_ac_worn_magic_armor_attuned_not_double_counted(access):
+    """A worn magic armour credited in the base path is EXCLUDED from the magic-bonus channel, so an
+    attuned worn armour is not double-counted: it stays 17, not 18."""
+    sheet = _ac_sheet([], equipped={"armor": {"id": "a1", "name": "Armor Alpha"}},
+                      item_states=[{"inventory_ref": "a1", "attuned": True}])
+    sheet["modifier"]["armor_class"] = 17
+    assert "ac-mismatch" not in _codes(sheet, access)
+    sheet["modifier"]["armor_class"] = 18  # the double-counted value
+    assert "ac-mismatch" in _codes(sheet, access)
+
+
+def test_ac_magic_armor_unresolved_base_falls_through(access):
+    """A generic magic armour with no template base and no sheet ``base_item`` cannot resolve a base:
+    the expected AC falls through to Unarmoured Defence, and its enchantment is dropped too."""
+    sheet = _ac_sheet([], equipped={"armor": {"id": "a1", "name": "Armor Gamma"}})
+    sheet["modifier"]["armor_class"] = 13
+    assert "ac-mismatch" not in _codes(sheet, access)
+    sheet["modifier"]["armor_class"] = 15  # enchantment wrongly applied to a guessed base
+    assert "ac-mismatch" in _codes(sheet, access)
+
+
+def test_ac_magic_armor_independent_of_detail(access):
+    """The re-derivation never trusts armor_class_detail: a detail that 'agrees' with a wrong AC (16)
+    is still flagged, because the DB re-derivation expects 17 (base 16 + enchantment 1)."""
+    sheet = _ac_sheet([], equipped={"armor": {"id": "a1", "name": "Armor Alpha"}})
+    sheet["modifier"]["armor_class"] = 16
+    sheet["modifier"]["armor_class_detail"] = {
+        "source": "mi-armor", "base": 16, "dex_bonus": 0, "bonuses": [], "floor": None,
+    }
+    assert "ac-mismatch" in _codes(sheet, access)
+
+
+def test_ac_deriver_validator_agree_magic_armor_and_shield(access):
+    """The deriver's own AC output passes the INDEPENDENT validator re-derivation for worn magic
+    armour + magic shield with the armour attuned — the two layers agree without sharing code."""
+    from app.derivation.modifier import derive_ac, resolve_active_effects
+    sheet = _ac_sheet([], equipped={
+        "armor": {"id": "a1", "name": "Armor Alpha"},
+        "shield": {"id": "s1", "name": "Shield Alpha"},
+    }, item_states=[{"inventory_ref": "a1", "attuned": True}])
+    core, inventory = sheet["core"], sheet["inventory"]
+    effects = resolve_active_effects(
+        core, inventory, [], sheet["modifier"]["item_states"], access)
+    ac, _ = derive_ac(core, inventory, effects, {"dexterity": 3}, access)
+    sheet["modifier"]["armor_class"] = ac
+    assert "ac-mismatch" not in _codes(sheet, access)
+
+
 # ── saving throws ────────────────────────────────────────────────────────────
 
 

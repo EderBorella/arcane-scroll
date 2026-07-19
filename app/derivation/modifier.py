@@ -923,17 +923,42 @@ def derive_ac(core: dict, inventory: dict | None, effects: ActiveEffects, abilit
     armor_item = equipped.get("armor")
     shield_item = equipped.get("shield")
 
-    # The equipped shield's base AC bonus (from the armour catalogue), applied by the branches below
-    # per the armour/formula rules: worn armour always permits a shield; an unarmoured-defence formula
-    # only when it allows one.
+    # Magic items worn in the armour / shield slots: their OWN 'ac' enchantment applies while equipped
+    # (attunement-agnostic) and is credited ONCE in the base path (below), never again via the
+    # active-effect ac loop — so an attuned worn item is not double-counted (F05-T145).
+    armor_mid = (access.resolve("magic_item", armor_item["name"])
+                 if isinstance(armor_item, dict) and armor_item.get("name") else None)
+    shield_mid = (access.resolve("magic_item", shield_item["name"])
+                  if isinstance(shield_item, dict) and shield_item.get("name") else None)
+    worn_ac_source_ids = {mid for mid in (armor_mid, shield_mid) if mid}
+
+    # The equipped shield's base AC bonus (from the armour catalogue) plus its own 'ac' enchantment.
+    # A mundane shield carries its own +2 ``armor`` row; a magic shield carries none, so the base +2 is
+    # re-derived from the mundane shield base. Both fold into ``shield_bonus``, applied by the branches
+    # below per the armour/formula rules: worn armour always permits a shield; an unarmoured-defence
+    # formula only when it allows one (so the shield's enchantment shares the shield's own gating). The
+    # enchantment is added only when the shield base itself resolves, so an unresolvable shield never
+    # contributes an orphan enchantment (keeps both layers in agreement).
     shield_bonus = 0
     if isinstance(shield_item, dict) and shield_item.get("name"):
         shield_id = access.resolve("catalog_item", shield_item["name"])
+        shield_base_resolved = False
         if shield_id:
             srow = access.db.one(
                 "SELECT ac_bonus FROM armor WHERE id=? AND category_id='shield'", shield_id)
             if srow and srow["ac_bonus"]:
                 shield_bonus = srow["ac_bonus"]
+                shield_base_resolved = True
+            else:
+                base_shield_id = inventory_q.resolve_shield_base(access, shield_id)
+                brow = access.db.one(
+                    "SELECT ac_bonus FROM armor WHERE id=?", base_shield_id) if base_shield_id \
+                    else None
+                if brow and brow["ac_bonus"]:
+                    shield_bonus = brow["ac_bonus"]
+                    shield_base_resolved = True
+        if shield_mid and shield_base_resolved:
+            shield_bonus += sum(defenses_q.ac_bonus_grants(access, "magic_item", shield_mid))
 
     bonuses = []
     floor = effects.ac_floor
@@ -941,12 +966,22 @@ def derive_ac(core: dict, inventory: dict | None, effects: ActiveEffects, abilit
     base = None
     source = "unarmored"
     dex_bonus = dex_mod
+    armor_base_resolved = False
     if isinstance(armor_item, dict) and armor_item.get("name"):
         armor_id = access.resolve("catalog_item", armor_item["name"])
         if armor_id:
             arow = access.db.one(
                 "SELECT base_ac, dex_cap, ac_bonus, category_id FROM armor WHERE id=?",
                 armor_id)
+            if arow is None:
+                # Magic body armour: no ``armor`` row of its own — re-derive the worn base's stats from
+                # the player-chosen base (sheet ``base_item``) or the item's single template base.
+                base_armor_id = inventory_q.resolve_armor_base(
+                    access, armor_id, armor_item.get("base_item"))
+                if base_armor_id:
+                    arow = access.db.one(
+                        "SELECT base_ac, dex_cap, ac_bonus, category_id FROM armor WHERE id=?",
+                        base_armor_id)
             if arow:
                 cap = arow["dex_cap"]
                 dex_bonus = min(dex_mod, cap) if cap is not None and cap > 0 else (
@@ -955,14 +990,31 @@ def derive_ac(core: dict, inventory: dict | None, effects: ActiveEffects, abilit
                 # shield's AC bonus on top.
                 base = (arow["base_ac"] or 10) + dex_bonus + shield_bonus
                 source = armor_id
+                armor_base_resolved = True
 
     if base is None:
-        # No body armour worn: pick the most-beneficial applicable Armor-Class formula.
+        # No resolvable body armour: pick the most-beneficial applicable Armor-Class formula. A magic
+        # armour whose base can't be resolved (generic, no sheet ``base_item``) falls through here —
+        # the base is never guessed, and its enchantment is dropped too (both layers agree).
         base, dex_bonus, source = _best_unarmored_ac(
             access, core, abilities, dex_mod, shield_bonus)
 
+    # Worn body armour's own 'ac' enchantment overlay: credited once here (equip-gated,
+    # attunement-agnostic) as a bonus line, only when the armour base resolved. The shield's
+    # enchantment is already folded into ``shield_bonus`` above (so it shares the shield's gating).
+    if armor_mid and armor_base_resolved:
+        for val in defenses_q.ac_bonus_grants(access, "magic_item", armor_mid):
+            if val:
+                bonuses.append({"value": val, "source": armor_mid})
+                base += val
+
     for b in effects.bonuses:
         if b["target_kind"] == "ac" and b["value"]:
+            # A worn armour/shield's own ac is applied in the base path above; skip it here so an
+            # attuned worn item is not double-counted. effects.bonuses then carries only NON-worn ac
+            # (rings, cloaks, bracers, active states).
+            if b.get("source_name") in worn_ac_source_ids:
+                continue
             bonuses.append({"value": b["value"], "source": b.get("source_name", "")})
             base += b["value"]
 
