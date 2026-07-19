@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:arcane:contract:character-document:1",
+  "title": "Character Document",
+  "description": "Transport envelope bundling a character's sheets across the 5-schema split for the orchestrator's derive/validate endpoints. CORE is the only required sheet — it is the authoritative source the others derive from; the remaining sheets are optional and, when present, each validates against its own contract via $ref. Structural only: rule-math validation is delegated to the per-sheet validators. Pre-1.0, may break until F07 closes.",
+  "type": "object",
+  "required": ["core"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "description": "Envelope contract version. Optional in light v1; becomes required at 1.0."
+    },
+    "core": {
+      "description": "The authoritative CORE sheet. The minimal accepted core carries species, background, class, subclass and level; everything derivable is derived from it, the rest is flagged.",
+      "$ref": "urn:arcane:contract:core-sheet:1"
+    },
+    "inventory": {
+      "$ref": "urn:arcane:contract:inventory:1"
+    },
+    "grimoire": {
+      "$ref": "urn:arcane:contract:grimoire:1"
+    },
+    "modifier": {
+      "$ref": "urn:arcane:contract:modifier-sheet:1"
+    },
+    "companion": {
+      "$ref": "urn:arcane:contract:companion-modifier:1"
+    }
+  }
+}
