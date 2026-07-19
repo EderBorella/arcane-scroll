@@ -105,7 +105,7 @@ def resolve_armor_base(access: ValidatorAccess, item_id: str,
     * (a) the base the sheet records (``base_item``) when it resolves to an ``armor`` row — a generic
       magic armour ('Armor, +1') has no fixed base, so the worn base is a player choice on the sheet;
     * (b) the item's own ``armor`` row when it has one (a mundane armour, or a magic armour that does);
-    * (c) the single distinct ``magic_item_template.base_item_id`` (``base_kind`` armour/shield) that
+    * (c) the single distinct ``magic_item_template.base_item_id`` (``base_kind`` armour) that
       resolves to an ``armor`` row — deterministic only when the template names EXACTLY one such base;
       a multi-base template is ambiguous, so it returns None (the base is never guessed);
     * (d) otherwise None.
@@ -123,7 +123,7 @@ def resolve_armor_base(access: ValidatorAccess, item_id: str,
         return item_id
     rows = access.db.q(
         "SELECT DISTINCT base_item_id FROM magic_item_template "
-        "WHERE template_id=? AND base_kind IN ('armor','shield') AND base_item_id IS NOT NULL",
+        "WHERE template_id=? AND base_kind='armor' AND base_item_id IS NOT NULL",
         item_id)
     bases = sorted({r["base_item_id"] for r in rows
                     if _has_armor_row(access, r["base_item_id"])})
@@ -140,7 +140,7 @@ def resolve_shield_base(access: ValidatorAccess, item_id: str) -> str | None:
     the slotted shield for the caller; the base itself is universal. Pure DB read — the +2 add and the
     allows-shield gating stay with the consumer."""
     row = access.db.one(
-        "SELECT id FROM armor WHERE category_id='shield' AND ac_bonus=2 ORDER BY id LIMIT 1")
+        "SELECT id FROM armor WHERE category_id='shield' ORDER BY id LIMIT 1")
     return row["id"] if row else None
 
 
