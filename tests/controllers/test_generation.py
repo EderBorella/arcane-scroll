@@ -99,7 +99,7 @@ def _assert_document_conforms(doc, rules_db):
 def test_health_and_ready(client):
     assert client.get("/health").json() == {"status": "ok"}
     ready = client.get("/ready").json()
-    assert ready["ready"] is True and ready["records_total"] > 0
+    assert ready["ready"] is True and ready["abilities"] > 0
 
 
 def test_post_characters_noncaster_document(client, rules_db):

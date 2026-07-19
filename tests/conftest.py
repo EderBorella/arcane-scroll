@@ -6,8 +6,6 @@ import sqlite3
 
 import pytest
 
-from app.catalog import Catalog
-
 
 def _build_synthetic_db(path: str) -> None:
     con = sqlite3.connect(path)
@@ -291,11 +289,6 @@ def db_path(tmp_path, monkeypatch) -> str:
     monkeypatch.setenv("OLLAMA_URL", "http://test")
     monkeypatch.setenv("MODEL", "test-model")
     return str(p)
-
-
-@pytest.fixture
-def catalog(db_path) -> Catalog:
-    return Catalog(db_path)
 
 
 def _build_rules_db(path: str) -> None:
