@@ -265,6 +265,84 @@ def test_derive_ac_no_formula_class_falls_back_to_base(access):
     assert detail["source"] == "unarmored"
 
 
+# ── magic armour / shield as base + enchantment overlay (F05-T145) ────────────
+
+
+def test_derive_ac_magic_armor_single_base(access):
+    """A magic body armour with no armor row re-derives its base from the single template base (heavy
+    Armor Alpha -> 'armor-d', base 16, Dex cap 0) and adds its own +1 ac enchantment: 17."""
+    core = _core_classes([])
+    inventory = {"equipped": {"armor": {"id": "a1", "name": "Armor Alpha"}}}
+    ac, detail = derive_ac(core, inventory, _empty_effects(), {"dexterity": 3}, access)
+    assert ac == 17  # 16 base + 0 Dex (cap 0) + 1 enchantment
+    assert detail["source"] == "mi-armor"
+    assert detail["dex_bonus"] == 0
+    assert detail["bonuses"] == [{"value": 1, "source": "mi-armor"}]
+
+
+def test_derive_ac_magic_armor_sheet_chosen_base(access):
+    """A generic magic armour (no template base) re-derives its base from the sheet's ``base_item``
+    (light 'armor-e', base 11, uncapped) and adds its own +2 ac: 11 + Dex(3) + 2 = 16."""
+    core = _core_classes([])
+    inventory = {"equipped": {"armor": {"id": "a1", "name": "Armor Gamma", "base_item": "armor-e"}}}
+    ac, detail = derive_ac(core, inventory, _empty_effects(), {"dexterity": 3}, access)
+    assert ac == 16
+    assert detail["source"] == "mi-armor-generic"
+    assert detail["bonuses"] == [{"value": 2, "source": "mi-armor-generic"}]
+
+
+def test_derive_ac_magic_shield(access):
+    """A magic shield with no armor row re-derives its base +2 from the mundane shield and adds its
+    own +1 ac enchantment: unarmoured 10 + Dex(3) + (2 + 1) = 16 (base formula permits a shield)."""
+    core = _core_classes([])
+    inventory = {"equipped": {"shield": {"id": "s1", "name": "Shield Alpha"}}}
+    ac, _ = derive_ac(core, inventory, _empty_effects(), {"dexterity": 3}, access)
+    assert ac == 16
+
+
+def test_derive_ac_magic_armor_and_shield_combined(access):
+    """Worn magic armour + magic shield: 16 (heavy base) + 0 Dex + shield(2 base + 1 ench) + armour(1
+    ench) = 20. Only the armour's enchantment is a separate bonus line (the shield's folds into base)."""
+    core = _core_classes([])
+    inventory = {"equipped": {
+        "armor": {"id": "a1", "name": "Armor Alpha"},
+        "shield": {"id": "s1", "name": "Shield Alpha"},
+    }}
+    ac, detail = derive_ac(core, inventory, _empty_effects(), {"dexterity": 3}, access)
+    assert ac == 20
+    assert detail["bonuses"] == [{"value": 1, "source": "mi-armor"}]
+
+
+def test_derive_ac_worn_magic_armor_attuned_no_double_count(access):
+    """A worn magic armour's own ac applies exactly ONCE whether or not it is attuned. Attunement
+    routes the ac grant through effects.bonuses too, but the base path already credited it, so the
+    active-effect loop skips it (no double-count)."""
+    core = _core_classes([])
+    inventory = {"equipped": {"armor": {"id": "a1", "name": "Armor Alpha"}}}
+    abilities = {"dexterity": 3}
+
+    non_attuned = resolve_active_effects(core, inventory, [], [], access)
+    ac_off, _ = derive_ac(core, inventory, non_attuned, abilities, access)
+
+    attuned = resolve_active_effects(
+        core, inventory, [], [{"inventory_ref": "a1", "attuned": True}], access)
+    ac_on, detail = derive_ac(core, inventory, attuned, abilities, access)
+
+    assert ac_off == 17
+    assert ac_on == 17  # NOT 18 -- the enchantment is not double-counted
+    assert detail["bonuses"] == [{"value": 1, "source": "mi-armor"}]
+
+
+def test_derive_ac_magic_armor_unresolved_base_falls_through(access):
+    """A generic magic armour with no template base and no sheet ``base_item`` cannot resolve a base:
+    AC falls through to Unarmoured Defence and the enchantment is dropped too (base never guessed)."""
+    core = _core_classes([])
+    inventory = {"equipped": {"armor": {"id": "a1", "name": "Armor Gamma"}}}
+    ac, detail = derive_ac(core, inventory, _empty_effects(), {"dexterity": 3}, access)
+    assert ac == 13  # 10 + Dex(3); the +2 enchantment does NOT apply without a resolved base
+    assert detail["source"] == "unarmored"
+
+
 # ── derive_speed ─────────────────────────────────────────────────────────────
 
 

@@ -103,8 +103,12 @@ _DEX_ABILITY_ID = "dexterity"
 
 
 def _shield_base_bonus(sheet: dict, access) -> int:
-    """The equipped shield's base AC bonus from the armour catalogue (0 when no shield is equipped or
-    it carries none — e.g. a magic shield whose only AC is a separate ``grant_bonus``)."""
+    """The equipped shield's AC contribution: its base +2 PLUS its own ``ac`` enchantment.
+
+    A mundane shield carries its own +2 ``armor`` row; a magic shield carries none, so the base +2 is
+    re-derived from the mundane shield base and the item's own ``grant_bonus`` (ac) enchantment is
+    added on top (F05-T145). 0 when no shield is equipped. Both fold into the shield bonus so they
+    share the shield's allows-shield gating — mirroring the deriver."""
     inventory = sheet.get("inventory", {}) or {}
     if not isinstance(inventory, dict):
         return 0
@@ -119,12 +123,29 @@ def _shield_base_bonus(sheet: dict, access) -> int:
         return 0
     row = access.db.one(
         "SELECT ac_bonus FROM armor WHERE id=? AND category_id='shield'", sid)
-    return row["ac_bonus"] if row and row["ac_bonus"] else 0
+    if row and row["ac_bonus"]:
+        bonus, resolved = row["ac_bonus"], True
+    else:
+        base_sid = inventory_q.resolve_shield_base(access, sid)
+        brow = access.db.one("SELECT ac_bonus FROM armor WHERE id=?", base_sid) if base_sid else None
+        bonus, resolved = (brow["ac_bonus"], True) if brow and brow["ac_bonus"] else (0, False)
+    # The shield's own enchantment shares the base's gating: added only when the base resolves, so an
+    # unresolvable shield never contributes an orphan enchantment (mirrors the deriver).
+    mid = access.resolve("magic_item", shield_item["name"])
+    if mid and resolved:
+        bonus += sum(defenses_q.ac_bonus_grants(access, "magic_item", mid))
+    return bonus
 
 
 def _worn_armor_base(sheet: dict, access, dex_mod: int, shield_bonus: int) -> int | None:
-    """The AC from worn body armour (``base_ac`` + Dexterity capped by the armour + shield), or None
-    when no body armour resolves. Worn armour overrides any unarmoured-defence formula."""
+    """The AC from worn body armour (``base_ac`` + Dexterity capped by the armour + shield + the
+    armour's own enchantment), or None when no body armour resolves. Worn armour overrides any
+    unarmoured-defence formula.
+
+    A magic armour with no ``armor`` row of its own re-derives its base stats from the player-chosen
+    base (sheet ``base_item``) or its single template base, and adds its own ``grant_bonus`` (ac)
+    enchantment on top (F05-T145). An unresolvable base returns None → graceful fallthrough to an
+    unarmoured formula (the base is never guessed; both layers agree)."""
     inventory = sheet.get("inventory", {}) or {}
     if not isinstance(inventory, dict):
         return None
@@ -139,11 +160,19 @@ def _worn_armor_base(sheet: dict, access, dex_mod: int, shield_bonus: int) -> in
         return None
     row = access.db.one("SELECT base_ac, dex_cap FROM armor WHERE id=?", aid)
     if not row:
-        return None
+        base_aid = inventory_q.resolve_armor_base(access, aid, armor_item.get("base_item"))
+        row = access.db.one(
+            "SELECT base_ac, dex_cap FROM armor WHERE id=?", base_aid) if base_aid else None
+        if not row:
+            return None
     cap = row["dex_cap"]
     capped_dex = min(dex_mod, cap) if cap is not None and cap > 0 else (
         0 if cap == 0 else dex_mod)
-    return (row["base_ac"] or 10) + capped_dex + shield_bonus
+    base = (row["base_ac"] or 10) + capped_dex + shield_bonus
+    mid = access.resolve("magic_item", armor_item["name"])
+    if mid:
+        base += sum(defenses_q.ac_bonus_grants(access, "magic_item", mid))
+    return base
 
 
 def _best_unarmored_ac(sheet: dict, access, mod_abilities: dict, shield_bonus: int) -> int:
@@ -184,17 +213,40 @@ def _best_unarmored_ac(sheet: dict, access, mod_abilities: dict, shield_bonus: i
     return best
 
 
+def _worn_ac_item_ids(sheet: dict, access) -> set:
+    """The magic-item ids equipped in the armour and shield slots. Their own ``ac`` enchantment is
+    credited in the base path (``_worn_armor_base`` / ``_shield_base_bonus``), so ``_ac_magic_bonuses``
+    excludes them to avoid double-counting an attuned worn armour/shield (F05-T145)."""
+    inventory = sheet.get("inventory", {}) or {}
+    if not isinstance(inventory, dict):
+        return set()
+    equipped = inventory.get("equipped", {}) or {}
+    if not isinstance(equipped, dict):
+        return set()
+    ids = set()
+    for slot in ("armor", "shield"):
+        item = equipped.get(slot)
+        if isinstance(item, dict) and item.get("name"):
+            mid = access.resolve("magic_item", item["name"])
+            if mid:
+                ids.add(mid)
+    return ids
+
+
 def _ac_magic_bonuses(sheet: dict, access) -> int:
     """Flat AC bonuses that stack on top of the chosen formula/armour, re-derived from DB facts by
     mirroring the deriver's active-effect sources: an attuned magic item's ``grant_bonus`` (ac) and
     an active non-condition state's owner's ``grant_bonus`` (ac). Both apply on top of the base AC.
     Permanent owners (species/feats/classes/subclasses) and passive-on-equip items do NOT contribute
-    an AC bonus in the deriver, so they are excluded here to keep the two paths in agreement."""
+    an AC bonus in the deriver, so they are excluded here to keep the two paths in agreement. The
+    equipped armour/shield are also excluded — their own enchantment is credited in the base path
+    (F05-T145), so counting it here too would double-count an attuned worn armour/shield."""
     total = 0
     mod = sheet.get("modifier", {}) or {}
     inventory = sheet.get("inventory", {}) or {}
     if not isinstance(inventory, dict):
         inventory = {}
+    worn_ac_ids = _worn_ac_item_ids(sheet, access)
 
     item_states = mod.get("item_states", []) or []
     if isinstance(item_states, list):
@@ -205,7 +257,7 @@ def _ac_magic_bonuses(sheet: dict, access) -> int:
             if not name:
                 continue
             mid = access.resolve("magic_item", name)
-            if not mid:
+            if not mid or mid in worn_ac_ids:
                 continue
             total += sum(defenses_q.ac_bonus_grants(access, "magic_item", mid))
 

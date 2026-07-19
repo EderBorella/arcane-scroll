@@ -28,3 +28,41 @@ def test_weapon_attack_facts_uses_canonical_base(access):
     assert facts is not None
     assert facts["tier_id"] == "martial"        # weapon-a is martial
     assert facts["range_class_id"] == "melee"
+
+
+# ── magic armour / shield base resolution (F05-T145) ──────────────────────────
+
+
+def test_resolve_armor_base_single_template(access):
+    # 'mi-armor' has no armor row of its own; its single template base is 'armor-d'.
+    assert inv_q.resolve_armor_base(access, "mi-armor") == "armor-d"
+
+
+def test_resolve_armor_base_sheet_choice_by_id(access):
+    # A generic magic armour with no template base resolves via the sheet's chosen base id.
+    assert inv_q.resolve_armor_base(access, "mi-armor-generic", "armor-e") == "armor-e"
+
+
+def test_resolve_armor_base_sheet_choice_by_name(access):
+    # The sheet-chosen base may be a display name, resolved through the catalogue.
+    assert inv_q.resolve_armor_base(access, "mi-armor-generic", "Armor B") == "armor-e"
+
+
+def test_resolve_armor_base_sheet_choice_overrides_template(access):
+    # When the sheet records a base, it wins over the template's default.
+    assert inv_q.resolve_armor_base(access, "mi-armor", "armor-e") == "armor-e"
+
+
+def test_resolve_armor_base_unresolved_returns_none(access):
+    # A generic magic armour with no template base and no sheet choice cannot be resolved.
+    assert inv_q.resolve_armor_base(access, "mi-armor-generic") is None
+
+
+def test_resolve_armor_base_direct_armor_row(access):
+    # A mundane armour id (its own armor row) resolves to itself.
+    assert inv_q.resolve_armor_base(access, "armor-d") == "armor-d"
+
+
+def test_resolve_shield_base_returns_mundane_shield(access):
+    # A magic shield (no armor row) re-derives its base from the mundane shield (+2).
+    assert inv_q.resolve_shield_base(access, "mi-shield") == "shield-item"

@@ -86,6 +86,64 @@ def base_weapon_id_for_item(access: ValidatorAccess, item_id: str) -> str | None
     return weapon_bases[0] if weapon_bases else None
 
 
+def _has_armor_row(access: ValidatorAccess, item_id: str | None) -> bool:
+    """True if an id has an ``armor`` stats row. Pure DB existence read."""
+    if not item_id:
+        return False
+    return access.db.one("SELECT 1 FROM armor WHERE id=?", item_id) is not None
+
+
+def resolve_armor_base(access: ValidatorAccess, item_id: str,
+                       sheet_base_item: str | None = None) -> str | None:
+    """The stats-row id of the mundane body-armour base underlying a magic armour that carries no
+    ``armor`` row of its own — the counterpart of ``base_weapon_id_for_item`` for the armour slot.
+
+    A magic armour may be catalogued as armour yet hold no ``armor`` row (no base AC / Dex cap); its
+    underlying base is a base+enchantment overlay recorded in ``magic_item_template.base_item_id``.
+    Resolution order:
+
+    * (a) the base the sheet records (``base_item``) when it resolves to an ``armor`` row — a generic
+      magic armour ('Armor, +1') has no fixed base, so the worn base is a player choice on the sheet;
+    * (b) the item's own ``armor`` row when it has one (a mundane armour, or a magic armour that does);
+    * (c) the single distinct ``magic_item_template.base_item_id`` (``base_kind`` armour/shield) that
+      resolves to an ``armor`` row — deterministic only when the template names EXACTLY one such base;
+      a multi-base template is ambiguous, so it returns None (the base is never guessed);
+    * (d) otherwise None.
+
+    ``sheet_base_item`` may be a catalogue id or a display name (tried as a direct id first, then via
+    name resolution). Pure DB read — the base-AC / Dex-cap math and the enchantment overlay stay with
+    the consuming deriver/check (mirroring the magic-weapon reader so the validator re-derives through
+    its OWN access surface, no cross-consumer import)."""
+    if sheet_base_item:
+        cand = sheet_base_item if _has_armor_row(access, sheet_base_item) else \
+            access.resolve("catalog_item", sheet_base_item)
+        if _has_armor_row(access, cand):
+            return cand
+    if _has_armor_row(access, item_id):
+        return item_id
+    rows = access.db.q(
+        "SELECT DISTINCT base_item_id FROM magic_item_template "
+        "WHERE template_id=? AND base_kind IN ('armor','shield') AND base_item_id IS NOT NULL",
+        item_id)
+    bases = sorted({r["base_item_id"] for r in rows
+                    if _has_armor_row(access, r["base_item_id"])})
+    return bases[0] if len(bases) == 1 else None
+
+
+def resolve_shield_base(access: ValidatorAccess, item_id: str) -> str | None:
+    """The mundane shield's stats-row id (its base +2 AC), for a magic shield that carries no ``armor``
+    row of its own.
+
+    Unlike body armour, a shield's AC contribution has ONE fixed base: the mundane shield
+    (``armor`` row with ``category_id='shield'`` and ``ac_bonus`` 2). A magic shield in the shield slot
+    re-derives its base +2 from that row (its own enchantment is a separate overlay). ``item_id`` marks
+    the slotted shield for the caller; the base itself is universal. Pure DB read — the +2 add and the
+    allows-shield gating stay with the consumer."""
+    row = access.db.one(
+        "SELECT id FROM armor WHERE category_id='shield' AND ac_bonus=2 ORDER BY id LIMIT 1")
+    return row["id"] if row else None
+
+
 def weapon_attack_facts(access: ValidatorAccess, weapon_id: str) -> dict | None:
     """Facts a consumer needs to compute a weapon's attack bonus, or None if the id is not a weapon.
 
