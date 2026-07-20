@@ -67,6 +67,29 @@ def build_pass1_grammar(access, spec, resolved, *, feat_slots=0, boon_slots=0):
                                      "minItems": n_wm, "maxItems": n_wm, "uniqueItems": True}
         req.append("weapon_masteries")
 
+    # Tool / language / expertise proficiency choices. These are offered as free string arrays sized
+    # to the build's required count — deliberately WITHOUT an option enum: the candidate pools are the
+    # reference source's curated menus, so emitting them would leak copyrighted content. The model /
+    # user supplies ids; the assembler validates each pick against the grant (a single-id membership
+    # test) and the completeness pass flags an under-filled choice against the known count.
+    n_lang, _grants = options.language_choice(access, resolved, spec)
+    if n_lang:
+        props["languages"] = {"type": "array", "items": {"type": "string"},
+                              "minItems": n_lang, "maxItems": n_lang, "uniqueItems": True}
+        req.append("languages")
+
+    n_tool, _grants = options.tool_choice(access, resolved, spec)
+    if n_tool:
+        props["tools"] = {"type": "array", "items": {"type": "string"},
+                          "minItems": n_tool, "maxItems": n_tool, "uniqueItems": True}
+        req.append("tools")
+
+    n_exp, _grants = options.expertise_choice(access, resolved, spec)
+    if n_exp:
+        props["expertise"] = {"type": "array", "items": {"type": "string"},
+                              "minItems": n_exp, "maxItems": n_exp, "uniqueItems": True}
+        req.append("expertise")
+
     total_level = sum(lv for _cid, lv, _sub in resolved)
     boost = options.default_background_boost(access, spec.background) if spec.background else {}
     base = options.base_ability_scores(access, first_class)

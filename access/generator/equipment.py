@@ -23,6 +23,18 @@ def starting_equipment_entries(access: GeneratorAccess, option_id: str) -> list:
         "ORDER BY sort_order, id", option_id)
 
 
+def starting_equipment_choice_entries(access: GeneratorAccess, option_id: str) -> list:
+    """The non-item, non-gp CHOICE entries in a bundle — a tool-category choice, a spellcasting-focus
+    choice, or a proficiency-choice reference — as (id, kind, tool_category_id, focus_type_id) rows
+    ordered by sort_order. These carry no concrete catalog item: they mark a required equipment
+    CHOICE the picker must resolve. Pure DB read; the concrete items a choice could resolve to are
+    NOT enumerated here (no option pool)."""
+    return access.db.q(
+        "SELECT id, kind, tool_category_id, focus_type_id FROM start_equipment_entry "
+        "WHERE option_id=? AND kind IN ('tool_category_choice','focus_type_choice','prof_choice_ref') "
+        "ORDER BY sort_order, id", option_id)
+
+
 def item_name(access: GeneratorAccess, item_id: str | None) -> str | None:
     """The display name of a catalog item, or None for an unknown / missing id — used to turn a
     bundle's concrete item entry (a catalog item id) into a named inventory record. Pure DB read."""
