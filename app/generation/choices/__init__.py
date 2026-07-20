@@ -5,5 +5,6 @@ the ``choices`` structure the derivation pipeline (``app.derivation.document.der
 consumes — canonical DB ids throughout, a species with no ability bonus, and background-sourced
 ability boosts + origin feat. ``generate_choices`` is the two-pass model-call seam.
 """
+from app.generation.choices.manifest import awaiting_choices, build_manifest  # noqa: F401
 from app.generation.choices.orchestrator import generate_choices  # noqa: F401  (re-exported)
 from app.generation.choices.spec import RequestSpec, parse_request  # noqa: F401  (re-exported)

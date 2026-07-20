@@ -386,7 +386,7 @@ def test_two_slots_both_spent_on_raw_asi(gen_access, access):
         "subclasses": {"class-a": "sub-a"}, "background": "bg-a",
         "character_id": "char-asi", "character_name": "Epsilon"})
     pick = _stub_pick(
-        {"name": "Epsilon", "skills": ["sk1", "sk2"],
+        {"name": "Epsilon", "skills": ["sk1", "sk2"], "expertise": ["sk1", "sk2"],
          "background_increase": {"shape": "two-one", "plus_two": "a1", "plus_one": "a2"},
          "spells": {"cantrips": ["sp1"], "spells": ["sp3"]},
          "feats": ["ability-score-improvement", "ability-score-improvement"]},

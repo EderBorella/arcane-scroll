@@ -34,6 +34,7 @@ def _choices():
         "background_increase": {"a1": 2, "a2": 1},
         # two picks from class-a's pool {sk1,sk2,sk3}
         "skills": ["sk1", "sk2"],
+        "expertise": ["sk1"],
         "feats": [],
         "languages": [],
     }
@@ -373,6 +374,7 @@ def _lineage_choices():
         "ability_scores": {"a1": 15, "a2": 13, "a3": 14, "a4": 10, "a5": 12, "a6": 8, "wisdom": 10},
         "background_increase": {"a1": 2, "a2": 1},
         "skills": ["sk1", "sk2"],
+        "expertise": ["sk1"],
         "feats": [],
         "languages": [],
     }
@@ -391,6 +393,7 @@ def _variant_choices():
         "ability_scores": {"a1": 15, "a2": 13, "a3": 14, "a4": 10, "a5": 12, "a6": 8, "wisdom": 10},
         "background_increase": {"a1": 2, "a2": 1},
         "skills": ["sk1", "sk2"],
+        "expertise": ["sk1"],
         "feats": [],
         "languages": [],
     }
