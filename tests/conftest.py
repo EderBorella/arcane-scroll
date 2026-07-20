@@ -1590,6 +1590,63 @@ def _build_rules_db(path: str) -> None:
     cur.execute("INSERT INTO start_equipment_entry VALUES "
                 "('se-bggp1','sa-bg-gp',1,'gp',NULL,1,20,NULL,NULL,NULL)")
 
+    # ── F07 D3: tool / language / expertise CHOICE grants + equipment choice-items (T07–T10) ──
+    # Content-neutral synthetic ids only. Backs the choice-space readers (presence + counts +
+    # validate-a-pick) without disturbing the many class-a fixtures above.
+    #
+    # A language dimension — a from-any language choice validates a pick against it. Real schema is
+    # (id, name).
+    cur.execute("CREATE TABLE language (id TEXT PRIMARY KEY, name TEXT)")
+    for lid, lname in [("lang-a", "Language A"), ("lang-b", "Language B"), ("lang-c", "Language C")]:
+        cur.execute("INSERT INTO language VALUES (?,?)", (lid, lname))
+    # Tools carry their category id directly (mirrors the reference schema `tool.tool_category_id`,
+    # which the validator's category membership already relies on). Added by ALTER so the existing
+    # 2-column tool rows above keep a NULL category (their behaviour is unchanged).
+    cur.execute("ALTER TABLE tool ADD COLUMN tool_category_id TEXT")
+    cur.execute("INSERT INTO tool_category VALUES ('tc-music','Category Music')")
+    cur.execute("INSERT INTO tool (id, name, tool_category_id) VALUES ('tool-x','Tool X','tc-music')")
+    cur.execute("INSERT INTO tool (id, name, tool_category_id) VALUES ('tool-y','Tool Y','tc-music')")
+    cur.execute("INSERT INTO tool (id, name, tool_category_id) VALUES ('tool-z','Tool Z',NULL)")
+    # class-tl: a class whose choice-space carries a language choice (choose 2 of ANY language, from
+    # class level 2), a category-restricted tool choice (choose 1 from category tc-music, from level
+    # 1), a SECONDARY-only tool choice (multiclass_only=1), and an expertise choice (choose 1 from a
+    # NAMED skill pool {sk1, sk2}). Dedicated so no existing fixture shifts.
+    cur.execute("INSERT INTO class VALUES ('class-tl','Class TL',8,3,'none','all',0,0,'')")
+    for aid, score in [("a1", 15), ("a2", 14), ("a3", 13)]:
+        cur.execute("INSERT INTO class_standard_array VALUES ('class-tl',?,?)", (aid, score))
+    cur.execute(
+        "INSERT INTO grant_proficiency "
+        "(id,owner_kind,owner_id,gained_at_level,target_kind,mode,from_any,choose_n,multiclass_only) "
+        "VALUES ('gpr-tl-lang','class','class-tl',2,'language','choose',1,2,0)")
+    cur.execute(
+        "INSERT INTO grant_proficiency "
+        "(id,owner_kind,owner_id,gained_at_level,target_kind,mode,from_any,choose_n,multiclass_only) "
+        "VALUES ('gpr-tl-tool','class','class-tl',1,'tool','choose',0,1,0)")
+    cur.execute("INSERT INTO grant_proficiency_category VALUES ('gpr-tl-tool','tc-music')")
+    cur.execute(
+        "INSERT INTO grant_proficiency "
+        "(id,owner_kind,owner_id,gained_at_level,target_kind,mode,from_any,choose_n,multiclass_only) "
+        "VALUES ('gpr-tl-tool-mc','class','class-tl',1,'tool','choose',0,1,1)")
+    cur.execute("INSERT INTO grant_proficiency_category VALUES ('gpr-tl-tool-mc','tc-music')")
+    cur.execute(
+        "INSERT INTO grant_expertise (id,owner_kind,owner_id,gained_at_level,choose_n,mode,skill_id) "
+        "VALUES ('gex-tl','class','class-tl',1,1,'choose_from_proficient',NULL)")
+    cur.execute("INSERT INTO grant_expertise_value VALUES ('gex-tl','sk1')")
+    cur.execute("INSERT INTO grant_expertise_value VALUES ('gex-tl','sk2')")
+    # class-tl starting-equipment bundle carrying every choice-item kind T09 must represent — a
+    # concrete item (still resolves), a tool-category choice, a spellcasting-focus choice, and a
+    # proficiency-choice reference (all flagged, none invented). focus/catalog ids are synthetic.
+    cur.execute("INSERT OR IGNORE INTO catalog_item VALUES ('gear-tl','Gear TL','gear',NULL)")
+    cur.execute("INSERT INTO start_equipment_option VALUES ('sa-tl','class','class-tl','Bundle TL')")
+    cur.execute("INSERT INTO start_equipment_entry VALUES "
+                "('se-tl1','sa-tl',1,'item','gear-tl',1,NULL,NULL,NULL,NULL)")
+    cur.execute("INSERT INTO start_equipment_entry VALUES "
+                "('se-tl2','sa-tl',2,'tool_category_choice',NULL,1,NULL,'tc-music',NULL,'a tool of your choice')")
+    cur.execute("INSERT INTO start_equipment_entry VALUES "
+                "('se-tl3','sa-tl',3,'focus_type_choice',NULL,1,NULL,NULL,'ft-a',NULL)")
+    cur.execute("INSERT INTO start_equipment_entry VALUES "
+                "('se-tl4','sa-tl',4,'prof_choice_ref',NULL,1,NULL,NULL,NULL,'matches the tool proficiency above')")
+
     # spell.school_id: added after the positional spell inserts (which supply the base 4 columns) so
     # the choosable class-a spells carry a school. grimoire:1 requires `school` to be a string when
     # present, so the deriver must emit it as a string (or omit it) — this lets the generated grimoire

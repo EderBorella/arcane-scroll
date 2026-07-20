@@ -39,7 +39,9 @@ def assemble_choices(access, spec, resolved, picks, *, feat_slots=0, boon_slots=
         "feats": _feats(access, picks, feat_slots, boon_slots, effective_scores),
         "spells": _spells(picks),
         "weapon_masteries": _weapon_masteries(access, resolved, picks),
-        "languages": [],
+        "languages": _languages(access, spec, resolved, picks),
+        "tools": _tools(access, spec, resolved, picks),
+        "expertise": _expertise(access, spec, resolved, picks),
     }
     if spec.alignment is not None:
         choices["alignment"] = spec.alignment
@@ -145,6 +147,54 @@ def _weapon_masteries(access, resolved, picks):
     return out
 
 
+def _capped_valid_picks(picks_list, n, is_valid):
+    """The first ``n`` distinct picks from ``picks_list`` that pass ``is_valid`` — the shared shape of
+    the tool / language / expertise assembly: an illegal or duplicate pick is dropped rather than
+    passed to the deriver, and the list is capped at the required count so the choice is legal by
+    construction. An under-filled choice (fewer valid picks than ``n``) is left short for the
+    completeness pass to flag; it is never invented."""
+    if n <= 0:
+        return []
+    out: list = []
+    seen: set = set()
+    for pid in (picks_list or []):
+        if pid in seen or not is_valid(pid):
+            continue
+        seen.add(pid)
+        out.append(pid)
+        if len(out) >= n:
+            break
+    return out
+
+
+def _languages(access, spec, resolved, picks):
+    """The build's chosen languages — the model's/user's picks validated against the build's language
+    choice grants and capped at the required count. Replaces the former hardcoded ``[]``: a build with
+    no language choice yields ``[]`` (no grant admits any pick), and a build with one populates from
+    valid picks."""
+    n, _grants = options.language_choice(access, resolved, spec)
+    return _capped_valid_picks(picks.get("languages"), n,
+                               lambda pid: options.language_pick_is_valid(access, resolved, spec, pid))
+
+
+def _tools(access, spec, resolved, picks):
+    """The build's chosen tool proficiencies — the picks validated against the build's tool choice
+    grants (from-any / category-restricted / explicit pool) and capped at the required count. Empty
+    when the build makes no tool choice."""
+    n, _grants = options.tool_choice(access, resolved, spec)
+    return _capped_valid_picks(picks.get("tools"), n,
+                               lambda pid: options.tool_pick_is_valid(access, resolved, spec, pid))
+
+
+def _expertise(access, spec, resolved, picks):
+    """The build's chosen expertise skills — the picks validated against the build's expertise choice
+    grants (a named pool, else any skill) and capped at the required count. Empty when the build makes
+    no expertise choice."""
+    n, _grants = options.expertise_choice(access, resolved, spec)
+    return _capped_valid_picks(picks.get("expertise"), n,
+                               lambda pid: options.expertise_pick_is_valid(access, resolved, spec, pid))
+
+
 def _spells(picks):
     """The caster's spell picks, ``{cantrips: [ids], spells: [ids]}``. Consumed by the derivation
     pipeline: ``derive_document`` passes these into the GRIMOIRE deriver, which places them on the
@@ -164,11 +214,15 @@ def apply_equipment(access, spec, resolved, eq_picks, choices):
     The first item claiming a slot keeps it; a later item wanting an occupied slot (a second weapon)
     falls to the backpack. Items sharing a catalog id across bundles are merged into a single stacked
     record (their quantities summed) so the inventory never carries a duplicate item id.
-    Tool-category / focus / proficiency-choice entries carry no concrete item and are not represented
-    as inventory yet (a later card)."""
+
+    A bundle's choice-items (a tool-category choice, a spellcasting-focus choice, or the item matching
+    a proficiency choice made elsewhere) carry no concrete catalog item, so they are not equipped.
+    They are no longer silently dropped: each is recorded under ``equipment_choices`` as a flaggable
+    gap for the completeness pass — never defaulted or invented (the pick is the user's)."""
     eq_picks = eq_picks or {}
     bundles: dict = {}
     gp = 0
+    equipment_choices: list = []
     # Merge the bundles' items by catalog id first (summing quantities), preserving first-seen order, so
     # the same item granted by two bundles becomes one stacked record rather than a duplicate id.
     merged: dict = {}
@@ -179,6 +233,7 @@ def apply_equipment(access, spec, resolved, eq_picks, choices):
             continue
         bundles[owner_kind] = option_id
         gp += options.resolve_bundle_gp(access, option_id)
+        equipment_choices.extend(options.resolve_bundle_choice_items(access, option_id))
         for item in options.resolve_bundle_items(access, option_id):
             iid = item["id"]
             if iid in merged:
@@ -199,6 +254,8 @@ def apply_equipment(access, spec, resolved, eq_picks, choices):
             backpack.append(item)
     if bundles:
         choices["starting_equipment"] = bundles
+    if equipment_choices:
+        choices["equipment_choices"] = equipment_choices
     choices["equipment"] = {"equipped": equipped, "backpack": backpack}
     choices["treasure"] = {"pp": 0, "gp": gp, "ep": 0, "sp": 0, "cp": 0}
     return choices

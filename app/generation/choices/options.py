@@ -21,6 +21,7 @@ from access.generator import catalog
 from access.generator import classes as class_q
 from access.generator import equipment as equip_q
 from access.generator import feats as feat_q
+from access.generator import proficiencies as prof_q
 from access.generator import spells as spell_q
 from access.generator import species as species_q
 
@@ -140,6 +141,159 @@ def skill_choice(access, first_class_id):
     if from_any:
         pool = [r["id"] for r in catalog.list_skills(access)]
     return min(choose_n, len(pool)), pool
+
+
+# ----------------------------------------------------------- tool / language / expertise choices
+# The choice-space (grammar + assemble) needs the PRESENCE and required COUNTS of a build's
+# tool / language / expertise proficiency choices — so the completeness pass can flag a missing pick
+# and a pick can be validated. The counts are summed across the build's fixed owners (its classes,
+# their resolved subclasses, the background, and the species) — mirroring how the skill-choice pool is
+# the first class's alone. Feat-granted choices (a feat that grants a tool/language/skill-or-tool or
+# expertise choice) are NOT summed here: a feat is itself a pass-1 pick, so its granted choices are
+# resolved downstream (the same way feat-granted skills are not in the skill-choice pool). The
+# per-owner reader (``access.generator.proficiencies``) already supports every owner kind, so that is
+# an additive extension, not a schema gap.
+
+
+def _grant_applies_at(grant, level):
+    """True when a level-gated grant is active at ``level`` — a grant with no gained-at level is
+    always active; otherwise ``level`` must have reached it. ``grant`` is a row with a
+    ``gained_at_level`` column."""
+    gate = grant["gained_at_level"]
+    return gate is None or level >= gate
+
+
+def _static_choice_owners(spec):
+    """The build's non-class choice owners — the background and the species — as
+    (owner_kind, owner_id) pairs. Their creation-time choices are gained at level 1 (no per-class
+    level progression), so they are gated against the build's total level."""
+    owners = []
+    if spec.background:
+        owners.append(("background", spec.background))
+    if spec.species:
+        owners.append(("species", spec.species))
+    return owners
+
+
+def _proficiency_choice_grants_for_build(access, target_kind, resolved, spec):
+    """The applicable choose-mode proficiency grants of one ``target_kind`` across a build's fixed
+    owners, as (owner_kind, owner_id, grant_row) tuples. A class contributes its ``multiclass_only=0``
+    grants only as the FIRST class and its ``multiclass_only=1`` grants only as a SECONDARY class (the
+    reduced multiclass proficiency set); subclass / background / species grants have no multiclass
+    gating. Every grant is level-gated by the owning class's level (background / species by the total
+    build level)."""
+    total_level = sum(lv for _cid, lv, _sub in resolved)
+    out = []
+    for i, (cid, lv, sub) in enumerate(resolved):
+        is_first = (i == 0)
+        for g in prof_q.proficiency_choice_grants(access, "class", cid, target_kind):
+            if not _grant_applies_at(g, lv):
+                continue
+            # multiclass_only=1 belongs to a secondary class; =0 belongs to the first class.
+            if bool(g["multiclass_only"]) != (not is_first):
+                continue
+            out.append(("class", cid, g))
+        if sub:
+            for g in prof_q.proficiency_choice_grants(access, "subclass", sub, target_kind):
+                if _grant_applies_at(g, lv):
+                    out.append(("subclass", sub, g))
+    for owner_kind, owner_id in _static_choice_owners(spec):
+        for g in prof_q.proficiency_choice_grants(access, owner_kind, owner_id, target_kind):
+            if _grant_applies_at(g, total_level):
+                out.append((owner_kind, owner_id, g))
+    return out
+
+
+def language_choice(access, resolved, spec):
+    """``(n, grants)`` for a build's language proficiency choices — ``n`` is the summed required count
+    and ``grants`` the applicable grants (for pick validation). ``(0, [])`` when the build makes no
+    language choice."""
+    grants = _proficiency_choice_grants_for_build(access, "language", resolved, spec)
+    return sum(g["choose_n"] or 0 for _ok, _oid, g in grants), grants
+
+
+def tool_choice(access, resolved, spec):
+    """``(n, grants)`` for a build's tool proficiency choices — ``n`` is the summed required count and
+    ``grants`` the applicable grants (for pick validation). ``(0, [])`` when the build makes no tool
+    choice."""
+    grants = _proficiency_choice_grants_for_build(access, "tool", resolved, spec)
+    return sum(g["choose_n"] or 0 for _ok, _oid, g in grants), grants
+
+
+def language_pick_is_valid(access, resolved, spec, language_id):
+    """True when ``language_id`` is a legal pick for one of the build's language choices — any
+    language for a from-any grant, else a member of that grant's candidate pool. Validation only; no
+    pool is emitted."""
+    _n, grants = language_choice(access, resolved, spec)
+    for _ok, _oid, g in grants:
+        if g["from_any"]:
+            if prof_q.is_language(access, language_id):
+                return True
+        elif prof_q.value_in_grant(access, g["id"], language_id):
+            return True
+    return False
+
+
+def tool_pick_is_valid(access, resolved, spec, tool_id):
+    """True when ``tool_id`` is a legal pick for one of the build's tool choices — any tool for a
+    from-any grant, a tool in one of the grant's allowed categories, or a member of its explicit
+    value pool. Validation only; no pool is emitted."""
+    _n, grants = tool_choice(access, resolved, spec)
+    for _ok, _oid, g in grants:
+        if g["from_any"]:
+            if prof_q.is_tool(access, tool_id):
+                return True
+            continue
+        cats = prof_q.grant_tool_categories(access, g["id"])
+        if cats and prof_q.tool_in_categories(access, tool_id, cats):
+            return True
+        if prof_q.value_in_grant(access, g["id"], tool_id):
+            return True
+    return False
+
+
+def _expertise_choice_grants_for_build(access, resolved, spec):
+    """The applicable choose-mode expertise grants across a build's fixed owners, as
+    (owner_kind, owner_id, grant_row) tuples — classes (each level-gated at its own level), resolved
+    subclasses, background, and species. Expertise grants carry no multiclass gating."""
+    total_level = sum(lv for _cid, lv, _sub in resolved)
+    out = []
+    for cid, lv, sub in resolved:
+        for g in prof_q.expertise_choice_grants(access, "class", cid):
+            if _grant_applies_at(g, lv):
+                out.append(("class", cid, g))
+        if sub:
+            for g in prof_q.expertise_choice_grants(access, "subclass", sub):
+                if _grant_applies_at(g, lv):
+                    out.append(("subclass", sub, g))
+    for owner_kind, owner_id in _static_choice_owners(spec):
+        for g in prof_q.expertise_choice_grants(access, owner_kind, owner_id):
+            if _grant_applies_at(g, total_level):
+                out.append((owner_kind, owner_id, g))
+    return out
+
+
+def expertise_choice(access, resolved, spec):
+    """``(n, grants)`` for a build's expertise choices — ``n`` is the summed required count and
+    ``grants`` the applicable grants (for pick validation). ``(0, [])`` when the build makes no
+    expertise choice."""
+    grants = _expertise_choice_grants_for_build(access, resolved, spec)
+    return sum(g["choose_n"] or 0 for _ok, _oid, g in grants), grants
+
+
+def expertise_pick_is_valid(access, resolved, spec, skill_id):
+    """True when ``skill_id`` is a legal expertise pick for the build — a member of a grant's named
+    pool when it names one, else any skill (the 'any already-proficient skill' mode; the proficiency
+    prerequisite itself is a downstream concern that needs the full build). Validation only; no pool
+    is emitted."""
+    _n, grants = expertise_choice(access, resolved, spec)
+    for _ok, _oid, g in grants:
+        if prof_q.expertise_has_value_pool(access, g["id"]):
+            if prof_q.expertise_value_in_grant(access, g["id"], skill_id):
+                return True
+        elif prof_q.is_skill(access, skill_id):
+            return True
+    return False
 
 
 # --------------------------------------------------------------------------- feats
@@ -365,6 +519,31 @@ def resolve_bundle_items(access, option_id):
         if name is None:
             continue
         out.append({"id": e["catalog_item_id"], "name": name, "quantity": e["quantity"] or 1})
+    return out
+
+
+def resolve_bundle_choice_items(access, option_id):
+    """The equipment CHOICE-items inside a chosen bundle — the entries that carry no concrete catalog
+    item and instead require the picker to choose one (a tool from a category, a form of a
+    spellcasting focus, or the item matching a proficiency choice made elsewhere). Each is returned as
+    a flaggable gap the completeness pass can surface, NOT a concrete inventory item and NOT an
+    option pool:
+
+    * ``{"kind": "tool_category", "tool_category": id}`` — a tool of the named category;
+    * ``{"kind": "focus", "focus_type": id}``            — a form of the named focus type;
+    * ``{"kind": "proficiency_choice"}``                 — the item matching the owner's tool-prof pick.
+
+    The category / focus-type ids are the generic mechanic kind (data from the loaded ruleset), never
+    the list of concrete items they could resolve to."""
+    out = []
+    for e in equip_q.starting_equipment_choice_entries(access, option_id):
+        kind = e["kind"]
+        if kind == "tool_category_choice":
+            out.append({"kind": "tool_category", "tool_category": e["tool_category_id"]})
+        elif kind == "focus_type_choice":
+            out.append({"kind": "focus", "focus_type": e["focus_type_id"]})
+        else:  # prof_choice_ref — the concrete item follows the owner's tool-proficiency choice
+            out.append({"kind": "proficiency_choice"})
     return out
 
 
