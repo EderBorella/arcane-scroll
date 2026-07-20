@@ -1,7 +1,7 @@
 """Controller (HTTP): /v1/characters end-to-end with the model client mocked. Exercises the wiring
-(request validation, the DAL choice grammar + derivation pipeline), not the model. /v1/characters
-now returns the five-schema document; each part is asserted to conform to its live sub-schema AND to
-pass its rule validator."""
+(request validation, the DAL choice grammar + derivation pipeline over the read-only rules DB), not
+the model. /v1/characters now returns the five-schema document; each part is asserted to conform to
+its live sub-schema AND to pass its rule validator."""
 import json
 import pathlib
 
@@ -52,9 +52,9 @@ def _fake_model(prompt, schema, **kw):
 
 @pytest.fixture
 def client(rules_db, monkeypatch):
-    # rules_db builds the DAL rules DB that the /characters + /backstory pipeline reads via
-    # $ARCANE_RULES_DB. The model client is mocked, so no real backend is contacted; OLLAMA_URL/MODEL
-    # are set only to satisfy the client module's env reads.
+    # rules_db builds the DAL rules DB that the generation pipeline reads via $ARCANE_RULES_DB.
+    # The model client is mocked, so no real backend is contacted; OLLAMA_URL/MODEL are set only to
+    # satisfy the client module's env reads.
     monkeypatch.setenv("ARCANE_RULES_DB", rules_db)
     monkeypatch.setenv("OLLAMA_URL", "http://test")
     monkeypatch.setenv("MODEL", "test-model")
@@ -102,7 +102,7 @@ def _assert_document_conforms(doc, rules_db):
 def test_health_and_ready(client):
     assert client.get("/health").json() == {"status": "ok"}
     ready = client.get("/ready").json()
-    assert ready["ready"] is True and ready["abilities"] > 0
+    assert ready == {"ready": True}     # the read-only reference DB is reachable
 
 
 def test_post_characters_noncaster_document(client, rules_db):

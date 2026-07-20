@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ app/
 COPY access/ access/
 COPY validator/ validator/
+COPY orchestrator/ orchestrator/
 COPY scripts/ scripts/
 RUN chmod +x scripts/entrypoint.sh
 
