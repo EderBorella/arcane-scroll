@@ -1,9 +1,9 @@
 #!/bin/sh
-# App container entrypoint: ensure the model, (re)build the in-memory store's DB from the mounted
-# data, then serve. Each step is idempotent, so a fresh host needs no manual setup.
+# Generator container entrypoint: ensure the model is present, then serve. Idempotent, so a fresh
+# host needs no manual setup. Only the generator uses this entrypoint (it is the sole model
+# consumer); the validator and orchestrator override it and never run the model-pull step.
 set -e
 
 python /app/scripts/provision.py     # wait for Ollama + idempotent model pull
-python /app/scripts/seed.py          # (re)build the catalog DB from the mounted reference data
 
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000

@@ -1,5 +1,9 @@
-# Self-contained stack: the model server + the app, plus the mounted reference data.
-# `docker compose up` reconstitutes the whole service on any GPU host. Paths/names come from .env
+# Self-contained stack following the Controller -> Orchestrator -> Services topology:
+#   generator    — the only service that talks to the model; reads the read-only reference DB
+#   validator    — pure rule-math service over the read-only reference DB
+#   orchestrator — the integrator front for the document endpoints (no model dependency)
+#   ollama       — the model server; ONLY the generator depends on it
+# `docker compose up` reconstitutes the whole stack on any GPU host. Paths/names come from .env
 # (see .env.example) — nothing is hardcoded.
 
 services:
@@ -21,7 +25,9 @@ services:
               count: 1
               capabilities: [gpu]
 
-  app:
+  # The generator is the sole model consumer: it depends on ollama and pulls the model at startup
+  # (default entrypoint). It reads rule facts from the read-only reference DB.
+  generator:
     build: .
     restart: unless-stopped
     depends_on:
@@ -29,12 +35,11 @@ services:
     environment:
       OLLAMA_URL: "http://ollama:11434"
       MODEL: "${MODEL:?set MODEL in .env}"
-      ARCANE_DATA_DIR: "/data"
-      ARCANE_DB_PATH: "/data/catalog.db"
+      ARCANE_RULES_DB: "/rules/rules.db"
     volumes:
-      - "${ARCANE_DATA_DIR_HOST:?set ARCANE_DATA_DIR_HOST in .env}:/data"  # records/ + catalog.json (+ built catalog.db)
+      - "${ARCANE_RULES_DB_HOST:?set ARCANE_RULES_DB_HOST in .env}:/rules/rules.db:ro"
     ports:
-      - "${APP_PORT:-8080}:8000"   # front with Nginx Proxy Manager in production
+      - "${GENERATOR_PORT:-8080}:8000"   # front with Nginx Proxy Manager in production
     networks: [arcane]
 
   validator:
@@ -47,6 +52,18 @@ services:
       - "${ARCANE_RULES_DB_HOST:?set ARCANE_RULES_DB_HOST in .env}:/rules/rules.db:ro"
     ports:
       - "${VALIDATOR_PORT:-8090}:8000"
+    networks: [arcane]
+
+  # The orchestrator integrates the rule-math services; it has NO model dependency. It overrides the
+  # default entrypoint so it never runs the model-pull step.
+  orchestrator:
+    build: .
+    restart: unless-stopped
+    entrypoint: ["uvicorn", "orchestrator.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      - validator
+    ports:
+      - "${ORCHESTRATOR_PORT:-8100}:8000"
     networks: [arcane]
 
 volumes:

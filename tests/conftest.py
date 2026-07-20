@@ -1,6 +1,6 @@
-"""Shared test fixtures. Everything runs against a small SYNTHETIC rules DB (fake classes/species/
-lists) built into a temp SQLite — so the tests exercise the mechanics, carry no game content, and
-run anywhere without the real (local) data."""
+"""Shared test fixtures. Everything runs against a small SYNTHETIC rules DB (the real table/column
+shapes, fake vocabulary) built into a temp SQLite — so the tests exercise the mechanics, carry no
+game content, and run anywhere without the real (local) reference DB."""
 import sqlite3
 
 import pytest
