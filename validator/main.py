@@ -6,7 +6,6 @@ from contextlib import asynccontextmanager
 from fastapi import Body, FastAPI
 
 from access.validator import ValidatorAccess
-from validator.validate import validate
 from validator.validate_companion import validate_companion
 from validator.validate_core import validate_core
 from validator.validate_grimoire import validate_grimoire
@@ -25,14 +24,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="character-sheet validator", lifespan=lifespan)
-
-
-@app.post("/validate")
-async def validate_sheet(sheet: dict = Body(...)) -> dict:
-    # async, not sync: keeps this on the same event-loop thread as `lifespan`, which is where the
-    # RulesDB connection was opened — sqlite3 connections are single-thread-only, and a sync def here
-    # would run in Starlette's worker threadpool and raise a cross-thread ProgrammingError.
-    return validate(sheet, _state["access"])
 
 
 @app.post("/validate-core")

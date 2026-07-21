@@ -192,6 +192,12 @@ def derive_document(choices: Choices, access) -> dict:
     ``GeneratorAccess`` or ``ValidatorAccess``). Returns ``{core, inventory, grimoire?, modifier,
     companion?}`` — GRIMOIRE is present only for a spellcasting build and COMPANION only when the
     build has companions. Each schema passes its validator for a legal set of choices.
+
+    Tolerant of a MINIMAL core: the choice-bearing inputs (``equipment`` / ``spells`` / ``treasure`` /
+    ``starting_equipment``) are all optional. Given only the build fundamentals
+    (species / background / class / subclass / level) everything derivable is derived and every absent
+    choice is left empty (an empty inventory, no chosen spells, zero starting treasure) for the
+    completeness manifest to flag downstream — a missing choice is NEVER defaulted or invented here.
     """
     core = derive_core(choices, access)
     inventory = assemble_inventory(choices, core, access)
