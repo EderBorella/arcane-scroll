@@ -52,7 +52,9 @@ def test_orchestrator_carries_no_model_dependency():
     # The model is reachable ONLY from the generator service; the orchestrator seam must never IMPORT
     # the generator internals or the model server client (checked on the import graph, not prose).
     # Forbid the whole `app` package — importing any of it transitively pulls in the generation/model
-    # path — plus the model server client and its provisioner.
+    # path (the model client `app.generation.client` lives there) — plus the model server client and
+    # its provisioner. The model-free rule engine (`engine`) is deliberately NOT forbidden: it is the
+    # standalone package the orchestrator composes for /v1/derive (D5) without touching app/the model.
     root = pathlib.Path(__file__).parents[2] / "orchestrator"
     forbidden = ("app", "ollama", "scripts.provision")
     for p in root.rglob("*.py"):

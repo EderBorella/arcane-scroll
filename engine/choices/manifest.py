@@ -21,7 +21,7 @@ built purely from the field's position — identical across stateless calls for 
 UI can track one choice's progress. No server state, no counters.
 """
 from access.generator import classes as class_q
-from app.generation.choices import options
+from engine.choices import options
 
 # Section order the manifest is sorted by (mirrors the report contract's stated ordering).
 _SECTION_ORDER = {"core": 0, "grimoire": 1, "inventory": 2, "companion": 3}

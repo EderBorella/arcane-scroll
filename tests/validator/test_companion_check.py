@@ -5,7 +5,7 @@ creature-t / creature-tb fully templated/formula-scaled). The check re-derives
 each value from the creature catalog + owner context independently of any deriver
 output.
 """
-from app.derivation.companion_orchestrator import derive_companions
+from engine.derivation.companion_orchestrator import derive_companions
 from validator.checks.companion import check
 
 

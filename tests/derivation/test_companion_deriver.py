@@ -9,8 +9,8 @@ import pathlib
 
 from jsonschema import Draft202012Validator
 
-from app.derivation import companion as comp
-from app.derivation.companion_orchestrator import derive_companions
+from engine.derivation import companion as comp
+from engine.derivation.companion_orchestrator import derive_companions
 
 _SCHEMA = json.loads(
     (pathlib.Path(__file__).parents[2] / "contracts" / "companion-modifier.schema.json").read_text())

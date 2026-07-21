@@ -317,7 +317,7 @@ def test_ac_magic_armor_independent_of_detail(access):
 def test_ac_deriver_validator_agree_magic_armor_and_shield(access):
     """The deriver's own AC output passes the INDEPENDENT validator re-derivation for worn magic
     armour + magic shield with the armour attuned — the two layers agree without sharing code."""
-    from app.derivation.modifier import derive_ac, resolve_active_effects
+    from engine.derivation.modifier import derive_ac, resolve_active_effects
     sheet = _ac_sheet([], equipped={
         "armor": {"id": "a1", "name": "Armor Alpha"},
         "shield": {"id": "s1", "name": "Shield Alpha"},
@@ -438,7 +438,7 @@ def test_deriver_validator_agree_per_ability_save(access):
     """End-to-end: derive the MODIFIER with a per-ability item save bonus, then
     validate it. Deriver and validator must agree (no save-modifier-mismatch), and
     the bonus must land on the targeted ability only."""
-    from app.derivation.modifier_orchestrator import derive_modifier
+    from engine.derivation.modifier_orchestrator import derive_modifier
     core = {
         "character_id": "t", "character_name": "T",
         # Species Slotless carries no ability-set grant, so a2 is not overridden — this test is

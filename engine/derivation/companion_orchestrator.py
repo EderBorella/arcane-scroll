@@ -9,7 +9,7 @@ companion-modifier:1 dict. Three modes mirror the MODIFIER orchestrator:
 Non-overwritable fields are a companion's live session state (current/temp HP,
 remaining hit dice, active states); a re-derive must never clobber them.
 """
-from app.derivation.companion import derive_companion_modifiers
+from engine.derivation.companion import derive_companion_modifiers
 
 
 # ── non-overwritable field paths (session state on a companion) ──────────────

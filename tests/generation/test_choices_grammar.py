@@ -16,9 +16,9 @@ All ids are synthetic placeholders from the shared rules-DB fixture (``class-a``
 """
 import pytest
 
-from app.derivation.document import derive_document
-from app.generation.choices import assemble, grammar, options
-from app.generation.choices import generate_choices, parse_request
+from engine.derivation.document import derive_document
+from app.generation.choices import generate_choices
+from engine.choices import assemble, grammar, options, parse_request
 from validator.validate_core import validate_core
 from validator.validate_grimoire import validate_grimoire
 from validator.validate_inventory import validate_inventory
@@ -546,7 +546,7 @@ def test_pass1_grammar_offers_boon_slot_from_own_category(gen_access):
 
 
 def test_boon_pick_flows_into_core(gen_access, access):
-    from app.derivation.core import derive_core
+    from engine.derivation.core import derive_core
     spec = parse_request(gen_access, {
         "species": "species-a", "classes": [{"class": "class-a", "level": 19}],
         "subclasses": {"class-a": "sub-a"}, "background": "bg-a",
@@ -592,7 +592,7 @@ def test_pass1_grammar_offers_ability_increase_targets(gen_access):
 def test_model_chosen_increase_target_replaces_heuristic(gen_access, access):
     # the raw ability-score increase would default to the HIGHEST ability (a1); the model instead
     # targets a3, and the chosen target — not the heuristic — lands in the CORE ability final.
-    from app.derivation.core import derive_core
+    from engine.derivation.core import derive_core
     spec = parse_request(gen_access, {
         "species": "species-a", "classes": [{"class": "class-a", "level": 8}],
         "subclasses": {"class-a": "sub-a"}, "background": "bg-a",
@@ -616,7 +616,7 @@ def test_model_chosen_increase_target_replaces_heuristic(gen_access, access):
 
 def test_model_chosen_split_increase(gen_access, access):
     # a split increase (+1 / +1 across two abilities) is representable and applied to BOTH abilities.
-    from app.derivation.core import derive_core
+    from engine.derivation.core import derive_core
     spec = parse_request(gen_access, {
         "species": "species-a", "classes": [{"class": "class-a", "level": 8}],
         "subclasses": {"class-a": "sub-a"}, "background": "bg-a",
@@ -664,7 +664,7 @@ def test_pass1_grammar_offers_weapon_mastery(gen_access):
 
 
 def test_weapon_mastery_picks_flow_into_core_and_validate_complete(gen_access, access):
-    from app.derivation.core import derive_core
+    from engine.derivation.core import derive_core
     spec = parse_request(gen_access, {
         "species": "species-a", "classes": [{"class": "class-wm", "level": 1}], "background": "bg-a",
         "character_id": "char-wm", "character_name": "Kappa"})

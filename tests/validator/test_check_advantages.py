@@ -8,8 +8,8 @@ per-owner scope set from the structured ``scope`` column, not a single hardcoded
 import sqlite3
 
 from access.validator import ValidatorAccess
-from app.derivation.core import _permanent_defenses
-from app.derivation.modifier import ActiveEffects, derive_defenses, resolve_active_effects
+from engine.derivation.core import _permanent_defenses
+from engine.derivation.modifier import ActiveEffects, derive_defenses, resolve_active_effects
 from validator.checks.defenses import check
 from validator.checks.modifier import _check_defenses
 

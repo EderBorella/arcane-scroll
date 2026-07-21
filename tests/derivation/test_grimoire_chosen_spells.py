@@ -11,9 +11,10 @@ real game vocabulary. In the fixture, class-a is a full caster: at level 3 it kn
 prepares 3 spells. sp1/sp2 are cantrips and sp3 a leveled spell, all on class-a's list; sp5 is on
 class-b's list only (off class-a's).
 """
-from app.derivation.document import derive_document
-from app.derivation.grimoire import derive_grimoire, derive_sources, derive_spells
-from app.generation.choices import generate_choices, parse_request
+from engine.derivation.document import derive_document
+from engine.derivation.grimoire import derive_grimoire, derive_sources, derive_spells
+from app.generation.choices import generate_choices
+from engine.choices import parse_request
 from validator.validate_grimoire import validate_grimoire
 
 

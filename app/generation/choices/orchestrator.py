@@ -17,7 +17,7 @@ import random
 
 from access.generator import catalog
 from app.generation import client
-from app.generation.choices import assemble, grammar, options
+from engine.choices import assemble, grammar, options
 
 
 def _default_pick(prompt, schema):

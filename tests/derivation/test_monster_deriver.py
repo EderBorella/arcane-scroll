@@ -11,7 +11,7 @@ import pytest
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 
-from app.derivation.monster import (
+from engine.derivation.monster import (
     MonsterMaterializationError,
     derive_monster,
     derive_monster_sheet,

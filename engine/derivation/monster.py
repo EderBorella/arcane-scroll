@@ -2,7 +2,7 @@
 
 A materialised monster is a STANDALONE stat block: a concrete catalogued creature
 emitted in the companion-modifier statblock shape, but with NO owner. It reuses the
-concrete companion field derivation (:func:`app.derivation.companion.derive_concrete`)
+concrete companion field derivation (:func:`engine.derivation.companion.derive_concrete`)
 wholesale — a standalone monster is essentially a concrete companion with no owner —
 and adds only the owner-less framing (a top-level ``creature_id`` per monster and a
 ``monsters[]`` sheet), producing a ``monster-sheet:1`` document.
@@ -13,7 +13,7 @@ there is no owner context to scale them. Requesting one raises
 :class:`MonsterMaterializationError` — it is rejected, never emitted with un-scaled
 zeros. Arbitrary-monster breadth beyond the catalogued creatures is a separate concern.
 """
-from app.derivation import companion as comp
+from engine.derivation import companion as comp
 from access.validator import creature as creature_q
 
 

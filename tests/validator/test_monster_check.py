@@ -10,7 +10,7 @@ T64: the standalone monster sheet references the bare shared stat-block base def
 ``monster-*`` check codes from the parametrised shared field-check helpers (not via
 a post-hoc string rewrite of the codes).
 """
-from app.derivation.monster import derive_monster_sheet
+from engine.derivation.monster import derive_monster_sheet
 from validator.checks.monster import check
 
 

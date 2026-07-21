@@ -3,7 +3,7 @@
 Covers the sheet-derivable subset of an active condition's effects: an absolute
 speed-zero, a per-level speed penalty, a per-level D20-test penalty, resistance to
 all damage, and condition immunities. Read from condition_effect in the DB."""
-from app.derivation.modifier import (
+from engine.derivation.modifier import (
     resolve_active_effects, derive_speed, derive_defenses,
 )
 

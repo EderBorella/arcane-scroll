@@ -8,7 +8,7 @@ fields (species, classes, base ability scores), which the assembler injects. The
 the shape: there is a background ability-boost choice (a species carries no ability bonus) and no
 racial-bonus field anywhere.
 """
-from app.generation.choices import options
+from engine.choices import options
 
 
 def build_pass1_grammar(access, spec, resolved, *, feat_slots=0, boon_slots=0):

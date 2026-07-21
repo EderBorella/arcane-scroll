@@ -1,5 +1,5 @@
 """Assemble the canonical ``choices`` structure — the DAL-grounded selection object the
-derivation pipeline (``app.derivation.document.derive_document``) consumes — from a validated build
+derivation pipeline (``engine.derivation.document.derive_document``) consumes — from a validated build
 spec plus the model's grammar-constrained picks.
 
 The choices carry canonical DB ids throughout (species / class / subclass / background / skill / feat
@@ -8,7 +8,7 @@ bonus; the ability boost and the origin feat come from the *background*. Code-de
 ability scores, the default boost, the resolved subclass, the equipment resolution) are injected here;
 the model's picks refine the fields it is allowed to choose.
 """
-from app.generation.choices import options
+from engine.choices import options
 
 
 def assemble_choices(access, spec, resolved, picks, *, feat_slots=0, boon_slots=0):

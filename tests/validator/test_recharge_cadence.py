@@ -9,7 +9,7 @@ single-homed in resource_state (not duplicated).
 Synthetic fixtures: 'Pool A' (class-a) recovers on short OR long rest (collapses to short-rest),
 'Pool Esc' (class-a) on long rest, 'Sub Ladder Pool' (subclass 'Sub Ladder') has no recharge row.
 'Feat Res Boon' (feat 'Feat Res') recovers on a long rest."""
-from app.derivation.modifier import ActiveEffects, derive_resource_state, derive_feats
+from engine.derivation.modifier import ActiveEffects, derive_resource_state, derive_feats
 from validator.checks.resources import check_feat_uses, check_recharge
 
 
