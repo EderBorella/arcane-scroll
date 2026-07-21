@@ -165,6 +165,21 @@ def tool_grants(access: ValidatorAccess, owner_kind: str, owner_id: str,
     return [r for r in rows if r["target_kind"] == "tool"]
 
 
+def language_grants(access: ValidatorAccess, owner_kind: str, owner_id: str,
+                    at_level: int | None = None) -> list:
+    """grant_proficiency rows with target_kind='language' for an owner (fixed AND choose mode).
+    Pure DB read — the completeness re-derivation reads mode / choose_n / multiclass_only off the
+    rows; the candidate pool itself is never enumerated (liability)."""
+    rows = primitives.grants_for(access.db, "grant_proficiency", owner_kind, owner_id, at_level)
+    return [r for r in rows if r["target_kind"] == "language"]
+
+
+def background_tool_id(access: ValidatorAccess, background_id: str) -> str | None:
+    """The single fixed tool a background confers via its own tool_id column (distinct from any
+    grant_proficiency tool row), or None. Pure DB read."""
+    return access.db.scalar("SELECT tool_id FROM background WHERE id=?", background_id)
+
+
 def grant_values(access: ValidatorAccess, grant_id: str) -> list[str]:
     """target_id values from grant_proficiency_value for a grant header."""
     return [r["target_id"] for r in

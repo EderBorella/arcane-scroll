@@ -36,6 +36,7 @@ def _noncaster_choices():
         "ability_scores": {"a1": 15, "a2": 13, "a3": 14, "a4": 10, "a5": 12, "a6": 8, "wisdom": 10},
         "background_increase": {"a1": 2, "a2": 1},
         "skills": ["sk1", "sk2"],
+        "expertise": ["sk1"],
         "feats": [],
         "languages": [],
     }
@@ -49,6 +50,7 @@ def _caster_choices():
     choices["classes"] = [{"class": "class-m", "level": 3, "subclass": "sub-ek"}]
     # class-m carries no explicit skill pool; keep only the auto-granted background/species skills.
     choices["skills"] = []
+    choices["expertise"] = []  # class-m grants no expertise choice
     return choices
 
 
@@ -61,6 +63,7 @@ def _innate_only_choices():
     choices["character_id"] = "char-innate"
     choices["classes"] = [{"class": "class-m", "level": 2, "subclass": None}]
     choices["skills"] = []
+    choices["expertise"] = []  # class-m grants no expertise choice
     return choices
 
 
@@ -84,6 +87,7 @@ def _true_noncaster_choices():
     choices["species"] = "species-l"
     choices["classes"] = [{"class": "class-m", "level": 2, "subclass": None}]
     choices["skills"] = []
+    choices["expertise"] = []  # class-m grants no expertise choice
     return choices
 
 
