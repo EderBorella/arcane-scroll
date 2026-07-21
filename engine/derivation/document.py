@@ -27,10 +27,10 @@ Content-neutral: names resolve from the loaded ruleset via ``access/``; no game 
 from typing import Any
 
 from access.generator import equipment as equip_q
-from app.derivation.companion_orchestrator import derive_companions
-from app.derivation.core import derive_core
-from app.derivation.grimoire import derive_grimoire, hash_core
-from app.derivation.modifier_orchestrator import derive_modifier
+from engine.derivation.companion_orchestrator import derive_companions
+from engine.derivation.core import derive_core
+from engine.derivation.grimoire import derive_grimoire, hash_core
+from engine.derivation.modifier_orchestrator import derive_modifier
 
 Choices = dict[str, Any]
 

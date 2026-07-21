@@ -3,8 +3,8 @@ dict. Three modes: (a) fill from scratch, (b) fill gaps + protect non-overwritab
 (c) skip derivation. Applies source-name dedup on bonuses (highest-wins same-spell rule)."""
 from collections import defaultdict
 
-from app.derivation.grimoire import hash_core
-from app.derivation.modifier import (
+from engine.derivation.grimoire import hash_core
+from engine.derivation.modifier import (
     ActiveEffects, resolve_active_effects,
     derive_abilities, derive_ac, derive_speed, derive_defenses, derive_size,
     derive_saving_throws, derive_skills, derive_passive_scores,

@@ -1,6 +1,6 @@
 """Full-document pipeline (F05-T68, S13 Phase 3) tests — synthetic, content-neutral choices only.
 
-The pipeline (``app.derivation.document.derive_document``) wires the DAL derivers together: a
+The pipeline (``engine.derivation.document.derive_document``) wires the DAL derivers together: a
 character's choices → the full five-schema document ``{core, inventory, grimoire?, modifier,
 companion?}``. The primary acceptance check is that EACH schema of the generated document passes its
 own validator.
@@ -17,7 +17,7 @@ All ids are synthetic placeholders from the shared rules-DB fixture (``class-a``
 """
 import pytest
 
-from app.derivation.document import assemble_inventory, derive_document
+from engine.derivation.document import assemble_inventory, derive_document
 from validator.validate_core import validate_core
 from validator.validate_grimoire import validate_grimoire
 from validator.validate_inventory import validate_inventory

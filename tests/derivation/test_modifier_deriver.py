@@ -1,5 +1,5 @@
 """Tests for the C-M1 MODIFIER derivation engine."""
-from app.derivation.modifier import (
+from engine.derivation.modifier import (
     ActiveEffects, resolve_active_effects,
     derive_abilities, derive_ac, derive_speed, derive_defenses, derive_size,
     derive_saving_throws, derive_skills, derive_passive_scores,
@@ -1203,7 +1203,7 @@ def test_deriver_does_not_import_validator_senses_or_speed_resolver():
     with the deriver by construction and give zero independent coverage of those fields (F05-T78)."""
     import ast
     import inspect
-    from app.derivation import modifier as modmod
+    from engine.derivation import modifier as modmod
 
     tree = ast.parse(inspect.getsource(modmod))
     banned_modules = {"validator.checks.movement", "validator.checks.senses"}
@@ -1237,7 +1237,7 @@ def test_validator_movement_and_senses_do_not_import_deriver():
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 modules.extend(a.name for a in node.names)
             for m in modules:
-                assert not m.startswith("app.derivation"), (
+                assert not m.startswith("engine.derivation"), (
                     f"{module.__name__} imports {m} from the deriver — breaks T78 independence")
 
 
@@ -1251,7 +1251,7 @@ def test_deriver_and_validator_resolve_multimode_speed_identically_from_db(acces
     from access.validator import ValidatorAccess
     from access.validator import movement as movement_q
     from validator.checks.movement import _resolve_speeds as validator_resolve
-    from app.derivation import modifier as modmod
+    from engine.derivation import modifier as modmod
 
     con = sqlite3.connect(access.db.path)
     con.execute("INSERT INTO grant_speed VALUES "
@@ -1274,7 +1274,7 @@ def test_deriver_and_validator_resolve_multimode_speed_identically_from_db(acces
 def test_deriver_speed_resolver_zero_modes_dropped():
     """The deriver-owned resolver drops any zero-valued mode, so a baseless build never emits a
     spurious ``walk 0`` — matching the validator's resolver and the CORE deriver (T67)."""
-    from app.derivation import modifier as modmod
+    from engine.derivation import modifier as modmod
     assert modmod._resolve_speeds([], 0, []) == {}
     assert modmod._resolve_speeds([], 30, []) == {"walk": 30}
 

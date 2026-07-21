@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from access.generator import backgrounds as bg_q
 from access.generator import classes as class_q
 from access.generator import species as species_q
-from app.generation.choices import options
+from engine.choices import options
 
 
 @dataclass

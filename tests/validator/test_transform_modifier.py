@@ -5,7 +5,7 @@ mental ability score ('wisdom') so the retained-vs-replaced split can be exercis
 is templated (formula-scaled). Both the deriver (form-block replacement) and the validator
 (independent re-derivation + retained-mental enforcement) are covered.
 """
-from app.derivation.modifier import (
+from engine.derivation.modifier import (
     ActiveEffects, _accumulate_transform,
     derive_abilities, derive_ac, derive_speed, derive_senses,
     derive_defenses, derive_saving_throws, derive_skills,

@@ -1,5 +1,5 @@
 """HTTP controller for character generation. Thin: validate input, call the generator service,
-return JSON. No business logic here — that lives in app.generation / app.derivation. The request/
+return JSON. No business logic here — that lives in app.generation / engine.derivation. The request/
 response models below are what FastAPI renders into the OpenAPI docs (`/docs`)."""
 import uuid
 
@@ -9,10 +9,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from access.generator import GeneratorAccess
 from access.generator import classes as class_q
 from access.generator import species as species_q
-from app.derivation.document import derive_document
 from app.generation import generate_backstory
-from app.generation.choices import generate_choices, parse_request
+from app.generation.choices import generate_choices
 from app.generation.client import ModelError
+from engine.choices import parse_request
+from engine.derivation.document import derive_document
 
 router = APIRouter(prefix="/v1", tags=["generation"])
 

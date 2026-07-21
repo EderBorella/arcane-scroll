@@ -1,5 +1,5 @@
 """Tests for the C-M2 MODIFIER orchestrator."""
-from app.derivation.modifier_orchestrator import derive_modifier
+from engine.derivation.modifier_orchestrator import derive_modifier
 
 
 def _core(**overrides):
@@ -204,26 +204,26 @@ def test_validate_mode_none(access):
 
 
 def test_dedup_spell_bonuses(access):
-    from app.derivation.modifier import ActiveEffects
+    from engine.derivation.modifier import ActiveEffects
     effects = ActiveEffects()
     effects.bonuses = [
         {"source_name": "spell-a", "target_kind": "ac", "value": 2},
         {"source_name": "spell-a", "target_kind": "ac", "value": 1},
     ]
-    from app.derivation.modifier_orchestrator import _dedup_spell_bonuses
+    from engine.derivation.modifier_orchestrator import _dedup_spell_bonuses
     result = _dedup_spell_bonuses(effects)
     assert len(result.bonuses) == 1
     assert result.bonuses[0]["value"] == 2
 
 
 def test_dedup_different_sources_kept(access):
-    from app.derivation.modifier import ActiveEffects
+    from engine.derivation.modifier import ActiveEffects
     effects = ActiveEffects()
     effects.bonuses = [
         {"source_name": "spell-a", "target_kind": "ac", "value": 2},
         {"source_name": "spell-b", "target_kind": "ac", "value": 1},
     ]
-    from app.derivation.modifier_orchestrator import _dedup_spell_bonuses
+    from engine.derivation.modifier_orchestrator import _dedup_spell_bonuses
     result = _dedup_spell_bonuses(effects)
     assert len(result.bonuses) == 2
 

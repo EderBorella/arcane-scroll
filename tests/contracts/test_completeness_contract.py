@@ -15,7 +15,7 @@ import pytest
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 
-from app.derivation.document import derive_document
+from engine.derivation.document import derive_document
 
 _CONTRACTS = pathlib.Path(__file__).parents[2] / "contracts"
 

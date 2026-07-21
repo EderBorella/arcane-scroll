@@ -1,10 +1,10 @@
-"""DAL-grounded choice grammar.
+"""Generator-side choice seam (model-bound).
 
-Enumerates the choice space from the generator data-access layer (``access/generator``) and produces
-the ``choices`` structure the derivation pipeline (``app.derivation.document.derive_document``)
-consumes — canonical DB ids throughout, a species with no ability bonus, and background-sourced
-ability boosts + origin feat. ``generate_choices`` is the two-pass model-call seam.
+The DAL-grounded choice grammar itself is model-free and lives in the standalone rule engine
+(``engine.choices``): ``parse_request`` -> the offered schema -> ``assemble`` -> the completeness
+manifest. This package holds only the piece the generator owns: ``generate_choices``, the two-pass
+model-call seam (``orchestrator.py``) that drives the model against the engine's grammar and folds
+the picks together. It is model-bound (it reaches the model client), so it stays with the generator
+service rather than the engine.
 """
-from app.generation.choices.manifest import awaiting_choices, build_manifest  # noqa: F401
 from app.generation.choices.orchestrator import generate_choices  # noqa: F401  (re-exported)
-from app.generation.choices.spec import RequestSpec, parse_request  # noqa: F401  (re-exported)

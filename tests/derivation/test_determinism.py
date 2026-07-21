@@ -14,8 +14,8 @@ import os
 import subprocess
 import sys
 
-from app.derivation.modifier import ActiveEffects, derive_defenses
-from app.derivation.modifier_orchestrator import _deep_merge, derive_modifier
+from engine.derivation.modifier import ActiveEffects, derive_defenses
+from engine.derivation.modifier_orchestrator import _deep_merge, derive_modifier
 from validator.checks.movement import _resolve_speeds
 
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

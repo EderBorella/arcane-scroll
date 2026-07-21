@@ -15,7 +15,7 @@ Proves the three deliverables at the generator (rule) layer, on synthetic ids on
 Feat-granted choices are out of the pass-1 owner scope by design (a feat is itself a pass-1 pick),
 mirroring how the skill-choice pool is the first class's alone.
 """
-from app.generation.choices import assemble, grammar, options, parse_request
+from engine.choices import assemble, grammar, options, parse_request
 
 
 def _spec(gen_access, classes, **kw):

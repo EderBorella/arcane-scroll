@@ -146,5 +146,5 @@ def test_validator_does_not_import_generation_or_manifest():
     # The under-fill re-derivation must be independent: the validator never imports the generator,
     # the deriver, or the T11 manifest builder (that would collapse the two independent layers).
     src = open(prof.__file__, encoding="utf-8").read()
-    for forbidden in ("app.generation", "app.derivation", "manifest"):
+    for forbidden in ("app.generation", "engine.derivation", "manifest"):
         assert forbidden not in src, f"validator must not reference {forbidden!r}"

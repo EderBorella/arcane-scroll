@@ -13,8 +13,8 @@ Synthetic ids only, from the shared rules DB fixture.
 """
 import pytest
 
-from app.generation.choices import build_manifest, manifest, parse_request
-from app.generation.choices import grammar, options
+from engine.choices import build_manifest, manifest, parse_request
+from engine.choices import grammar, options
 
 
 # ------------------------------------------------------------------ small local helpers

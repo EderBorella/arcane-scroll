@@ -1,7 +1,7 @@
 """Tests for the GRIMOIRE deriver (C-G1a/b/c)."""
 import pytest
 
-from app.derivation.grimoire import (
+from engine.derivation.grimoire import (
     derive_grimoire, derive_sources, derive_spells, derive_slots, hash_core,
 )
 
